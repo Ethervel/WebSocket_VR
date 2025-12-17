@@ -253,12 +253,22 @@ public class VRGameManager : MonoBehaviour
     }
     
     // Recursively searches for a child transform by name
+    // Recursively searches for a child transform by name (ignores spaces and case)
     Transform FindChildRecursive(Transform parent, string nameContains)
     {
+        // Nettoyer le nom recherché (enlever espaces, mettre en lowercase)
+        string cleanSearch = nameContains.ToLower().Replace(" ", "");
+        
         foreach (Transform child in parent)
         {
-            if (child.name.ToLower().Contains(nameContains.ToLower()))
+            // Nettoyer le nom de l'enfant aussi
+            string cleanChildName = child.name.ToLower().Replace(" ", "");
+            
+            if (cleanChildName.Contains(cleanSearch))
+            {
+                Debug.Log($"[VRGame] Found '{nameContains}' -> Actual name: '{child.name}'");
                 return child;
+            }
             
             var result = FindChildRecursive(child, nameContains);
             if (result != null)
@@ -365,6 +375,48 @@ public class VRGameManager : MonoBehaviour
         remote.head = FindChildRecursive(go.transform, "Head");
         remote.leftHand = FindChildRecursive(go.transform, "LeftHand");
         remote.rightHand = FindChildRecursive(go.transform, "RightHand");
+
+        // Fallback search for hand controllers with alternative names
+        if (remote.leftHand == null)
+        {
+            remote.leftHand = FindChildRecursive(go.transform, "Left Controller");
+            if (remote.leftHand == null)
+                remote.leftHand = FindChildRecursive(go.transform, "LeftHandAnchor");
+        }
+
+        if (remote.rightHand == null)
+        {
+            remote.rightHand = FindChildRecursive(go.transform, "Right Controller");
+            if (remote.rightHand == null)
+                remote.rightHand = FindChildRecursive(go.transform, "RightHandAnchor");
+        }
+
+        // CRITICAL: Detach head and hands from body hierarchy
+        // This ensures they follow network positions exactly without being affected by body rotation
+        if (remote.head != null)
+        {
+            remote.head.SetParent(null);
+            DontDestroyOnLoad(remote.head.gameObject);
+            Debug.Log($"[VRGame] Detached head for {playerData.playerName}");
+        }
+
+        if (remote.leftHand != null)
+        {
+            remote.leftHand.SetParent(null);
+            DontDestroyOnLoad(remote.leftHand.gameObject);
+            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName}");
+        }
+
+        if (remote.rightHand != null)
+        {
+            remote.rightHand.SetParent(null);
+            DontDestroyOnLoad(remote.rightHand.gameObject);
+            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName}");
+        }
+
+        // Debug verification
+        Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} - " +
+                $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}");
         
         // Set up name tag above avatar
         var nameTag = go.GetComponentInChildren<TMPro.TextMeshPro>();
@@ -384,10 +436,31 @@ public class VRGameManager : MonoBehaviour
     {
         if (_remotePlayers.TryGetValue(playerId, out var remote))
         {
+            // Destroy detached body parts first
+            if (remote.head != null)
+            {
+                Destroy(remote.head.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached head for {playerId}");
+            }
+            
+            if (remote.leftHand != null)
+            {
+                Destroy(remote.leftHand.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached left hand for {playerId}");
+            }
+            
+            if (remote.rightHand != null)
+            {
+                Destroy(remote.rightHand.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached right hand for {playerId}");
+            }
+            
+            // Destroy main body
             if (remote.gameObject != null)
             {
                 Destroy(remote.gameObject);
             }
+            
             _remotePlayers.Remove(playerId);
             Debug.Log($"[VRGame] Remote player despawned: {playerId}");
             OnRemotePlayerDespawned?.Invoke(playerId);
@@ -399,6 +472,23 @@ public class VRGameManager : MonoBehaviour
     {
         foreach (var remote in _remotePlayers.Values)
         {
+            // Destroy detached parts
+            if (remote.head != null)
+            {
+                Destroy(remote.head.gameObject);
+            }
+            
+            if (remote.leftHand != null)
+            {
+                Destroy(remote.leftHand.gameObject);
+            }
+            
+            if (remote.rightHand != null)
+            {
+                Destroy(remote.rightHand.gameObject);
+            }
+            
+            // Destroy body
             if (remote.gameObject != null)
             {
                 Destroy(remote.gameObject);
