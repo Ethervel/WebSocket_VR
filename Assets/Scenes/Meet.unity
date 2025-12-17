@@ -2000,6 +2000,7 @@ GameObject:
   - component: {fileID: 1156790229}
   - component: {fileID: 1156790228}
   - component: {fileID: 1156790227}
+  - component: {fileID: 1156790231}
   m_Layer: 5
   m_Name: VR UI
   m_TagString: Untagged
@@ -2090,6 +2091,41 @@ RectTransform:
   m_AnchoredPosition: {x: -20.48, y: 2.794}
   m_SizeDelta: {x: 1300, y: 1700}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1156790231
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1156790226}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cb5804051328eab4ab65aed5d8034ada, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VRMenuUI
+  mainPanel: {fileID: 2012043745}
+  createRoomPanel: {fileID: 0}
+  refreshButton: {fileID: 793817326}
+  titleText: {fileID: 579837062}
+  roomCodeInput: {fileID: 390702267}
+  joinButton: {fileID: 1894877944}
+  roomListContainer: {fileID: 1131884906}
+  roomListItemPrefab: {fileID: 7574209517910520456, guid: 582574c560c348a438bad9952a610241, type: 3}
+  newRoomButton: {fileID: 1010063132}
+  roomNameInput: {fileID: 0}
+  maxPlayersInput: {fileID: 0}
+  maxPlayersValueText: {fileID: 0}
+  maxPlayersSlider: {fileID: 0}
+  createButton: {fileID: 0}
+  cancelButton: {fileID: 0}
+  statusText: {fileID: 0}
+  inRoomPanel: {fileID: 0}
+  currentRoomNameText: {fileID: 0}
+  currentRoomCodeText: {fileID: 0}
+  currentPlayerCountText: {fileID: 0}
+  playerListContainer: {fileID: 0}
+  playerListItemPrefab: {fileID: 0}
+  leaveRoomButton: {fileID: 0}
 --- !u!1 &1360810192
 GameObject:
   m_ObjectHideFlags: 0
