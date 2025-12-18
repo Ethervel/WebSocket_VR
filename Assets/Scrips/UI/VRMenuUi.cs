@@ -383,7 +383,7 @@ public class VRMenuUI : MonoBehaviour
             currentRoomCodeText.text = $"Code: {VRRoomManager.Instance.CurrentRoomId}";
         
         if (currentPlayerCountText != null)
-            currentPlayerCountText.text = $"Joueurs: {VRRoomManager.Instance.PlayerCount}";
+            currentPlayerCountText.text = $"\nPlayers: {VRRoomManager.Instance.PlayerCount}";
         
         // Refresh player list
         RefreshPlayerList();
