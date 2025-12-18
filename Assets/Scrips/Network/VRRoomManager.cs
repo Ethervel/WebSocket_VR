@@ -22,6 +22,9 @@ public class VRRoomManager : MonoBehaviour
 
     // Current room ID (6-character code)
     public string CurrentRoomId { get; private set; }
+    
+    // Current room name
+    public string CurrentRoomName { get; private set; }
 
     // True when the local player is inside a room
     public bool IsInRoom { get; private set; }
@@ -95,6 +98,7 @@ public class VRRoomManager : MonoBehaviour
         if (IsInRoom)
         {
             CurrentRoomId = null;
+            CurrentRoomName = null;
             IsInRoom = false;
             IsHost = false;
 
@@ -134,6 +138,7 @@ public class VRRoomManager : MonoBehaviour
 
         // Initialize local room state
         CurrentRoomId = GenerateRoomId();
+        CurrentRoomName = string.IsNullOrEmpty(roomName) ? $"Room {CurrentRoomId}" : roomName;
         IsInRoom = true;
         IsHost = true;
         CurrentRoomType = roomType;
@@ -150,17 +155,16 @@ public class VRRoomManager : MonoBehaviour
         _players[VRNetworkManager.LocalId] = localPlayer;
 
         // Broadcast room availability to server
-        VRNetworkManager.Instance.Send("room-available", new RoomInfo
+        VRNetworkManager.Instance.Send("room-create", new RoomCreateData
         {
             roomId = CurrentRoomId,
             hostId = VRNetworkManager.LocalId,
-            roomName = string.IsNullOrEmpty(roomName) ? $"Room {CurrentRoomId}" : roomName,
+            roomName = CurrentRoomName,
             roomType = roomType,
-            playerCount = 1,
             maxPlayers = maxPlayersPerRoom
         });
 
-        Debug.Log($"[VRRoom] Created room: {CurrentRoomId} (Type: {roomType})");
+        Debug.Log($"[VRRoom] Created room: {CurrentRoomName} ({CurrentRoomId})");
         OnRoomCreated?.Invoke(CurrentRoomId);
         OnRoomTypeChanged?.Invoke(roomType);
     }
@@ -182,50 +186,15 @@ public class VRRoomManager : MonoBehaviour
 
         roomId = roomId.ToUpper().Trim();
 
-        // Verify room exists in available rooms list
-        if (!_availableRooms.ContainsKey(roomId))
-        {
-            OnRoomError?.Invoke($"Room '{roomId}' not found.");
-            return;
-        }
-
-        var roomInfo = _availableRooms[roomId];
-
-        // Check if room is full
-        if (roomInfo.playerCount >= roomInfo.maxPlayers)
-        {
-            OnRoomError?.Invoke("This room is full.");
-            return;
-        }
-
-        // Initialize local room state
-        CurrentRoomId = roomId;
-        IsInRoom = true;
-        IsHost = false;
-        CurrentRoomType = roomInfo.roomType;
-
-        // Add local player to room
-        _players.Clear();
-        var localPlayer = new VRPlayerData
-        {
-            playerId = VRNetworkManager.LocalId,
-            playerName = PlayerPrefs.GetString("PlayerName", "Player"),
-            isHost = false,
-            roomType = roomInfo.roomType
-        };
-        _players[VRNetworkManager.LocalId] = localPlayer;
-
-        // Send join request to host via server
+        // Send join request to server
         VRNetworkManager.Instance.Send("room-join", new RoomJoinRequest
         {
             roomId = roomId,
             playerId = VRNetworkManager.LocalId,
-            playerName = localPlayer.playerName
+            playerName = PlayerPrefs.GetString("PlayerName", "Player")
         });
 
-        Debug.Log($"[VRRoom] Joining room: {roomId}");
-        OnRoomJoined?.Invoke(roomId);
-        OnRoomTypeChanged?.Invoke(CurrentRoomType);
+        Debug.Log($"[VRRoom] Requesting to join room: {roomId}");
     }
 
     // Leaves the current room (closes if host)
@@ -234,27 +203,18 @@ public class VRRoomManager : MonoBehaviour
         if (!IsInRoom)
             return;
 
-        // Notify all players of departure
+        // Notify server
         VRNetworkManager.Instance.Send("room-leave", new RoomLeaveData
         {
             roomId = CurrentRoomId,
             playerId = VRNetworkManager.LocalId
         });
 
-        // Host closes the room for everyone
-        if (IsHost)
-        {
-            VRNetworkManager.Instance.Send("room-closed", new RoomInfo
-            {
-                roomId = CurrentRoomId,
-                hostId = VRNetworkManager.LocalId
-            });
-        }
-
         Debug.Log($"[VRRoom] Left room: {CurrentRoomId}");
 
         // Reset local room state
         CurrentRoomId = null;
+        CurrentRoomName = null;
         IsInRoom = false;
         IsHost = false;
         CurrentRoomType = RoomType.Lobby;
@@ -337,24 +297,24 @@ public class VRRoomManager : MonoBehaviour
     {
         switch (msg.type)
         {
-            case "room-available":
-                HandleRoomAvailable(msg);
+            case "room-created":
+                HandleRoomCreatedResponse(msg);
                 break;
-
-            case "room-closed":
-                HandleRoomClosed(msg);
+                
+            case "room-joined":
+                HandleRoomJoinedResponse(msg);
                 break;
-
-            case "room-join":
-                HandleRoomJoin(msg);
+                
+            case "room-left":
+                HandleRoomLeftResponse(msg);
                 break;
-
-            case "room-welcome":
-                HandleRoomWelcome(msg);
+                
+            case "player-joined":
+                HandlePlayerJoined(msg);
                 break;
-
-            case "room-leave":
-                HandleRoomLeave(msg);
+                
+            case "player-left":
+                HandlePlayerLeftMessage(msg);
                 break;
 
             case "room-list":
@@ -368,127 +328,104 @@ public class VRRoomManager : MonoBehaviour
             case "player-name-update":
                 HandlePlayerNameUpdate(msg);
                 break;
+                
+            case "error":
+                HandleError(msg);
+                break;
         }
     }
-
-    // Called when a new room becomes available
-    void HandleRoomAvailable(NetworkMessage msg)
+    
+    // Called when server confirms room creation
+    void HandleRoomCreatedResponse(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<RoomInfo>(msg.data);
-
-        _availableRooms[data.roomId] = data;
-        Debug.Log($"[VRRoom] Room available: {data.roomId} ({data.roomName})");
-        OnRoomListUpdated?.Invoke(_availableRooms);
-    }
-
-    // Called when a room is closed by its host
-    void HandleRoomClosed(NetworkMessage msg)
-    {
-        var data = JsonUtility.FromJson<RoomInfo>(msg.data);
-
-        _availableRooms.Remove(data.roomId);
-        Debug.Log($"[VRRoom] Room closed: {data.roomId}");
-        OnRoomListUpdated?.Invoke(_availableRooms);
-
-        // Force-leave if we were in that room
-        if (IsInRoom && CurrentRoomId == data.roomId && !IsHost)
-        {
-            CurrentRoomId = null;
-            IsInRoom = false;
-            CurrentRoomType = RoomType.Lobby;
-
-            _players.Clear();
-
-            OnRoomLeft?.Invoke();
-            OnRoomTypeChanged?.Invoke(RoomType.Lobby);
-            OnRoomError?.Invoke("The host closed the room.");
-        }
-    }
-
-    // Called when a player requests to join this room (host only)
-    void HandleRoomJoin(NetworkMessage msg)
-    {
-        var request = JsonUtility.FromJson<RoomJoinRequest>(msg.data);
-
-        // Only process join requests for our own room if we're host
-        if (!IsHost || request.roomId != CurrentRoomId)
-            return;
-
-        Debug.Log($"[VRRoom] Player joining: {request.playerId} ({request.playerName})");
-
-        // Add new player to local roster
-        var newPlayer = new VRPlayerData
-        {
-            playerId = request.playerId,
-            playerName = request.playerName,
-            isHost = false,
-            roomType = CurrentRoomType
-        };
-        _players[request.playerId] = newPlayer;
-
-        // Send current room state to all players
-        var welcome = new RoomWelcomeData
-        {
-            roomId = CurrentRoomId,
-            roomType = CurrentRoomType,
-            players = new List<VRPlayerData>(_players.Values).ToArray()
-        };
-        VRNetworkManager.Instance.Send("room-welcome", welcome);
-
-        // Update server with new player count
-        UpdateRoomPlayerCount();
-
-        OnPlayerJoined?.Invoke(newPlayer);
-    }
-
-    // Called when host sends the authoritative players list
-    void HandleRoomWelcome(NetworkMessage msg)
-    {
-        var data = JsonUtility.FromJson<RoomWelcomeData>(msg.data);
-
-        if (!IsInRoom || data.roomId != CurrentRoomId)
-            return;
-
-        // Host determines the room type
+        var data = JsonUtility.FromJson<RoomJoinedData>(msg.data);
+        
+        CurrentRoomId = data.roomId;
+        CurrentRoomName = data.roomName;
         CurrentRoomType = data.roomType;
-
-        // Sync players list from host
-        foreach (var player in data.players)
+        IsInRoom = true;
+        IsHost = true;
+        
+        _players.Clear();
+        if (data.players != null)
         {
-            if (!_players.ContainsKey(player.playerId))
+            foreach (var player in data.players)
             {
                 _players[player.playerId] = player;
-
-                // Don't fire event for local player
-                if (player.playerId != VRNetworkManager.LocalId)
+            }
+        }
+        
+        Debug.Log($"[VRRoom] Room created: {data.roomName} ({data.roomId})");
+        OnRoomCreated?.Invoke(CurrentRoomId);
+    }
+    
+    // Called when server confirms room join
+    void HandleRoomJoinedResponse(NetworkMessage msg)
+    {
+        var data = JsonUtility.FromJson<RoomJoinedData>(msg.data);
+        
+        CurrentRoomId = data.roomId;
+        CurrentRoomName = data.roomName;
+        CurrentRoomType = data.roomType;
+        IsInRoom = true;
+        IsHost = false;
+        
+        _players.Clear();
+        if (data.players != null)
+        {
+            foreach (var player in data.players)
+            {
+                _players[player.playerId] = player;
+                if (player.isHost)
                 {
-                    OnPlayerJoined?.Invoke(player);
+                    // Someone else is the host
                 }
             }
         }
-
-        Debug.Log($"[VRRoom] Welcome received. {_players.Count} players in room.");
+        
+        Debug.Log($"[VRRoom] Joined room: {data.roomName} ({data.roomId})");
+        OnRoomJoined?.Invoke(CurrentRoomId);
+        OnRoomTypeChanged?.Invoke(CurrentRoomType);
     }
-
-    // Called when a player leaves the room
-    void HandleRoomLeave(NetworkMessage msg)
+    
+    // Called when server confirms leaving room
+    void HandleRoomLeftResponse(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<RoomLeaveData>(msg.data);
-
-        if (!IsInRoom || data.roomId != CurrentRoomId)
-            return;
-
+        CurrentRoomId = null;
+        CurrentRoomName = null;
+        IsInRoom = false;
+        IsHost = false;
+        CurrentRoomType = RoomType.Lobby;
+        _players.Clear();
+        
+        Debug.Log("[VRRoom] Left room confirmed by server");
+        OnRoomLeft?.Invoke();
+        OnRoomTypeChanged?.Invoke(RoomType.Lobby);
+    }
+    
+    // Called when another player joins the room
+    void HandlePlayerJoined(NetworkMessage msg)
+    {
+        var player = JsonUtility.FromJson<VRPlayerData>(msg.data);
+        
+        if (!_players.ContainsKey(player.playerId))
+        {
+            _players[player.playerId] = player;
+            Debug.Log($"[VRRoom] Player joined: {player.playerName}");
+            OnPlayerJoined?.Invoke(player);
+        }
+    }
+    
+    // Called when another player leaves the room
+    void HandlePlayerLeftMessage(NetworkMessage msg)
+    {
+        var data = JsonUtility.FromJson<PlayerLeftData>(msg.data);
+        
         if (_players.ContainsKey(data.playerId))
         {
             _players.Remove(data.playerId);
-            OnPlayerLeft?.Invoke(data.playerId);
             Debug.Log($"[VRRoom] Player left: {data.playerId}");
-
-            // Host updates server with new count
-            if (IsHost)
-            {
-                UpdateRoomPlayerCount();
-            }
+            OnPlayerLeft?.Invoke(data.playerId);
         }
     }
 
@@ -536,18 +473,13 @@ public class VRRoomManager : MonoBehaviour
             Debug.Log($"[VRRoom] Player name updated: {data.playerId} -> {data.playerName}");
         }
     }
-
-    // Host-only: broadcasts updated player count to server
-    void UpdateRoomPlayerCount()
+    
+    // Called when server sends an error
+    void HandleError(NetworkMessage msg)
     {
-        VRNetworkManager.Instance.Send("room-update", new RoomInfo
-        {
-            roomId = CurrentRoomId,
-            hostId = VRNetworkManager.LocalId,
-            playerCount = _players.Count,
-            maxPlayers = maxPlayersPerRoom,
-            roomType = CurrentRoomType
-        });
+        var data = JsonUtility.FromJson<ErrorData>(msg.data);
+        Debug.LogError($"[VRRoom] Server error: {data.error}");
+        OnRoomError?.Invoke(data.error);
     }
 
     #endregion
@@ -624,6 +556,17 @@ public class RoomInfo
     public int maxPlayers;
 }
 
+// Payload for room creation
+[Serializable]
+public class RoomCreateData
+{
+    public string roomId;
+    public string hostId;
+    public string roomName;
+    public RoomType roomType;
+    public int maxPlayers;
+}
+
 // Payload for room join requests
 [Serializable]
 public class RoomJoinRequest
@@ -641,11 +584,12 @@ public class RoomLeaveData
     public string playerId;
 }
 
-// Host-sent payload containing authoritative player roster
+// Server response when joining/creating a room
 [Serializable]
-public class RoomWelcomeData
+public class RoomJoinedData
 {
     public string roomId;
+    public string roomName;
     public RoomType roomType;
     public VRPlayerData[] players;
 }
@@ -673,6 +617,20 @@ public class PlayerNameUpdate
     public string roomId;
     public string playerId;
     public string playerName;
+}
+
+// Payload when a player leaves
+[Serializable]
+public class PlayerLeftData
+{
+    public string playerId;
+}
+
+// Server error message
+[Serializable]
+public class ErrorData
+{
+    public string error;
 }
 
 #endregion
