@@ -8,44 +8,90 @@ using System.Collections.Generic;
 public class VRMenuUI : MonoBehaviour
 {
     [Header("Panels")]
+
+    // Main panel displaying public rooms and join options
     public GameObject mainPanel;
+
+    // Panel for creating a new room
     public GameObject createRoomPanel;
-    public GameObject inRoomPanel;
     
     [Header("Main Panel - Header")]
+
+    // Button to refresh the room list
     public Button refreshButton;
+
+    // Title text (e.g., "Public Rooms")
     public TextMeshProUGUI titleText;
     
     [Header("Main Panel - Join by Code")]
+
+    // Input field for entering a 6-character room code
     public TMP_InputField roomCodeInput;
+
+    // Button to join a room using the entered code
     public Button joinButton;
     
     [Header("Main Panel - Room List")]
+
+    // Container for dynamically spawned room list items
     public Transform roomListContainer;
+
+    // Prefab for each room list item
     public GameObject roomListItemPrefab;
     
     [Header("Main Panel - Footer")]
+
+    // Button to open the create room panel
     public Button newRoomButton;
     
     [Header("Create Panel - Fields")]
+
+    // Input field for custom room name
     public TMP_InputField roomNameInput;
+
+    // Input field for max players (linked to slider)
     public TMP_InputField maxPlayersInput;
+
+    // Text displaying current max players value
     public TextMeshProUGUI maxPlayersValueText;
+
+    // Slider to select max players (2-20)
     public Slider maxPlayersSlider;
     
     [Header("Create Panel - Buttons")]
+
+    // Button to confirm room creation
     public Button createButton;
+
+    // Button to cancel and return to main panel
     public Button cancelButton;
     
     [Header("Status")]
+
+    // Status text for feedback (e.g., "Connected", "Joining...")
     public TextMeshProUGUI statusText;
     
     [Header("In Room Panel")]
+
+    // Panel shown when player is inside a room
+    public GameObject inRoomPanel;
+
+    // Displays current room name
     public TextMeshProUGUI currentRoomNameText;
+
+    // Displays current room code
     public TextMeshProUGUI currentRoomCodeText;
+
+    // Displays current player count
     public TextMeshProUGUI currentPlayerCountText;
+
+    // Container for dynamically spawned player list items
     public Transform playerListContainer;
+
+    // Prefab for each player list item
     public GameObject playerListItemPrefab;
+
+    // Button to leave the current room
     public Button leaveRoomButton;
     
     // Dynamically instantiated UI elements
@@ -130,12 +176,14 @@ public class VRMenuUI : MonoBehaviour
     
     #region Button Actions
     
+    // Requests updated room list from server
     void OnRefreshRooms()
     {
         SetStatus("Actualisation...");
         VRRoomManager.Instance?.RequestRoomList();
     }
     
+    // Joins a room using the entered 6-character code
     void OnJoinWithCode()
     {
         if (roomCodeInput == null)
@@ -162,14 +210,16 @@ public class VRMenuUI : MonoBehaviour
         VRRoomManager.Instance?.JoinRoom(code);
     }
     
+    // Opens the create room panel
     void OnNewRoomClicked()
     {
         ShowCreatePanel();
     }
     
+    // Creates a new room with specified settings
     void OnCreateRoom()
     {
-        string roomName = roomNameInput != null ? roomNameInput.text.Trim() : "";
+        string roomName = roomNameInput.text.Trim();
         if (string.IsNullOrEmpty(roomName))
         {
             roomName = "Room " + Random.Range(1000, 9999);
@@ -177,6 +227,7 @@ public class VRMenuUI : MonoBehaviour
         
         int maxPlayers = maxPlayersSlider != null ? (int)maxPlayersSlider.value : 10;
         
+        // Update max players in RoomManager
         if (VRRoomManager.Instance != null)
         {
             VRRoomManager.Instance.maxPlayersPerRoom = maxPlayers;
@@ -186,11 +237,13 @@ public class VRMenuUI : MonoBehaviour
         VRRoomManager.Instance?.CreateRoom(RoomType.Lobby, roomName);
     }
     
+    // Cancels room creation and returns to main panel
     void OnCancelCreate()
     {
         ShowMainPanel();
     }
     
+    // Updates max players text when slider value changes
     void OnMaxPlayersChanged(float value)
     {
         int intValue = (int)value;
@@ -204,11 +257,13 @@ public class VRMenuUI : MonoBehaviour
         }
     }
     
+    // Leaves the current room
     void OnLeaveRoom()
     {
         VRRoomManager.Instance?.LeaveRoom();
     }
     
+    // Joins a room from the public room list
     void OnJoinRoomFromList(string roomId)
     {
         SetStatus("Connexion...");
@@ -219,12 +274,14 @@ public class VRMenuUI : MonoBehaviour
     
     #region Network Events
     
+    // Called when WebSocket connection is established
     void OnConnected()
     {
         SetStatus("Connecté !");
         VRRoomManager.Instance?.RequestRoomList();
     }
     
+    // Called when WebSocket connection is lost
     void OnDisconnected()
     {
         SetStatus("Déconnecté");
@@ -235,40 +292,45 @@ public class VRMenuUI : MonoBehaviour
     
     #region Room Events
     
+    // Called when local player creates a room
     void OnRoomCreated(string roomId)
     {
-        SetStatus("Room créée !");
         ShowInRoomPanel();
     }
     
+    // Called when local player joins a room
     void OnRoomJoined(string roomId)
     {
-        SetStatus("Connecté à la room !");
         ShowInRoomPanel();
     }
     
+    // Called when local player leaves a room
     void OnRoomLeft()
     {
         ShowMainPanel();
         SetStatus("Room quittée");
     }
     
+    // Called when a room error occurs
     void OnRoomError(string error)
     {
         SetStatus($"Erreur: {error}");
     }
     
+    // Called when room list is updated from server
     void OnRoomListUpdated(Dictionary<string, RoomInfo> rooms)
     {
         RefreshRoomList(rooms);
         SetStatus($"{rooms.Count} room(s) disponible(s)");
     }
     
+    // Called when a player joins the room
     void OnPlayerChanged(VRPlayerData player)
     {
         UpdateInRoomPanel();
     }
     
+    // Called when a player leaves the room
     void OnPlayerLeftRoom(string playerId)
     {
         UpdateInRoomPanel();
@@ -278,25 +340,30 @@ public class VRMenuUI : MonoBehaviour
     
     #region UI Updates
     
+    // Shows the main panel (public rooms + join by code)
     void ShowMainPanel()
     {
         if (mainPanel != null) mainPanel.SetActive(true);
         if (createRoomPanel != null) createRoomPanel.SetActive(false);
         if (inRoomPanel != null) inRoomPanel.SetActive(false);
         
+        // Reset inputs
         if (roomCodeInput != null) roomCodeInput.text = "";
     }
     
+    // Shows the create room panel
     void ShowCreatePanel()
     {
         if (mainPanel != null) mainPanel.SetActive(false);
         if (createRoomPanel != null) createRoomPanel.SetActive(true);
         if (inRoomPanel != null) inRoomPanel.SetActive(false);
         
+        // Reset inputs
         if (roomNameInput != null) roomNameInput.text = "";
         if (maxPlayersSlider != null) maxPlayersSlider.value = 10;
     }
     
+    // Shows the in-room panel (player list + room info)
     void ShowInRoomPanel()
     {
         if (mainPanel != null) mainPanel.SetActive(false);
@@ -306,31 +373,26 @@ public class VRMenuUI : MonoBehaviour
         UpdateInRoomPanel();
     }
     
+    // Updates room info and player list in the in-room panel
     void UpdateInRoomPanel()
     {
         if (VRRoomManager.Instance == null) return;
         
-        // Nom de la room
-        if (currentRoomNameText != null)
-        {
-            string roomName = VRRoomManager.Instance.CurrentRoomName;
-            currentRoomNameText.text = string.IsNullOrEmpty(roomName) ? "Room" : roomName;
-        }
-        
-        // Code de la room
+        // Display room information
         if (currentRoomCodeText != null)
             currentRoomCodeText.text = $"Code: {VRRoomManager.Instance.CurrentRoomId}";
         
-        // Nombre de joueurs
         if (currentPlayerCountText != null)
             currentPlayerCountText.text = $"\nPlayers: {VRRoomManager.Instance.PlayerCount}";
         
-        // Liste des joueurs
+        // Refresh player list
         RefreshPlayerList();
     }
     
+    // Refreshes the public room list display
     void RefreshRoomList(Dictionary<string, RoomInfo> rooms)
     {
+        // Destroy old items
         foreach (var item in roomListItems)
         {
             Destroy(item);
@@ -339,6 +401,7 @@ public class VRMenuUI : MonoBehaviour
         
         if (roomListContainer == null || roomListItemPrefab == null) return;
         
+        // Create new items for each room
         foreach (var kvp in rooms)
         {
             RoomInfo room = kvp.Value;
@@ -346,6 +409,7 @@ public class VRMenuUI : MonoBehaviour
             GameObject item = Instantiate(roomListItemPrefab, roomListContainer);
             roomListItems.Add(item);
             
+            // Configure room info text
             var texts = item.GetComponentsInChildren<TextMeshProUGUI>();
             if (texts.Length > 0)
             {
@@ -356,6 +420,7 @@ public class VRMenuUI : MonoBehaviour
                 texts[1].text = $"{room.playerCount}/{room.maxPlayers}";
             }
             
+            // Add join button functionality
             var button = item.GetComponent<Button>();
             if (button == null)
             {
@@ -365,6 +430,7 @@ public class VRMenuUI : MonoBehaviour
             string roomId = room.roomId;
             button.onClick.AddListener(() => OnJoinRoomFromList(roomId));
             
+            // Disable button if room is full
             if (room.playerCount >= room.maxPlayers)
             {
                 button.interactable = false;
@@ -375,8 +441,10 @@ public class VRMenuUI : MonoBehaviour
         }
     }
     
+    // Refreshes the in-room player list display
     void RefreshPlayerList()
     {
+        // Destroy old items
         foreach (var item in playerListItems)
         {
             Destroy(item);
@@ -388,6 +456,7 @@ public class VRMenuUI : MonoBehaviour
         
         var players = VRRoomManager.Instance.GetPlayers();
         
+        // Create new items for each player
         foreach (var player in players)
         {
             GameObject item = Instantiate(playerListItemPrefab, playerListContainer);
@@ -396,13 +465,15 @@ public class VRMenuUI : MonoBehaviour
             var text = item.GetComponentInChildren<TextMeshProUGUI>();
             if (text != null)
             {
+                // Format: "★ HostName" or "• PlayerName (You)"
                 string prefix = player.isHost ? "★ " : "• ";
-                string suffix = player.playerId == VRNetworkManager.LocalId ? " (Vous)" : "";
+                string suffix = player.playerId == VRNetworkManager.LocalId ? " (You))" : "";
                 text.text = $"{prefix}{player.playerName}{suffix}";
             }
         }
     }
     
+    // Updates status text and logs message
     void SetStatus(string message)
     {
         if (statusText != null)
