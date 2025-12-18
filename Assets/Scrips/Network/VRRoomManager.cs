@@ -22,6 +22,9 @@ public class VRRoomManager : MonoBehaviour
 
     // Current room ID (6-character code)
     public string CurrentRoomId { get; private set; }
+    
+    // Current room name (custom or auto-generated)
+    public string CurrentRoomName { get; private set; }
 
     // True when the local player is inside a room
     public bool IsInRoom { get; private set; }
@@ -95,6 +98,7 @@ public class VRRoomManager : MonoBehaviour
         if (IsInRoom)
         {
             CurrentRoomId = null;
+            CurrentRoomName = null;
             IsInRoom = false;
             IsHost = false;
 
@@ -134,6 +138,7 @@ public class VRRoomManager : MonoBehaviour
 
         // Initialize local room state
         CurrentRoomId = GenerateRoomId();
+        CurrentRoomName = string.IsNullOrEmpty(roomName) ? $"Room {CurrentRoomId}" : roomName;
         IsInRoom = true;
         IsHost = true;
         CurrentRoomType = roomType;
@@ -154,13 +159,13 @@ public class VRRoomManager : MonoBehaviour
         {
             roomId = CurrentRoomId,
             hostId = VRNetworkManager.LocalId,
-            roomName = string.IsNullOrEmpty(roomName) ? $"Room {CurrentRoomId}" : roomName,
+            roomName = CurrentRoomName,
             roomType = roomType,
             playerCount = 1,
             maxPlayers = maxPlayersPerRoom
         });
 
-        Debug.Log($"[VRRoom] Created room: {CurrentRoomId} (Type: {roomType})");
+        Debug.Log($"[VRRoom] Created room: {CurrentRoomName} ({CurrentRoomId})");
         OnRoomCreated?.Invoke(CurrentRoomId);
         OnRoomTypeChanged?.Invoke(roomType);
     }
@@ -200,6 +205,7 @@ public class VRRoomManager : MonoBehaviour
 
         // Initialize local room state
         CurrentRoomId = roomId;
+        CurrentRoomName = roomInfo.roomName;
         IsInRoom = true;
         IsHost = false;
         CurrentRoomType = roomInfo.roomType;
@@ -223,7 +229,7 @@ public class VRRoomManager : MonoBehaviour
             playerName = localPlayer.playerName
         });
 
-        Debug.Log($"[VRRoom] Joining room: {roomId}");
+        Debug.Log($"[VRRoom] Joining room: {CurrentRoomName} ({roomId})");
         OnRoomJoined?.Invoke(roomId);
         OnRoomTypeChanged?.Invoke(CurrentRoomType);
     }
@@ -255,6 +261,7 @@ public class VRRoomManager : MonoBehaviour
 
         // Reset local room state
         CurrentRoomId = null;
+        CurrentRoomName = null;
         IsInRoom = false;
         IsHost = false;
         CurrentRoomType = RoomType.Lobby;
@@ -394,6 +401,7 @@ public class VRRoomManager : MonoBehaviour
         if (IsInRoom && CurrentRoomId == data.roomId && !IsHost)
         {
             CurrentRoomId = null;
+            CurrentRoomName = null;
             IsInRoom = false;
             CurrentRoomType = RoomType.Lobby;
 
@@ -544,6 +552,7 @@ public class VRRoomManager : MonoBehaviour
         {
             roomId = CurrentRoomId,
             hostId = VRNetworkManager.LocalId,
+            roomName = CurrentRoomName,
             playerCount = _players.Count,
             maxPlayers = maxPlayersPerRoom,
             roomType = CurrentRoomType
