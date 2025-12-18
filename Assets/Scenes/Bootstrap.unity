@@ -205,8 +205,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f670f2ba5b9241946928be8ff7ce6f8c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRGameManager
-  localPlayerPrefab: {fileID: 8188704470775537899, guid: 87090dfe4af2616468bb50161ef0279d, type: 3}
-  remotePlayerPrefab: {fileID: 5232367662914237843, guid: 6252c5e4f617c3e4286ec89b76e64ec5, type: 3}
+  localPlayerPrefab: {fileID: 2769033763986278731, guid: 75211562dc67bc448a88b310e2f18d7b, type: 3}
+  remotePlayerPrefab: {fileID: 5232367662914237843, guid: cc2103042bc40274d8824d34be3e8173, type: 3}
   lobbySpawnPoint: {fileID: 1958996470}
   roomASpawnPoint: {fileID: 0}
   roomAAdditionalSpawns: []
