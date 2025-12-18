@@ -323,7 +323,7 @@ public class VRMenuUI : MonoBehaviour
         
         // Nombre de joueurs
         if (currentPlayerCountText != null)
-            currentPlayerCountText.text = $"\nPlayers: {VRRoomManager.Instance.PlayerCount}";
+            currentPlayerCountText.text = $"Joueurs: {VRRoomManager.Instance.PlayerCount}";
         
         // Liste des joueurs
         RefreshPlayerList();
