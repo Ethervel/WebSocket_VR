@@ -206,7 +206,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRGameManager
   localPlayerPrefab: {fileID: 2769033763986278731, guid: 75211562dc67bc448a88b310e2f18d7b, type: 3}
-  remotePlayerPrefab: {fileID: 5232367662914237843, guid: cc2103042bc40274d8824d34be3e8173, type: 3}
+  remotePlayerPrefab: {fileID: 5232367662914237843, guid: 6252c5e4f617c3e4286ec89b76e64ec5, type: 3}
   lobbySpawnPoint: {fileID: 1958996470}
   roomASpawnPoint: {fileID: 0}
   roomAAdditionalSpawns: []
@@ -215,6 +215,8 @@ MonoBehaviour:
   syncRate: 30
   interpolationSpeed: 15
   syncHands: 1
+  movementThreshold: 0.01
+  rotationThreshold: 1
   spawnPlayerOnStart: 1
 --- !u!4 &436135943
 Transform:
@@ -544,7 +546,7 @@ Transform:
   m_GameObject: {fileID: 1958996469}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.693, z: -9.95258}
+  m_LocalPosition: {x: 0, y: 5.5, z: -9.95258}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
