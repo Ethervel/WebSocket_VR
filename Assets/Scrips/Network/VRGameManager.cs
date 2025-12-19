@@ -50,7 +50,7 @@ public class VRGameManager : MonoBehaviour
     // Local
     private GameObject _localPlayer;
     private XROrigin _localXrOrigin;
-    private Transform _localHead;      // Main Camera
+    private Transform _localHead;
     private Transform _localLeftHand;
     private Transform _localRightHand;
 
@@ -60,14 +60,16 @@ public class VRGameManager : MonoBehaviour
     // Sync
     private float _syncTimer;
     
-    // FIX #1: Prévention Race Condition
+    // Prévention Race Condition
     private bool _isSpawning = false;
     
-    // FIX #4 & OPTIMIZATION #1: Détection de mouvement
+    // Détection de mouvement (optimisation)
     private Vector3 _lastSyncPosition;
     private Quaternion _lastSyncRotation;
     private Vector3 _lastSyncHeadPos;
     private Quaternion _lastSyncHeadRot;
+    private Vector3 _lastSyncLeftHandPos;   // ✅ NOUVEAU
+    private Vector3 _lastSyncRightHandPos;  // ✅ NOUVEAU
 
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
@@ -134,7 +136,6 @@ public class VRGameManager : MonoBehaviour
     {
         Debug.Log($"[VRGame] Entered room: {roomId}");
 
-        // FIX #1: Prévention de la race condition sur le spawn
         if (_localPlayer == null && !_isSpawning)
         {
             SpawnLocalPlayer(RoomType.Lobby);
@@ -166,8 +167,6 @@ public class VRGameManager : MonoBehaviour
     void OnRoomTypeChanged(RoomType roomType)
     {
         Debug.Log($"[VRGame] Room type changed to: {roomType}");
-        
-        // FIX #4: Téléporter les avatars distants quand on change de zone
         TeleportRemotePlayersToCurrentZone(roomType);
     }
 
@@ -177,7 +176,6 @@ public class VRGameManager : MonoBehaviour
 
     void SpawnLocalPlayer(RoomType roomType)
     {
-        // FIX #1: Protection supplémentaire
         if (_isSpawning)
         {
             Debug.LogWarning("[VRGame] Spawn already in progress, ignoring...");
@@ -200,11 +198,9 @@ public class VRGameManager : MonoBehaviour
 
         GetSpawnPoint(roomType, true, out var position, out var rotation);
 
-        // FIX #5: Instancier à Vector3.zero pour éviter collision CharacterController
         _localPlayer = Instantiate(localPlayerPrefab, Vector3.zero, Quaternion.identity);
         _localPlayer.name = "LocalVRPlayer";
         
-        // FIX #5: Désactiver CharacterController temporairement
         var charController = _localPlayer.GetComponent<CharacterController>();
         bool hadCharController = charController != null;
         if (hadCharController)
@@ -213,14 +209,13 @@ public class VRGameManager : MonoBehaviour
             Debug.Log("[SPAWN FIX] CharacterController désactivé temporairement");
         }
         
-        // FIX #5: Positionner après désactivation du CharacterController
         _localPlayer.transform.SetPositionAndRotation(position, rotation);
         Debug.Log($"[SPAWN FIX] Local player positionné à {position}");
 
         FindVRReferences();
         SetupTeleportation();
         
-        // Initialiser les dernières positions pour l'optimisation
+        // ✅ Initialiser toutes les dernières positions
         if (_localXrOrigin != null)
         {
             _lastSyncPosition = _localXrOrigin.transform.position;
@@ -231,8 +226,15 @@ public class VRGameManager : MonoBehaviour
             _lastSyncHeadPos = _localHead.position;
             _lastSyncHeadRot = _localHead.rotation;
         }
+        if (_localLeftHand != null)
+        {
+            _lastSyncLeftHandPos = _localLeftHand.position;
+        }
+        if (_localRightHand != null)
+        {
+            _lastSyncRightHandPos = _localRightHand.position;
+        }
         
-        // FIX #5: Réactiver CharacterController
         if (hadCharController && charController != null)
         {
             charController.enabled = true;
@@ -253,11 +255,9 @@ public class VRGameManager : MonoBehaviour
         if (_localXrOrigin == null)
             _localXrOrigin = _localPlayer.GetComponentInChildren<XROrigin>(true);
 
-        // Head = Main Camera
         var cam = _localPlayer.GetComponentInChildren<Camera>(true);
         if (cam != null) _localHead = cam.transform;
 
-        // Mains : dans ton rig ce sont "Left Controller" / "Right Controller"
         _localLeftHand = FindChildRecursive(_localPlayer.transform, "Left Controller");
         if (_localLeftHand == null) _localLeftHand = FindChildRecursive(_localPlayer.transform, "LeftHand");
 
@@ -269,11 +269,18 @@ public class VRGameManager : MonoBehaviour
 
     Transform FindChildRecursive(Transform parent, string nameContains)
     {
+        string cleanSearch = nameContains.ToLower().Replace(" ", "");
+        
         foreach (Transform child in parent)
         {
-            if (child.name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0)
+            string cleanChildName = child.name.ToLower().Replace(" ", "");
+            
+            if (cleanChildName.Contains(cleanSearch))
+            {
+                Debug.Log($"[VRGame] Found '{nameContains}' -> Actual name: '{child.name}'");
                 return child;
-
+            }
+            
             var result = FindChildRecursive(child, nameContains);
             if (result != null)
                 return result;
@@ -331,19 +338,17 @@ public class VRGameManager : MonoBehaviour
             Debug.Log("[SPAWN FIX] CharacterController désactivé pour téléportation");
         }
 
-        // FIX #5: Attendre 1 frame pour être sûr que le controller est bien désactivé
         StartCoroutine(TeleportAfterFrame(position, rotation, characterController));
     }
     
-    // FIX #5: Coroutine pour téléporter après désactivation du CharacterController
     private System.Collections.IEnumerator TeleportAfterFrame(Vector3 position, Quaternion rotation, CharacterController controller)
     {
-        yield return null; // Attendre 1 frame
+        yield return null;
         
         _localPlayer.transform.SetPositionAndRotation(position, rotation);
         Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
         
-        yield return null; // Attendre encore 1 frame
+        yield return null;
         
         if (controller != null)
         {
@@ -369,11 +374,9 @@ public class VRGameManager : MonoBehaviour
 
         GetSpawnPoint(playerData.roomType, false, out var position, out var rotation);
 
-        // FIX #5: Instancier à Vector3.zero pour éviter collision CharacterController
         var go = Instantiate(remotePlayerPrefab, Vector3.zero, Quaternion.identity);
         go.name = $"RemotePlayer_{playerData.playerName}_{playerData.playerId.Substring(0, 6)}";
         
-        // FIX #5: Désactiver CharacterController temporairement
         var charController = go.GetComponent<CharacterController>();
         bool hadCharController = charController != null;
         if (hadCharController)
@@ -381,22 +384,18 @@ public class VRGameManager : MonoBehaviour
             charController.enabled = false;
         }
         
-        // FIX #5: Positionner après désactivation du CharacterController
         go.transform.SetPositionAndRotation(position, rotation);
         Debug.Log($"[SPAWN FIX] Remote player {playerData.playerName} positionné à {position}");
 
-        // Désactiver cam/audio
         foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
         foreach (var al in go.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
 
-        // Désactiver scripts de contrôle potentiels
         var desktopController = go.GetComponent<DesktopPlayerController>();
         if (desktopController != null) Destroy(desktopController);
 
         var vrController = go.GetComponent<VRPlayerController>();
         if (vrController != null) Destroy(vrController);
 
-        // FIX #5: Détruire le CharacterController (pas besoin sur remote)
         if (charController != null)
         {
             Destroy(charController);
@@ -413,17 +412,53 @@ public class VRGameManager : MonoBehaviour
             hasReceivedData = false
         };
 
-        // Ton prefab remote a exactement ces enfants
         remote.head = FindChildRecursive(go.transform, "Head");
         remote.leftHand = FindChildRecursive(go.transform, "LeftHand");
         remote.rightHand = FindChildRecursive(go.transform, "RightHand");
+
+        if (remote.leftHand == null)
+        {
+            remote.leftHand = FindChildRecursive(go.transform, "Left Controller");
+            if (remote.leftHand == null)
+                remote.leftHand = FindChildRecursive(go.transform, "LeftHandAnchor");
+        }
+
+        if (remote.rightHand == null)
+        {
+            remote.rightHand = FindChildRecursive(go.transform, "Right Controller");
+            if (remote.rightHand == null)
+                remote.rightHand = FindChildRecursive(go.transform, "RightHandAnchor");
+        }
+
+        // CRITICAL: Détacher tête et mains pour qu'ils suivent les positions world
+        if (remote.head != null)
+        {
+            remote.head.SetParent(null);
+            DontDestroyOnLoad(remote.head.gameObject);
+            Debug.Log($"[VRGame] Detached head for {playerData.playerName}");
+        }
+
+        if (remote.leftHand != null)
+        {
+            remote.leftHand.SetParent(null);
+            DontDestroyOnLoad(remote.leftHand.gameObject);
+            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName}");
+        }
+
+        if (remote.rightHand != null)
+        {
+            remote.rightHand.SetParent(null);
+            DontDestroyOnLoad(remote.rightHand.gameObject);
+            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName}");
+        }
 
         var nameTag = go.GetComponentInChildren<TMPro.TextMeshPro>(true);
         if (nameTag != null) nameTag.text = playerData.playerName;
 
         _remotePlayers[playerData.playerId] = remote;
 
-        Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} ({playerData.playerId})");
+        Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} - " +
+                  $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}");
         OnRemotePlayerSpawned?.Invoke(playerData.playerId, go);
     }
 
@@ -431,6 +466,24 @@ public class VRGameManager : MonoBehaviour
     {
         if (_remotePlayers.TryGetValue(playerId, out var remote))
         {
+            if (remote.head != null)
+            {
+                Destroy(remote.head.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached head for {playerId}");
+            }
+            
+            if (remote.leftHand != null)
+            {
+                Destroy(remote.leftHand.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached left hand for {playerId}");
+            }
+            
+            if (remote.rightHand != null)
+            {
+                Destroy(remote.rightHand.gameObject);
+                Debug.Log($"[VRGame] Destroyed detached right hand for {playerId}");
+            }
+            
             if (remote.gameObject != null)
                 Destroy(remote.gameObject);
 
@@ -442,43 +495,52 @@ public class VRGameManager : MonoBehaviour
     void DespawnAllRemotePlayers()
     {
         foreach (var remote in _remotePlayers.Values)
+        {
+            if (remote.head != null)
+                Destroy(remote.head.gameObject);
+            
+            if (remote.leftHand != null)
+                Destroy(remote.leftHand.gameObject);
+            
+            if (remote.rightHand != null)
+                Destroy(remote.rightHand.gameObject);
+            
             if (remote.gameObject != null)
                 Destroy(remote.gameObject);
-
+        }
         _remotePlayers.Clear();
     }
     
-    // FIX #4: Téléportation visuelle des avatars distants
     void TeleportRemotePlayersToCurrentZone(RoomType roomType)
     {
-        // Les joueurs dans une zone différente devraient être cachés ou téléportés
         foreach (var kvp in _remotePlayers)
         {
             var remote = kvp.Value;
             if (remote.gameObject == null) continue;
             
-            // Si le joueur distant est dans une zone différente, on le cache
-            if (remote.currentRoomType != roomType)
-            {
-                remote.gameObject.SetActive(false);
-            }
-            else
-            {
-                remote.gameObject.SetActive(true);
-            }
+            bool sameZone = (remote.currentRoomType == roomType);
+            remote.gameObject.SetActive(sameZone);
+            
+            if (remote.head != null)
+                remote.head.gameObject.SetActive(sameZone);
+            
+            if (remote.leftHand != null)
+                remote.leftHand.gameObject.SetActive(sameZone);
+            
+            if (remote.rightHand != null)
+                remote.rightHand.gameObject.SetActive(sameZone);
         }
     }
 
     #endregion
 
-    #region Network Sync (CORRIGÉ + OPTIMISÉ)
+    #region Network Sync
 
     void SendPositionUpdate()
     {
         if (_localPlayer == null || VRNetworkManager.Instance == null) return;
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom) return;
 
-        // OPTIMIZATION #1: Détection de mouvement - ne sync que si changement significatif
         Transform originTf = (_localXrOrigin != null) ? _localXrOrigin.transform : _localPlayer.transform;
         
         float posChange = Vector3.Distance(_lastSyncPosition, originTf.position);
@@ -492,13 +554,21 @@ public class VRGameManager : MonoBehaviour
             headMoved = headPosChange > movementThreshold || headRotChange > rotationThreshold;
         }
         
-        // Ne pas envoyer si mouvement insignifiant
-        if (posChange < movementThreshold && rotChange < rotationThreshold && !headMoved)
+        // ✅ FIX: Détecter aussi le mouvement des mains !
+        bool handsMoved = false;
+        if (syncHands && _localLeftHand != null && _localRightHand != null)
+        {
+            float leftHandPosChange = Vector3.Distance(_lastSyncLeftHandPos, _localLeftHand.position);
+            float rightHandPosChange = Vector3.Distance(_lastSyncRightHandPos, _localRightHand.position);
+            handsMoved = leftHandPosChange > movementThreshold || rightHandPosChange > movementThreshold;
+        }
+        
+        // ✅ FIX: Ne sync que si AU MOINS UNE partie a bougé (corps, tête, ou mains)
+        if (posChange < movementThreshold && rotChange < rotationThreshold && !headMoved && !handsMoved)
         {
             return;
         }
         
-        // Mettre à jour les dernières valeurs
         _lastSyncPosition = originTf.position;
         _lastSyncRotation = originTf.rotation;
         if (_localHead != null)
@@ -506,54 +576,62 @@ public class VRGameManager : MonoBehaviour
             _lastSyncHeadPos = _localHead.position;
             _lastSyncHeadRot = _localHead.rotation;
         }
+        
+        // ✅ FIX: Mettre à jour les dernières positions des mains
+        if (_localLeftHand != null)
+            _lastSyncLeftHandPos = _localLeftHand.position;
+        if (_localRightHand != null)
+            _lastSyncRightHandPos = _localRightHand.position;
 
         var data = new VRPositionData
         {
             roomId = VRRoomManager.Instance.CurrentRoomId,
             roomType = VRRoomManager.Instance.CurrentRoomType,
 
-            // Corps (XR Origin) en world
             posX = originTf.position.x,
             posY = originTf.position.y,
             posZ = originTf.position.z,
             rotY = originTf.eulerAngles.y
         };
 
-        // Head local
+        // Tête en WORLD
         if (_localHead != null)
         {
-            Vector3 headLocalPos = originTf.InverseTransformPoint(_localHead.position);
-            Quaternion headLocalRot = Quaternion.Inverse(originTf.rotation) * _localHead.rotation;
+            data.headPosX = _localHead.position.x;
+            data.headPosY = _localHead.position.y;
+            data.headPosZ = _localHead.position.z;
 
-            data.headPosX = headLocalPos.x;
-            data.headPosY = headLocalPos.y;
-            data.headPosZ = headLocalPos.z;
-
-            data.headRotX = headLocalRot.x;
-            data.headRotY = headLocalRot.y;
-            data.headRotZ = headLocalRot.z;
-            data.headRotW = headLocalRot.w;
+            data.headRotX = _localHead.rotation.x;
+            data.headRotY = _localHead.rotation.y;
+            data.headRotZ = _localHead.rotation.z;
+            data.headRotW = _localHead.rotation.w;
         }
 
-        // Hands local
+        // Mains en WORLD
         if (syncHands)
         {
             if (_localLeftHand != null)
             {
-                Vector3 p = originTf.InverseTransformPoint(_localLeftHand.position);
-                Quaternion r = Quaternion.Inverse(originTf.rotation) * _localLeftHand.rotation;
-
-                data.leftHandPosX = p.x; data.leftHandPosY = p.y; data.leftHandPosZ = p.z;
-                data.leftHandRotX = r.x; data.leftHandRotY = r.y; data.leftHandRotZ = r.z; data.leftHandRotW = r.w;
+                data.leftHandPosX = _localLeftHand.position.x;
+                data.leftHandPosY = _localLeftHand.position.y;
+                data.leftHandPosZ = _localLeftHand.position.z;
+                
+                data.leftHandRotX = _localLeftHand.rotation.x;
+                data.leftHandRotY = _localLeftHand.rotation.y;
+                data.leftHandRotZ = _localLeftHand.rotation.z;
+                data.leftHandRotW = _localLeftHand.rotation.w;
             }
 
             if (_localRightHand != null)
             {
-                Vector3 p = originTf.InverseTransformPoint(_localRightHand.position);
-                Quaternion r = Quaternion.Inverse(originTf.rotation) * _localRightHand.rotation;
-
-                data.rightHandPosX = p.x; data.rightHandPosY = p.y; data.rightHandPosZ = p.z;
-                data.rightHandRotX = r.x; data.rightHandRotY = r.y; data.rightHandRotZ = r.z; data.rightHandRotW = r.w;
+                data.rightHandPosX = _localRightHand.position.x;
+                data.rightHandPosY = _localRightHand.position.y;
+                data.rightHandPosZ = _localRightHand.position.z;
+                
+                data.rightHandRotX = _localRightHand.rotation.x;
+                data.rightHandRotY = _localRightHand.rotation.y;
+                data.rightHandRotZ = _localRightHand.rotation.z;
+                data.rightHandRotW = _localRightHand.rotation.w;
             }
         }
 
@@ -572,35 +650,38 @@ public class VRGameManager : MonoBehaviour
 
         if (_remotePlayers.TryGetValue(msg.senderId, out var remote))
         {
-            // Corps en world
             remote.targetPosition = new Vector3(data.posX, data.posY, data.posZ);
             remote.targetRotation = Quaternion.Euler(0f, data.rotY, 0f);
 
-            // Head LOCAL (stockage)
-            remote.targetHeadLocalPosition = new Vector3(data.headPosX, data.headPosY, data.headPosZ);
-            remote.targetHeadLocalRotation = new Quaternion(data.headRotX, data.headRotY, data.headRotZ, data.headRotW);
+            remote.targetHeadPosition = new Vector3(data.headPosX, data.headPosY, data.headPosZ);
+            remote.targetHeadRotation = new Quaternion(data.headRotX, data.headRotY, data.headRotZ, data.headRotW);
 
-            // Hands LOCAL
             if (syncHands)
             {
-                remote.targetLeftHandLocalPosition = new Vector3(data.leftHandPosX, data.leftHandPosY, data.leftHandPosZ);
-                remote.targetLeftHandLocalRotation = new Quaternion(data.leftHandRotX, data.leftHandRotY, data.leftHandRotZ, data.leftHandRotW);
+                remote.targetLeftHandPosition = new Vector3(data.leftHandPosX, data.leftHandPosY, data.leftHandPosZ);
+                remote.targetLeftHandRotation = new Quaternion(data.leftHandRotX, data.leftHandRotY, data.leftHandRotZ, data.leftHandRotW);
 
-                remote.targetRightHandLocalPosition = new Vector3(data.rightHandPosX, data.rightHandPosY, data.rightHandPosZ);
-                remote.targetRightHandLocalRotation = new Quaternion(data.rightHandRotX, data.rightHandRotY, data.rightHandRotZ, data.rightHandRotW);
+                remote.targetRightHandPosition = new Vector3(data.rightHandPosX, data.rightHandPosY, data.rightHandPosZ);
+                remote.targetRightHandRotation = new Quaternion(data.rightHandRotX, data.rightHandRotY, data.rightHandRotZ, data.rightHandRotW);
             }
 
             remote.currentRoomType = data.roomType;
             remote.hasReceivedData = true;
             
-            // FIX #4: Afficher/cacher selon la zone
             if (VRRoomManager.Instance != null)
             {
                 bool sameZone = (data.roomType == VRRoomManager.Instance.CurrentRoomType);
                 if (remote.gameObject != null)
-                {
                     remote.gameObject.SetActive(sameZone);
-                }
+                
+                if (remote.head != null)
+                    remote.head.gameObject.SetActive(sameZone);
+                
+                if (remote.leftHand != null)
+                    remote.leftHand.gameObject.SetActive(sameZone);
+                
+                if (remote.rightHand != null)
+                    remote.rightHand.gameObject.SetActive(sameZone);
             }
         }
     }
@@ -614,11 +695,10 @@ public class VRGameManager : MonoBehaviour
             if (remote.gameObject == null || !remote.hasReceivedData)
                 continue;
                 
-            // Ne pas interpoler si invisible
             if (!remote.gameObject.activeSelf)
                 continue;
 
-            // 1) Corps (root) : world
+            // Corps : world
             remote.gameObject.transform.position = Vector3.Lerp(
                 remote.gameObject.transform.position,
                 remote.targetPosition,
@@ -631,26 +711,50 @@ public class VRGameManager : MonoBehaviour
                 t
             );
 
-            // 2) Tête : LOCAL
+            // Tête : WORLD
             if (remote.head != null)
             {
-                remote.head.localPosition = Vector3.Lerp(remote.head.localPosition, remote.targetHeadLocalPosition, t);
-                remote.head.localRotation = Quaternion.Slerp(remote.head.localRotation, remote.targetHeadLocalRotation, t);
+                remote.head.position = Vector3.Lerp(
+                    remote.head.position,
+                    remote.targetHeadPosition,
+                    t
+                );
+                remote.head.rotation = Quaternion.Slerp(
+                    remote.head.rotation,
+                    remote.targetHeadRotation,
+                    t
+                );
             }
 
-            // 3) Mains : LOCAL
+            // Mains : WORLD
             if (syncHands)
             {
                 if (remote.leftHand != null)
                 {
-                    remote.leftHand.localPosition = Vector3.Lerp(remote.leftHand.localPosition, remote.targetLeftHandLocalPosition, t);
-                    remote.leftHand.localRotation = Quaternion.Slerp(remote.leftHand.localRotation, remote.targetLeftHandLocalRotation, t);
+                    remote.leftHand.position = Vector3.Lerp(
+                        remote.leftHand.position,
+                        remote.targetLeftHandPosition,
+                        t
+                    );
+                    remote.leftHand.rotation = Quaternion.Slerp(
+                        remote.leftHand.rotation,
+                        remote.targetLeftHandRotation,
+                        t
+                    );
                 }
 
                 if (remote.rightHand != null)
                 {
-                    remote.rightHand.localPosition = Vector3.Lerp(remote.rightHand.localPosition, remote.targetRightHandLocalPosition, t);
-                    remote.rightHand.localRotation = Quaternion.Slerp(remote.rightHand.localRotation, remote.targetRightHandLocalRotation, t);
+                    remote.rightHand.position = Vector3.Lerp(
+                        remote.rightHand.position,
+                        remote.targetRightHandPosition,
+                        t
+                    );
+                    remote.rightHand.rotation = Quaternion.Slerp(
+                        remote.rightHand.rotation,
+                        remote.targetRightHandRotation,
+                        t
+                    );
                 }
             }
         }
@@ -733,15 +837,14 @@ public class VRRemotePlayer
     public Vector3 targetPosition;
     public Quaternion targetRotation;
 
-    // LOCAL (par rapport au root du remote prefab)
-    public Vector3 targetHeadLocalPosition;
-    public Quaternion targetHeadLocalRotation;
+    public Vector3 targetHeadPosition;
+    public Quaternion targetHeadRotation;
 
-    public Vector3 targetLeftHandLocalPosition;
-    public Quaternion targetLeftHandLocalRotation;
+    public Vector3 targetLeftHandPosition;
+    public Quaternion targetLeftHandRotation;
 
-    public Vector3 targetRightHandLocalPosition;
-    public Quaternion targetRightHandLocalRotation;
+    public Vector3 targetRightHandPosition;
+    public Quaternion targetRightHandRotation;
 
     public bool hasReceivedData;
     public RoomType currentRoomType;
@@ -753,15 +856,12 @@ public class VRPositionData
     public string roomId;
     public RoomType roomType;
 
-    // Corps (XR Origin) world
     public float posX, posY, posZ;
     public float rotY;
 
-    // Head LOCAL
     public float headPosX, headPosY, headPosZ;
     public float headRotX, headRotY, headRotZ, headRotW;
 
-    // Hands LOCAL
     public float leftHandPosX, leftHandPosY, leftHandPosZ;
     public float leftHandRotX, leftHandRotY, leftHandRotZ, leftHandRotW;
 
