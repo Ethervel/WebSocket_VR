@@ -35,6 +35,13 @@ public class VRGameManager : MonoBehaviour
 
     [Tooltip("Synchroniser les mains des avatars")]
     public bool syncHands = true;
+    
+    [Header("Movement Detection (Optimization)")]
+    [Tooltip("Seuil de mouvement en mètres pour envoyer une mise à jour")]
+    public float movementThreshold = 0.01f;
+    
+    [Tooltip("Seuil de rotation en degrés pour envoyer une mise à jour")]
+    public float rotationThreshold = 1f;
 
     [Header("Spawn Settings")]
     [Tooltip("Spawner le joueur local au démarrage")]
@@ -52,6 +59,15 @@ public class VRGameManager : MonoBehaviour
 
     // Sync
     private float _syncTimer;
+    
+    // FIX #1: Prévention Race Condition
+    private bool _isSpawning = false;
+    
+    // FIX #4 & OPTIMIZATION #1: Détection de mouvement
+    private Vector3 _lastSyncPosition;
+    private Quaternion _lastSyncRotation;
+    private Vector3 _lastSyncHeadPos;
+    private Quaternion _lastSyncHeadRot;
 
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
@@ -118,8 +134,11 @@ public class VRGameManager : MonoBehaviour
     {
         Debug.Log($"[VRGame] Entered room: {roomId}");
 
-        if (_localPlayer == null)
+        // FIX #1: Prévention de la race condition sur le spawn
+        if (_localPlayer == null && !_isSpawning)
+        {
             SpawnLocalPlayer(RoomType.Lobby);
+        }
     }
 
     void OnRoomLeft()
@@ -147,6 +166,9 @@ public class VRGameManager : MonoBehaviour
     void OnRoomTypeChanged(RoomType roomType)
     {
         Debug.Log($"[VRGame] Room type changed to: {roomType}");
+        
+        // FIX #4: Téléporter les avatars distants quand on change de zone
+        TeleportRemotePlayersToCurrentZone(roomType);
     }
 
     #endregion
@@ -155,6 +177,13 @@ public class VRGameManager : MonoBehaviour
 
     void SpawnLocalPlayer(RoomType roomType)
     {
+        // FIX #1: Protection supplémentaire
+        if (_isSpawning)
+        {
+            Debug.LogWarning("[VRGame] Spawn already in progress, ignoring...");
+            return;
+        }
+        
         if (_localPlayer != null)
         {
             Debug.Log("[VRGame] Local player already exists");
@@ -167,16 +196,53 @@ public class VRGameManager : MonoBehaviour
             return;
         }
 
+        _isSpawning = true;
+
         GetSpawnPoint(roomType, true, out var position, out var rotation);
 
-        _localPlayer = Instantiate(localPlayerPrefab, position, rotation);
+        // FIX #5: Instancier à Vector3.zero pour éviter collision CharacterController
+        _localPlayer = Instantiate(localPlayerPrefab, Vector3.zero, Quaternion.identity);
         _localPlayer.name = "LocalVRPlayer";
+        
+        // FIX #5: Désactiver CharacterController temporairement
+        var charController = _localPlayer.GetComponent<CharacterController>();
+        bool hadCharController = charController != null;
+        if (hadCharController)
+        {
+            charController.enabled = false;
+            Debug.Log("[SPAWN FIX] CharacterController désactivé temporairement");
+        }
+        
+        // FIX #5: Positionner après désactivation du CharacterController
+        _localPlayer.transform.SetPositionAndRotation(position, rotation);
+        Debug.Log($"[SPAWN FIX] Local player positionné à {position}");
 
         FindVRReferences();
         SetupTeleportation();
+        
+        // Initialiser les dernières positions pour l'optimisation
+        if (_localXrOrigin != null)
+        {
+            _lastSyncPosition = _localXrOrigin.transform.position;
+            _lastSyncRotation = _localXrOrigin.transform.rotation;
+        }
+        if (_localHead != null)
+        {
+            _lastSyncHeadPos = _localHead.position;
+            _lastSyncHeadRot = _localHead.rotation;
+        }
+        
+        // FIX #5: Réactiver CharacterController
+        if (hadCharController && charController != null)
+        {
+            charController.enabled = true;
+            Debug.Log("[SPAWN FIX] CharacterController réactivé");
+        }
 
         Debug.Log($"[VRGame] Local VR player spawned at {position}");
         OnLocalPlayerSpawned?.Invoke(_localPlayer);
+        
+        _isSpawning = false;
     }
 
     void FindVRReferences()
@@ -259,13 +325,31 @@ public class VRGameManager : MonoBehaviour
         GetSpawnPoint(roomType, true, out var position, out var rotation);
 
         var characterController = _localPlayer.GetComponent<CharacterController>();
-        if (characterController != null) characterController.enabled = false;
+        if (characterController != null)
+        {
+            characterController.enabled = false;
+            Debug.Log("[SPAWN FIX] CharacterController désactivé pour téléportation");
+        }
 
+        // FIX #5: Attendre 1 frame pour être sûr que le controller est bien désactivé
+        StartCoroutine(TeleportAfterFrame(position, rotation, characterController));
+    }
+    
+    // FIX #5: Coroutine pour téléporter après désactivation du CharacterController
+    private System.Collections.IEnumerator TeleportAfterFrame(Vector3 position, Quaternion rotation, CharacterController controller)
+    {
+        yield return null; // Attendre 1 frame
+        
         _localPlayer.transform.SetPositionAndRotation(position, rotation);
-
-        if (characterController != null) characterController.enabled = true;
-
-        Debug.Log($"[VRGame] Local player teleported to {roomType} at {position}");
+        Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
+        
+        yield return null; // Attendre encore 1 frame
+        
+        if (controller != null)
+        {
+            controller.enabled = true;
+            Debug.Log("[SPAWN FIX] CharacterController réactivé après téléportation");
+        }
     }
 
     #endregion
@@ -285,8 +369,21 @@ public class VRGameManager : MonoBehaviour
 
         GetSpawnPoint(playerData.roomType, false, out var position, out var rotation);
 
-        var go = Instantiate(remotePlayerPrefab, position, rotation);
+        // FIX #5: Instancier à Vector3.zero pour éviter collision CharacterController
+        var go = Instantiate(remotePlayerPrefab, Vector3.zero, Quaternion.identity);
         go.name = $"RemotePlayer_{playerData.playerName}_{playerData.playerId.Substring(0, 6)}";
+        
+        // FIX #5: Désactiver CharacterController temporairement
+        var charController = go.GetComponent<CharacterController>();
+        bool hadCharController = charController != null;
+        if (hadCharController)
+        {
+            charController.enabled = false;
+        }
+        
+        // FIX #5: Positionner après désactivation du CharacterController
+        go.transform.SetPositionAndRotation(position, rotation);
+        Debug.Log($"[SPAWN FIX] Remote player {playerData.playerName} positionné à {position}");
 
         // Désactiver cam/audio
         foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
@@ -299,8 +396,12 @@ public class VRGameManager : MonoBehaviour
         var vrController = go.GetComponent<VRPlayerController>();
         if (vrController != null) Destroy(vrController);
 
-        var charController = go.GetComponent<CharacterController>();
-        if (charController != null) Destroy(charController);
+        // FIX #5: Détruire le CharacterController (pas besoin sur remote)
+        if (charController != null)
+        {
+            Destroy(charController);
+            Debug.Log("[SPAWN FIX] CharacterController détruit sur remote player");
+        }
 
         var remote = new VRRemotePlayer
         {
@@ -346,18 +447,65 @@ public class VRGameManager : MonoBehaviour
 
         _remotePlayers.Clear();
     }
+    
+    // FIX #4: Téléportation visuelle des avatars distants
+    void TeleportRemotePlayersToCurrentZone(RoomType roomType)
+    {
+        // Les joueurs dans une zone différente devraient être cachés ou téléportés
+        foreach (var kvp in _remotePlayers)
+        {
+            var remote = kvp.Value;
+            if (remote.gameObject == null) continue;
+            
+            // Si le joueur distant est dans une zone différente, on le cache
+            if (remote.currentRoomType != roomType)
+            {
+                remote.gameObject.SetActive(false);
+            }
+            else
+            {
+                remote.gameObject.SetActive(true);
+            }
+        }
+    }
 
     #endregion
 
-    #region Network Sync (CORRIGÉ)
+    #region Network Sync (CORRIGÉ + OPTIMISÉ)
 
     void SendPositionUpdate()
     {
         if (_localPlayer == null || VRNetworkManager.Instance == null) return;
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom) return;
 
-        // IMPORTANT : on synchronise tête/mains en LOCAL par rapport au XR Origin (root)
+        // OPTIMIZATION #1: Détection de mouvement - ne sync que si changement significatif
         Transform originTf = (_localXrOrigin != null) ? _localXrOrigin.transform : _localPlayer.transform;
+        
+        float posChange = Vector3.Distance(_lastSyncPosition, originTf.position);
+        float rotChange = Quaternion.Angle(_lastSyncRotation, originTf.rotation);
+        
+        bool headMoved = false;
+        if (_localHead != null)
+        {
+            float headPosChange = Vector3.Distance(_lastSyncHeadPos, _localHead.position);
+            float headRotChange = Quaternion.Angle(_lastSyncHeadRot, _localHead.rotation);
+            headMoved = headPosChange > movementThreshold || headRotChange > rotationThreshold;
+        }
+        
+        // Ne pas envoyer si mouvement insignifiant
+        if (posChange < movementThreshold && rotChange < rotationThreshold && !headMoved)
+        {
+            return;
+        }
+        
+        // Mettre à jour les dernières valeurs
+        _lastSyncPosition = originTf.position;
+        _lastSyncRotation = originTf.rotation;
+        if (_localHead != null)
+        {
+            _lastSyncHeadPos = _localHead.position;
+            _lastSyncHeadRot = _localHead.rotation;
+        }
 
         var data = new VRPositionData
         {
@@ -444,6 +592,16 @@ public class VRGameManager : MonoBehaviour
 
             remote.currentRoomType = data.roomType;
             remote.hasReceivedData = true;
+            
+            // FIX #4: Afficher/cacher selon la zone
+            if (VRRoomManager.Instance != null)
+            {
+                bool sameZone = (data.roomType == VRRoomManager.Instance.CurrentRoomType);
+                if (remote.gameObject != null)
+                {
+                    remote.gameObject.SetActive(sameZone);
+                }
+            }
         }
     }
 
@@ -454,6 +612,10 @@ public class VRGameManager : MonoBehaviour
         foreach (var remote in _remotePlayers.Values)
         {
             if (remote.gameObject == null || !remote.hasReceivedData)
+                continue;
+                
+            // Ne pas interpoler si invisible
+            if (!remote.gameObject.activeSelf)
                 continue;
 
             // 1) Corps (root) : world
