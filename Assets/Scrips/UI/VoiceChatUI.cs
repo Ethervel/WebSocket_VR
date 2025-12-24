@@ -3,9 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 
-/// <summary>
 /// UI pour sélectionner le microphone et contrôler le voice chat
-/// </summary>
 public class VoiceChatUI : MonoBehaviour
 {
     [Header("Microphone Selection")]
@@ -461,17 +459,13 @@ public class VoiceChatUI : MonoBehaviour
     
     #region Public API
     
-    /// <summary>
     /// Affiche/Cache le panneau de voice chat
-    /// </summary>
     public void SetPanelVisible(bool visible)
     {
         gameObject.SetActive(visible);
     }
     
-    /// <summary>
     /// Force le refresh de la liste des micros
-    /// </summary>
     public void ForceRefreshMicrophones()
     {
         RefreshMicrophoneList();

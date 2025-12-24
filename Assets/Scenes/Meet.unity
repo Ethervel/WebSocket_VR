@@ -511,6 +511,7 @@ MonoBehaviour:
   tip: {fileID: 1857225911}
   penSize: 5
   currentColor: {r: 0.008547783, g: 1, b: 0, a: 1}
+  isNetworked: 1
 --- !u!54 &84987761
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -770,6 +771,7 @@ GameObject:
   - component: {fileID: 119269903}
   - component: {fileID: 119269902}
   - component: {fileID: 119269901}
+  - component: {fileID: 119269905}
   m_Layer: 6
   m_Name: Quad
   m_TagString: Whiteboard
@@ -804,7 +806,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: debd26a4208369b449ba8b00c64e80e9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Whiteboard
-  texture: {fileID: 2800000, guid: 54e5888431752774395603419237fd6a, type: 3}
+  texture: {fileID: 0}
   textureSize: {x: 2048, y: 2048}
 --- !u!64 &119269902
 MeshCollider:
@@ -884,6 +886,23 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 119269899}
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &119269905
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 119269899}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0945265c4e12e1742b08e078bdc014cc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WhiteboardNetworkSync
+  whiteboard: {fileID: 119269901}
+  whiteboardId: whiteboard_1
+  useBatching: 1
+  batchInterval: 0.05
+  showDebugLogs: 1
 --- !u!1 &123274376
 GameObject:
   m_ObjectHideFlags: 0
@@ -10280,6 +10299,7 @@ MonoBehaviour:
   tip: {fileID: 345259740}
   penSize: 5
   currentColor: {r: 0.07035923, g: 0, b: 1, a: 1}
+  isNetworked: 1
 --- !u!54 &1201632556
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -12681,6 +12701,7 @@ MonoBehaviour:
   tip: {fileID: 1093993841}
   penSize: 5
   currentColor: {r: 1, g: 0, b: 0.0743804, a: 1}
+  isNetworked: 1
 --- !u!54 &1477482354
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -14573,6 +14594,9 @@ GameObject:
   - component: {fileID: 1592390987}
   - component: {fileID: 1592390986}
   - component: {fileID: 1592390985}
+  - component: {fileID: 1592390991}
+  - component: {fileID: 1592390990}
+  - component: {fileID: 1592390989}
   m_Layer: 0
   m_Name: GMarker
   m_TagString: Untagged
@@ -14722,6 +14746,7 @@ MonoBehaviour:
   tip: {fileID: 1090465664}
   penSize: 5
   currentColor: {r: 0.008547783, g: 1, b: 0, a: 1}
+  isNetworked: 1
 --- !u!54 &1592390987
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -14757,7 +14782,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1592390984}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0.5160333, y: -0.4834353, z: 0.4834352, w: 0.5160333}
   m_LocalPosition: {x: 0.42082646, y: 2.0286164, z: 0.7957138}
   m_LocalScale: {x: 1.4285713, y: 1.4285715, z: 1.4285715}
   m_ConstrainProportionsScale: 0
@@ -14767,7 +14792,60 @@ Transform:
   - {fileID: 362194394}
   - {fileID: 1477832222798344029}
   m_Father: {fileID: 6062732349809830243}
-  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 86.264}
+--- !u!114 &1592390989
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1592390984}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 331fd492a264cae438a3a1728a2bec56, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MarkerNetworkSync
+  marker: {fileID: 1592390986}
+  markerId: 
+  syncRate: 20
+  showRemoteMarkers: 1
+  remoteMarkerMaterial: {fileID: 0}
+  showDebugLogs: 0
+--- !u!114 &1592390990
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1592390984}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c951ebb4785c6e428c91c7ceec576ca, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VRMarkerGrabHandler
+  useManualGrab: 0
+  controllerLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  grabKey: 323
+--- !u!114 &1592390991
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1592390984}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 331fd492a264cae438a3a1728a2bec56, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MarkerNetworkSync
+  marker: {fileID: 0}
+  markerId: 
+  syncRate: 20
+  showRemoteMarkers: 1
+  remoteMarkerMaterial: {fileID: 0}
+  showDebugLogs: 0
 --- !u!1 &1615086697
 GameObject:
   m_ObjectHideFlags: 0
@@ -15628,6 +15706,7 @@ MonoBehaviour:
   tip: {fileID: 1063400248}
   penSize: 5
   currentColor: {r: 0.07035923, g: 0, b: 1, a: 1}
+  isNetworked: 1
 --- !u!54 &1738602112
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -18419,6 +18498,7 @@ MonoBehaviour:
   tip: {fileID: 242419823}
   penSize: 5
   currentColor: {r: 1, g: 0, b: 0.0743804, a: 1}
+  isNetworked: 1
 --- !u!54 &1998419977
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -20311,6 +20391,7 @@ GameObject:
   - component: {fileID: 7881323772761171054}
   - component: {fileID: 7881323772761171056}
   - component: {fileID: 7881323772761171055}
+  - component: {fileID: 7881323772761171057}
   m_Layer: 6
   m_Name: Backboard
   m_TagString: Whiteboard
@@ -21256,6 +21337,23 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 3770380257672671993, guid: 2523cf8faaa7db949b945bb25b2f8a3a, type: 3}
+--- !u!114 &7881323772761171057
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1316576637225846809}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0945265c4e12e1742b08e078bdc014cc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WhiteboardNetworkSync
+  whiteboard: {fileID: 7881323772761171055}
+  whiteboardId: whiteboard_1
+  useBatching: 1
+  batchInterval: 0.05
+  showDebugLogs: 0
 --- !u!4 &8149576274104613050
 Transform:
   m_ObjectHideFlags: 0

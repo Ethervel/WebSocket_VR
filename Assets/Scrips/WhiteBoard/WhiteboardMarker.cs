@@ -6,8 +6,11 @@ public class WhiteboardMarker : MonoBehaviour
     [Header("Configuration")]
     public Transform tip;
     public int penSize = 5;
-    public Color currentColor = Color.black; // 🎨 couleur du feutre
+    public Color currentColor = Color.black;
 
+    [Header("Network Sync")]
+    public bool isNetworked = true;
+    
     private Renderer _renderer;
     private Color[] _colors;
     private float _tipHeight;
@@ -15,6 +18,7 @@ public class WhiteboardMarker : MonoBehaviour
     // Variables pour le dessin
     private RaycastHit _touch;
     private Whiteboard _whiteboard;
+
     private Vector2 _touchPos;
     private Vector2 _lastTouchPos;
     private bool _touchedLastFrame;
@@ -70,6 +74,7 @@ public class WhiteboardMarker : MonoBehaviour
                 if (_whiteboard == null)
                 {
                     _whiteboard = _touch.transform.GetComponent<Whiteboard>();
+                    
                 }
 
                 _touchPos = _touch.textureCoord;
@@ -86,9 +91,10 @@ public class WhiteboardMarker : MonoBehaviour
 
                 if (_touchedLastFrame)
                 {
+                    // Dessiner localement
                     _whiteboard.texture.SetPixels(x, y, penSize, penSize, _colors);
 
-                    // Interpolation
+                    // Interpolation pour des traits fluides
                     for (float t = 0.01f; t < 1.0f; t += 0.01f)
                     {
                         int lerpX = (int)Mathf.Lerp(_lastTouchPos.x, x, t);
@@ -101,6 +107,7 @@ public class WhiteboardMarker : MonoBehaviour
                             penSize,
                             _colors
                         );
+                        
                     }
 
                     transform.rotation = _lastTouchRot;

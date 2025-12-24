@@ -215,7 +215,7 @@ public class VRGameManager : MonoBehaviour
         FindVRReferences();
         SetupTeleportation();
         
-        // ✅ Initialiser toutes les dernières positions
+        //  Initialiser toutes les dernières positions
         if (_localXrOrigin != null)
         {
             _lastSyncPosition = _localXrOrigin.transform.position;
@@ -554,7 +554,7 @@ public class VRGameManager : MonoBehaviour
             headMoved = headPosChange > movementThreshold || headRotChange > rotationThreshold;
         }
         
-        // ✅ FIX: Détecter aussi le mouvement des mains !
+        //  FIX: Détecter aussi le mouvement des mains !
         bool handsMoved = false;
         if (syncHands && _localLeftHand != null && _localRightHand != null)
         {
@@ -563,7 +563,7 @@ public class VRGameManager : MonoBehaviour
             handsMoved = leftHandPosChange > movementThreshold || rightHandPosChange > movementThreshold;
         }
         
-        // ✅ FIX: Ne sync que si AU MOINS UNE partie a bougé (corps, tête, ou mains)
+        //  FIX: Ne sync que si AU MOINS UNE partie a bougé (corps, tête, ou mains)
         if (posChange < movementThreshold && rotChange < rotationThreshold && !headMoved && !handsMoved)
         {
             return;
@@ -577,7 +577,7 @@ public class VRGameManager : MonoBehaviour
             _lastSyncHeadRot = _localHead.rotation;
         }
         
-        // ✅ FIX: Mettre à jour les dernières positions des mains
+        //  FIX: Mettre à jour les dernières positions des mains
         if (_localLeftHand != null)
             _lastSyncLeftHandPos = _localLeftHand.position;
         if (_localRightHand != null)
