@@ -511,7 +511,10 @@ MonoBehaviour:
   tip: {fileID: 1857225911}
   penSize: 5
   currentColor: {r: 0.008547783, g: 1, b: 0, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  sendRate: 0.1
 --- !u!54 &84987761
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -806,8 +809,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: debd26a4208369b449ba8b00c64e80e9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Whiteboard
-  texture: {fileID: 0}
+  id: Whiteboard_01
   textureSize: {x: 2048, y: 2048}
+  texture: {fileID: 0}
 --- !u!64 &119269902
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -10299,7 +10303,10 @@ MonoBehaviour:
   tip: {fileID: 345259740}
   penSize: 5
   currentColor: {r: 0.07035923, g: 0, b: 1, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 64
+  sendRate: 0.1
 --- !u!54 &1201632556
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -12701,7 +12708,10 @@ MonoBehaviour:
   tip: {fileID: 1093993841}
   penSize: 5
   currentColor: {r: 1, g: 0, b: 0.0743804, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 64
+  sendRate: 0.1
 --- !u!54 &1477482354
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -14746,7 +14756,10 @@ MonoBehaviour:
   tip: {fileID: 1090465664}
   penSize: 5
   currentColor: {r: 0.008547783, g: 1, b: 0, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 64
+  sendRate: 0.1
 --- !u!54 &1592390987
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -15706,7 +15719,10 @@ MonoBehaviour:
   tip: {fileID: 1063400248}
   penSize: 5
   currentColor: {r: 0.07035923, g: 0, b: 1, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  sendRate: 0.1
 --- !u!54 &1738602112
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -18498,7 +18514,10 @@ MonoBehaviour:
   tip: {fileID: 242419823}
   penSize: 5
   currentColor: {r: 1, g: 0, b: 0.0743804, a: 1}
-  isNetworked: 1
+  whiteboardLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  sendRate: 0.1
 --- !u!54 &1998419977
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -21313,8 +21332,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: debd26a4208369b449ba8b00c64e80e9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Whiteboard
-  texture: {fileID: 0}
+  id: Whiteboard_01
   textureSize: {x: 2048, y: 2048}
+  texture: {fileID: 0}
 --- !u!64 &7881323772761171056
 MeshCollider:
   m_ObjectHideFlags: 0
