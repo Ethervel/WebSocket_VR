@@ -41,7 +41,7 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // =======================
-    // 🎨 GESTION DES COULEURS
+    //  GESTION DES COULEURS
     // =======================
 
     public void SetColor(Color newColor)
