@@ -12,21 +12,21 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Représente un seul trait de dessin
-/// 🔧 FIX: Utilise pointsFlat au lieu de points pour meilleure sérialisation JSON
+/// FIX: Utilise pointsFlat au lieu de points pour meilleure sérialisation JSON
 /// </summary>
 [Serializable]
 public class WhiteboardPacket
 {
     public string whiteboardId;
+    public string roomId; // NOUVEAU: ID de la room
     public float r, g, b, a;
     public int penSize;
     
-    // 🔧 NOUVEAU FORMAT: Liste plate de floats [u1, v1, u2, v2, u3, v3, ...]
-    // Unity sérialise mieux les arrays simples que List<float[]>
+    // NOUVEAU FORMAT: Liste plate de floats [u1, v1, u2, v2, u3, v3, ...]
     public float[] pointsFlat;
     
-    // 📦 ANCIEN FORMAT (gardé pour compatibilité, mais non utilisé)
-    [Obsolete("Utilisez pointsFlat à la place pour meilleure sérialisation")]
+    // ANCIEN FORMAT (gardé pour compatibilité)
+    [Obsolete("Utilisez pointsFlat à la place")]
     public List<float[]> points;
 }
 
@@ -37,6 +37,7 @@ public class WhiteboardPacket
 public class WhiteboardBatchData
 {
     public string whiteboardId;
+    public string roomId; // NOUVEAU: ID de la room
     public List<WhiteboardPacket> draws;
 }
 

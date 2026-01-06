@@ -462,6 +462,7 @@ MonoBehaviour:
   objectId: asd
   syncRate: 20
   interpolationSpeed: 15
+  showDebugLogs: 0
 --- !u!114 &589715556
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -977,6 +978,7 @@ MonoBehaviour:
   objectId: asdfg
   syncRate: 20
   interpolationSpeed: 15
+  showDebugLogs: 0
 --- !u!114 &1043783402
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1259,7 +1261,6 @@ MonoBehaviour:
   textureSize: {x: 2048, y: 2048}
   defaultColor: {r: 1, g: 1, b: 1, a: 1}
   targetRenderer: {fileID: 0}
-  showDebugInfo: 1
   texture: {fileID: 0}
 --- !u!64 &1083140541
 MeshCollider:
@@ -2002,6 +2003,7 @@ MonoBehaviour:
   objectId: Cube_Magique
   syncRate: 20
   interpolationSpeed: 15
+  showDebugLogs: 0
 --- !u!114 &1768926310
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2402,7 +2404,7 @@ GameObject:
   - component: {fileID: 1824308520}
   - component: {fileID: 1824308524}
   m_Layer: 0
-  m_Name: Marker (1)
+  m_Name: Marker
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -2555,8 +2557,6 @@ MonoBehaviour:
     m_Bits: 64
   sendRate: 0.1
   minPointsBeforeSend: 3
-  showDebugRay: 1
-  showDebugLogs: 1
 --- !u!54 &1824308522
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -2618,6 +2618,7 @@ MonoBehaviour:
   objectId: marker
   syncRate: 20
   interpolationSpeed: 15
+  showDebugLogs: 0
 --- !u!1 &1867189351
 GameObject:
   m_ObjectHideFlags: 0

@@ -20,9 +20,6 @@ public class WhiteboardMarker : MonoBehaviour
     public int minPointsBeforeSend = 3;
 
     [Header("Debug")]
-    public bool showDebugRay = true;
-    public bool showDebugLogs = true;
-
     private Renderer _renderer;
     private Color[] _colors;
     private float _tipHeight;
@@ -70,15 +67,13 @@ public class WhiteboardMarker : MonoBehaviour
         _tipHeight = tip.localScale.y;
         ApplyColor(currentColor);
 
-        if (showDebugLogs)
-            Debug.Log($"[WhiteboardMarker] Initialisé - Tip height: {_tipHeight}");
+        
     }
 
     void OnGrabbed()
     {
         _isHeld = true;
-        if (showDebugLogs)
-            Debug.Log("[WhiteboardMarker] ATTRAPÉ");
+        
     }
 
     void OnReleased()
@@ -94,8 +89,7 @@ public class WhiteboardMarker : MonoBehaviour
         _currentWhiteboard = null;
         _currentWhiteboardId = null;
         
-        if (showDebugLogs)
-            Debug.Log("[WhiteboardMarker] RELÂCHÉ");
+
     }
 
     void Update()
@@ -111,12 +105,11 @@ public class WhiteboardMarker : MonoBehaviour
     {
         bool hit = Physics.Raycast(tip.position, transform.up, out _touch, _tipHeight, whiteboardLayer);
 
-        if (showDebugRay)
-            Debug.DrawRay(tip.position, transform.up * _tipHeight, hit ? Color.green : Color.red);
+        
 
         if (!hit)
         {
-            if (_touchedLastFrame && showDebugLogs)
+            if (_touchedLastFrame)
             {
                 Debug.Log("[WhiteboardMarker] Perdu contact avec tableau");
                 if (_pendingPointsFlat.Count > 0)
@@ -148,8 +141,7 @@ public class WhiteboardMarker : MonoBehaviour
             _currentWhiteboardId = wb.id;
             _pendingPointsFlat.Clear();
             
-            if (showDebugLogs)
-                Debug.Log($"[WhiteboardMarker] Nouveau tableau: {_currentWhiteboardId}");
+            
         }
 
         Vector2 uv = _touch.textureCoord;
@@ -182,8 +174,6 @@ public class WhiteboardMarker : MonoBehaviour
             wb.texture.SetPixels(x, y, penSize, penSize, _colors);
             wb.texture.Apply();
             
-            if (showDebugLogs)
-                Debug.Log($"[WhiteboardMarker] Nouveau trait sur {_currentWhiteboardId}");
         }
         
         // 🔧 FIX: Ajouter au buffer PLAT (u,v,u,v,u,v...)
@@ -227,16 +217,14 @@ public class WhiteboardMarker : MonoBehaviour
 
         if (!VRNetworkManager.IsConnected)
         {
-            if (showDebugLogs && Time.frameCount % 120 == 0)
-                Debug.LogWarning("[WhiteboardMarker] Pas connecté au réseau");
+            
             _failedSends++;
             return;
         }
 
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
         {
-            if (showDebugLogs && Time.frameCount % 120 == 0)
-                Debug.LogWarning("[WhiteboardMarker] Pas dans une room");
+            
             _failedSends++;
             return;
         }
@@ -267,12 +255,6 @@ public class WhiteboardMarker : MonoBehaviour
             _totalPointsSent += pointCount;
             _totalBatchesSent++;
             
-            if (showDebugLogs)
-            {
-                Debug.Log($"[WhiteboardMarker] ✅ Batch #{_totalBatchesSent} envoyé: " +
-                          $"{pointCount} points ({_pendingPointsFlat.Count} floats) pour {_currentWhiteboardId} " +
-                          $"(Room: {VRRoomManager.Instance.CurrentRoomId})");
-            }
         }
         catch (System.Exception e)
         {
@@ -306,20 +288,4 @@ public class WhiteboardMarker : MonoBehaviour
         }
     }
 
-    void OnGUI()
-    {
-        if (!showDebugRay) return;
-
-        GUILayout.BeginArea(new Rect(10, 350, 450, 220));
-        GUILayout.Box("=== WHITEBOARD MARKER DEBUG ===");
-        GUILayout.Label($"Tenu: {(_isHeld ? "OUI ✓" : "NON ✗")}");
-        GUILayout.Label($"Dessin actif: {(_touchedLastFrame && _currentWhiteboard != null ? "OUI ✓" : "NON ✗")}");
-        GUILayout.Label($"Tableau: {_currentWhiteboardId ?? "Aucun"}");
-        GUILayout.Label($"Buffer: {_pendingPointsFlat.Count / 2} points ({_pendingPointsFlat.Count} floats)");
-        GUILayout.Label($"Réseau: {(VRNetworkManager.IsConnected ? "✓ Connecté" : "✗ Déconnecté")}");
-        GUILayout.Label($"Room: {(VRRoomManager.Instance?.IsInRoom == true ? $"✓ {VRRoomManager.Instance.CurrentRoomId}" : "✗ Aucune")}");
-        GUILayout.Label($"Stats: {_totalBatchesSent} envois ({_totalPointsSent} points)");
-        GUILayout.Label($"Échecs: {_failedSends}");
-        GUILayout.EndArea();
-    }
 }

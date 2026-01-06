@@ -20,10 +20,6 @@ public class Whiteboard : MonoBehaviour
     
     [Header("References")]
     public Renderer targetRenderer;
-
-    [Header("Debug")]
-    public bool showDebugInfo = true;
-
     [HideInInspector] public Texture2D texture;
     
     private List<WhiteboardPacket> _drawHistory = new List<WhiteboardPacket>();
@@ -151,12 +147,7 @@ public class Whiteboard : MonoBehaviour
 
     void HandleBatchReceived(string dataJson, string senderId)
     {
-        if (senderId == VRNetworkManager.LocalId)
-        {
-            if (showDebugInfo)
-                Debug.Log($"[Whiteboard:{id}] Ignoré batch local de {senderId}");
-            return;
-        }
+        
 
         WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
         
@@ -192,11 +183,7 @@ public class Whiteboard : MonoBehaviour
         _receivedDraws += batchData.draws.Count;
         _receivedPoints += totalPoints;
 
-        if (showDebugInfo)
-        {
-            Debug.Log($"[Whiteboard:{id}] ✅ Reçu batch de {senderId}: " +
-                      $"{batchData.draws.Count} dessins, {totalPoints} points");
-        }
+        
     }
 
     public void ApplyReceivedPacket(WhiteboardPacket packet)
@@ -301,8 +288,6 @@ public class Whiteboard : MonoBehaviour
 
         ClearTextureLocal();
         
-        if (showDebugInfo)
-            Debug.Log($"[Whiteboard:{id}] Tableau effacé par {senderId}");
     }
 
     void ClearTextureLocal()
@@ -349,8 +334,7 @@ public class Whiteboard : MonoBehaviour
 
         VRNetworkManager.Instance.Send("whiteboard-request", request);
         
-        if (showDebugInfo)
-            Debug.Log($"[Whiteboard:{id}] Demande d'état envoyée");
+    
     }
 
     void HandleStateRequest(string dataJson, string requesterId)
@@ -383,8 +367,7 @@ public class Whiteboard : MonoBehaviour
 
         VRNetworkManager.Instance.Send("whiteboard-state", state);
 
-        if (showDebugInfo)
-            Debug.Log($"[Whiteboard:{id}] État envoyé ({pngData.Length / 1024}KB)");
+        
     }
 
     void HandleStateReceived(string dataJson, string senderId)
@@ -406,8 +389,6 @@ public class Whiteboard : MonoBehaviour
 
             Destroy(receivedTexture);
 
-            if (showDebugInfo)
-                Debug.Log($"[Whiteboard:{id}] État reçu de {senderId} ({pngData.Length / 1024}KB)");
         }
         catch (Exception e)
         {
@@ -425,19 +406,5 @@ public class Whiteboard : MonoBehaviour
         }
     }
 
-    void OnGUI()
-    {
-        if (!showDebugInfo) return;
-
-        GUILayout.BeginArea(new Rect(10, 200, 350, 220));
-        GUILayout.Box($"=== WHITEBOARD: {id} ===");
-        GUILayout.Label($"Initialisé: {(_isInitialized ? "✓" : "✗")}");
-        GUILayout.Label($"Réseau: {(VRNetworkManager.IsConnected ? "✓ Connecté" : "✗ Déconnecté")}");
-        GUILayout.Label($"Room: {(VRRoomManager.Instance?.IsInRoom == true ? $"✓ {VRRoomManager.Instance.CurrentRoomId}" : "✗ Aucune")}");
-        GUILayout.Label($"Historique: {_drawHistory.Count} packets");
-        GUILayout.Label($"Reçu: {_receivedBatches} batchs");
-        GUILayout.Label($"Dessins: {_receivedDraws} | Points: {_receivedPoints}");
-        GUILayout.Label($"Texture: {textureSize.x}x{textureSize.y}");
-        GUILayout.EndArea();
-    }
+    
 }
