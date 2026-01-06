@@ -6,9 +6,7 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Gère le tableau blanc synchronisé en réseau
-/// - Applique les dessins reçus du réseau
-/// - Envoie l'état complet aux nouveaux joueurs
-/// - Gère le clear synchronisé
+/// Version corrigée avec meilleure désérialisation
 /// </summary>
 public class Whiteboard : MonoBehaviour
 {
@@ -26,16 +24,17 @@ public class Whiteboard : MonoBehaviour
     [Header("Debug")]
     public bool showDebugInfo = true;
 
-    // Texture principale
     [HideInInspector] public Texture2D texture;
     
-    // Historique des dessins (pour nouveaux joueurs)
     private List<WhiteboardPacket> _drawHistory = new List<WhiteboardPacket>();
-    private const int MAX_HISTORY_SIZE = 100; // Limiter la mémoire
+    private const int MAX_HISTORY_SIZE = 100;
 
-    // État de synchronisation
     private bool _isInitialized = false;
     private bool _hasRequestedState = false;
+    
+    private int _receivedBatches = 0;
+    private int _receivedDraws = 0;
+    private int _receivedPoints = 0;
 
     void Start()
     {
@@ -58,10 +57,6 @@ public class Whiteboard : MonoBehaviour
         UnsubscribeFromNetwork();
     }
 
-    // ========================================
-    // INITIALISATION
-    // ========================================
-
     void InitializeTexture()
     {
         if (targetRenderer == null)
@@ -73,7 +68,6 @@ public class Whiteboard : MonoBehaviour
             return;
         }
 
-        // Créer texture vierge
         texture = new Texture2D((int)textureSize.x, (int)textureSize.y);
         ClearTextureLocal();
         
@@ -82,10 +76,6 @@ public class Whiteboard : MonoBehaviour
 
         Debug.Log($"[Whiteboard:{id}] Initialisé ({textureSize.x}x{textureSize.y})");
     }
-
-    // ========================================
-    // NETWORK SUBSCRIPTION
-    // ========================================
 
     void SubscribeToNetwork()
     {
@@ -108,7 +98,6 @@ public class Whiteboard : MonoBehaviour
 
     void OnNetworkConnected()
     {
-        // Quand on se connecte/rejoint une room, demander l'état actuel
         if (!_hasRequestedState)
         {
             StartCoroutine(RequestWhiteboardStateDelayed());
@@ -117,7 +106,6 @@ public class Whiteboard : MonoBehaviour
 
     IEnumerator RequestWhiteboardStateDelayed()
     {
-        // Attendre 1 seconde pour que la room soit bien jointe
         yield return new WaitForSeconds(1f);
         
         if (VRNetworkManager.IsConnected)
@@ -127,22 +115,23 @@ public class Whiteboard : MonoBehaviour
         }
     }
 
-    // ========================================
-    // NETWORK HANDLERS
-    // ========================================
-
     void HandleNetworkMessage(NetworkMessage msg)
     {
+        if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
+        {
+            return;
+        }
+
         try
         {
             switch (msg.type)
             {
                 case "whiteboard-batch":
-                    HandleBatchReceived(msg.data);
+                    HandleBatchReceived(msg.data, msg.senderId);
                     break;
 
                 case "whiteboard-clear":
-                    HandleClearReceived(msg.data);
+                    HandleClearReceived(msg.data, msg.senderId);
                     break;
 
                 case "whiteboard-request":
@@ -150,62 +139,119 @@ public class Whiteboard : MonoBehaviour
                     break;
 
                 case "whiteboard-state":
-                    HandleStateReceived(msg.data);
+                    HandleStateReceived(msg.data, msg.senderId);
                     break;
             }
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Whiteboard:{id}] Erreur message: {e.Message}");
+            Debug.LogError($"[Whiteboard:{id}] Erreur message '{msg.type}': {e.Message}\n{e.StackTrace}");
         }
     }
 
-    // ========================================
-    // DESSIN RÉSEAU (Batch)
-    // ========================================
-
-    void HandleBatchReceived(string dataJson)
+    void HandleBatchReceived(string dataJson, string senderId)
     {
-        WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
-        
-        if (batchData.whiteboardId != id) return;
-
-        foreach (var packet in batchData.draws)
+        if (senderId == VRNetworkManager.LocalId)
         {
-            ApplyReceivedPacket(packet);
-            
-            // Ajouter à l'historique
-            AddToHistory(packet);
+            if (showDebugInfo)
+                Debug.Log($"[Whiteboard:{id}] Ignoré batch local de {senderId}");
+            return;
         }
 
+        WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
+        
+        if (batchData.whiteboardId != id)
+        {
+            return;
+        }
+
+        if (batchData.draws == null || batchData.draws.Count == 0)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] Batch vide reçu de {senderId}");
+            return;
+        }
+
+        int totalPoints = 0;
+        foreach (var packet in batchData.draws)
+        {
+            // 🔧 FIX: Vérifier pointsFlat au lieu de points
+            if (packet.pointsFlat == null || packet.pointsFlat.Length == 0)
+            {
+                Debug.LogWarning($"[Whiteboard:{id}] Packet sans points dans batch de {senderId}");
+                continue;
+            }
+
+            // Appliquer le packet
+            ApplyReceivedPacket(packet);
+            AddToHistory(packet);
+            
+            totalPoints += packet.pointsFlat.Length / 2;
+        }
+
+        _receivedBatches++;
+        _receivedDraws += batchData.draws.Count;
+        _receivedPoints += totalPoints;
+
         if (showDebugInfo)
-            Debug.Log($"[Whiteboard:{id}] Reçu batch de {batchData.draws.Count} dessins");
+        {
+            Debug.Log($"[Whiteboard:{id}] ✅ Reçu batch de {senderId}: " +
+                      $"{batchData.draws.Count} dessins, {totalPoints} points");
+        }
     }
 
     public void ApplyReceivedPacket(WhiteboardPacket packet)
     {
-        if (!_isInitialized || packet.points == null || packet.points.Count == 0)
+        if (!_isInitialized)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] Cannot apply packet: not initialized");
             return;
+        }
+
+        // 🔧 FIX: Supporter les deux formats (ancien et nouveau)
+        if (packet.pointsFlat == null || packet.pointsFlat.Length == 0)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] Packet sans pointsFlat");
+            return;
+        }
+
+        // Vérifier format valide (paires u,v)
+        if (packet.pointsFlat.Length % 2 != 0)
+        {
+            Debug.LogError($"[Whiteboard:{id}] pointsFlat invalide (longueur impaire: {packet.pointsFlat.Length})");
+            return;
+        }
 
         Color col = new Color(packet.r, packet.g, packet.b, packet.a);
         Color[] paintPixels = Enumerable.Repeat(col, packet.penSize * packet.penSize).ToArray();
 
         Vector2? lastPoint = null;
 
-        foreach (var p in packet.points)
+        // 🔧 FIX: Lire les points par paires (u,v)
+        for (int i = 0; i < packet.pointsFlat.Length; i += 2)
         {
-            // Convertir UV (0-1) en pixels
-            int x = (int)(p[0] * textureSize.x - packet.penSize / 2);
-            int y = (int)(p[1] * textureSize.y - packet.penSize / 2);
+            float u = packet.pointsFlat[i];
+            float v = packet.pointsFlat[i + 1];
 
-            // Interpolation pour éviter les trous
+            // Convertir UV en pixels avec clamping
+            int x = Mathf.Clamp(
+                (int)(u * textureSize.x - packet.penSize / 2),
+                0,
+                (int)textureSize.x - packet.penSize
+            );
+            
+            int y = Mathf.Clamp(
+                (int)(v * textureSize.y - packet.penSize / 2),
+                0,
+                (int)textureSize.y - packet.penSize
+            );
+
+            // Interpolation pour trait continu
             if (lastPoint.HasValue)
             {
                 InterpolatePoints(lastPoint.Value, new Vector2(x, y), paintPixels, packet.penSize);
             }
             else
             {
-                // Premier point
                 texture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
             }
 
@@ -218,44 +264,45 @@ public class Whiteboard : MonoBehaviour
     void InterpolatePoints(Vector2 start, Vector2 end, Color[] paintPixels, int penSize)
     {
         float dist = Vector2.Distance(start, end);
-        int steps = Mathf.CeilToInt(dist);
+        int steps = Mathf.Max(1, Mathf.CeilToInt(dist));
 
         for (int i = 0; i <= steps; i++)
         {
             float t = steps > 0 ? (float)i / steps : 0;
-            int lerpX = (int)Mathf.Lerp(start.x, end.x, t);
-            int lerpY = (int)Mathf.Lerp(start.y, end.y, t);
+            
+            int lerpX = Mathf.Clamp(
+                (int)Mathf.Lerp(start.x, end.x, t),
+                0,
+                (int)textureSize.x - penSize
+            );
+            
+            int lerpY = Mathf.Clamp(
+                (int)Mathf.Lerp(start.y, end.y, t),
+                0,
+                (int)textureSize.y - penSize
+            );
             
             texture.SetPixels(lerpX, lerpY, penSize, penSize, paintPixels);
         }
     }
 
-    // ========================================
-    // CLEAR SYNCHRONISÉ
-    // ========================================
-
-    /// <summary>
-    /// Appeler cette fonction depuis un bouton UI pour effacer le tableau
-    /// </summary>
     public void RequestClear()
     {
-        // 1. Effacer localement
         ClearTextureLocal();
-        
-        // 2. Envoyer au réseau
         SendClearToNetwork();
     }
 
-    void HandleClearReceived(string dataJson)
+    void HandleClearReceived(string dataJson, string senderId)
     {
         WhiteboardClearData clearData = JsonUtility.FromJson<WhiteboardClearData>(dataJson);
         
         if (clearData.whiteboardId != id) return;
+        if (senderId == VRNetworkManager.LocalId) return;
 
         ClearTextureLocal();
         
         if (showDebugInfo)
-            Debug.Log($"[Whiteboard:{id}] Tableau effacé par {clearData.senderId}");
+            Debug.Log($"[Whiteboard:{id}] Tableau effacé par {senderId}");
     }
 
     void ClearTextureLocal()
@@ -269,8 +316,12 @@ public class Whiteboard : MonoBehaviour
         texture.SetPixels(pixels);
         texture.Apply();
 
-        // Vider l'historique
         _drawHistory.Clear();
+        
+        // Reset stats
+        _receivedBatches = 0;
+        _receivedDraws = 0;
+        _receivedPoints = 0;
     }
 
     void SendClearToNetwork()
@@ -286,13 +337,6 @@ public class Whiteboard : MonoBehaviour
         VRNetworkManager.Instance.Send("whiteboard-clear", data);
     }
 
-    // ========================================
-    // SYNCHRONISATION ÉTAT COMPLET (New Player)
-    // ========================================
-
-    /// <summary>
-    /// Demande l'état actuel du tableau (pour nouveaux joueurs)
-    /// </summary>
     void RequestWhiteboardState()
     {
         if (!VRNetworkManager.IsConnected) return;
@@ -309,31 +353,23 @@ public class Whiteboard : MonoBehaviour
             Debug.Log($"[Whiteboard:{id}] Demande d'état envoyée");
     }
 
-    /// <summary>
-    /// Répond à une demande d'état en envoyant la texture complète
-    /// </summary>
     void HandleStateRequest(string dataJson, string requesterId)
     {
         WhiteboardRequestData request = JsonUtility.FromJson<WhiteboardRequestData>(dataJson);
         
         if (request.whiteboardId != id) return;
-        if (request.requesterId == VRNetworkManager.LocalId) return; // Pas à nous-mêmes
+        if (request.requesterId == VRNetworkManager.LocalId) return;
 
-        // Envoyer seulement si on a un historique (on est déjà dans la room)
         if (_drawHistory.Count > 0)
         {
             SendWhiteboardState(requesterId);
         }
     }
 
-    /// <summary>
-    /// Envoie l'état complet du tableau (texture en PNG base64)
-    /// </summary>
     void SendWhiteboardState(string targetId)
     {
         if (texture == null) return;
 
-        // Encoder la texture en PNG
         byte[] pngData = texture.EncodeToPNG();
         string base64Data = Convert.ToBase64String(pngData);
 
@@ -351,67 +387,57 @@ public class Whiteboard : MonoBehaviour
             Debug.Log($"[Whiteboard:{id}] État envoyé ({pngData.Length / 1024}KB)");
     }
 
-    /// <summary>
-    /// Reçoit et applique l'état complet du tableau
-    /// </summary>
-    void HandleStateReceived(string dataJson)
+    void HandleStateReceived(string dataJson, string senderId)
     {
         WhiteboardStateData state = JsonUtility.FromJson<WhiteboardStateData>(dataJson);
         
         if (state.whiteboardId != id) return;
+        if (senderId == VRNetworkManager.LocalId) return;
 
         try
         {
-            // Décoder le PNG
             byte[] pngData = Convert.FromBase64String(state.textureData);
             
-            // Créer une nouvelle texture et charger le PNG
             Texture2D receivedTexture = new Texture2D(state.width, state.height);
             receivedTexture.LoadImage(pngData);
 
-            // Appliquer à notre texture
             texture.SetPixels(receivedTexture.GetPixels());
             texture.Apply();
 
-            Destroy(receivedTexture); // Nettoyer
+            Destroy(receivedTexture);
 
             if (showDebugInfo)
-                Debug.Log($"[Whiteboard:{id}] État reçu et appliqué ({pngData.Length / 1024}KB)");
+                Debug.Log($"[Whiteboard:{id}] État reçu de {senderId} ({pngData.Length / 1024}KB)");
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Whiteboard:{id}] Erreur lors de la réception de l'état: {e.Message}");
+            Debug.LogError($"[Whiteboard:{id}] Erreur réception état: {e.Message}");
         }
     }
-
-    // ========================================
-    // HISTORIQUE (pour optimisation future)
-    // ========================================
 
     void AddToHistory(WhiteboardPacket packet)
     {
         _drawHistory.Add(packet);
 
-        // Limiter la taille de l'historique
         if (_drawHistory.Count > MAX_HISTORY_SIZE)
         {
             _drawHistory.RemoveAt(0);
         }
     }
 
-    // ========================================
-    // DEBUG
-    // ========================================
-
     void OnGUI()
     {
         if (!showDebugInfo) return;
 
-        GUILayout.BeginArea(new Rect(10, 200, 300, 150));
-        GUILayout.Label($"Whiteboard: {id}");
+        GUILayout.BeginArea(new Rect(10, 200, 350, 220));
+        GUILayout.Box($"=== WHITEBOARD: {id} ===");
+        GUILayout.Label($"Initialisé: {(_isInitialized ? "✓" : "✗")}");
+        GUILayout.Label($"Réseau: {(VRNetworkManager.IsConnected ? "✓ Connecté" : "✗ Déconnecté")}");
+        GUILayout.Label($"Room: {(VRRoomManager.Instance?.IsInRoom == true ? $"✓ {VRRoomManager.Instance.CurrentRoomId}" : "✗ Aucune")}");
         GUILayout.Label($"Historique: {_drawHistory.Count} packets");
-        GUILayout.Label($"Initialisé: {_isInitialized}");
-        GUILayout.Label($"Connecté: {VRNetworkManager.IsConnected}");
+        GUILayout.Label($"Reçu: {_receivedBatches} batchs");
+        GUILayout.Label($"Dessins: {_receivedDraws} | Points: {_receivedPoints}");
+        GUILayout.Label($"Texture: {textureSize.x}x{textureSize.y}");
         GUILayout.EndArea();
     }
 }

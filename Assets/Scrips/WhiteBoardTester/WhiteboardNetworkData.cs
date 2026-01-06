@@ -12,6 +12,7 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Représente un seul trait de dessin
+/// 🔧 FIX: Utilise pointsFlat au lieu de points pour meilleure sérialisation JSON
 /// </summary>
 [Serializable]
 public class WhiteboardPacket
@@ -19,7 +20,14 @@ public class WhiteboardPacket
     public string whiteboardId;
     public float r, g, b, a;
     public int penSize;
-    public List<float[]> points; // Liste de [uvX, uvY]
+    
+    // 🔧 NOUVEAU FORMAT: Liste plate de floats [u1, v1, u2, v2, u3, v3, ...]
+    // Unity sérialise mieux les arrays simples que List<float[]>
+    public float[] pointsFlat;
+    
+    // 📦 ANCIEN FORMAT (gardé pour compatibilité, mais non utilisé)
+    [Obsolete("Utilisez pointsFlat à la place pour meilleure sérialisation")]
+    public List<float[]> points;
 }
 
 /// <summary>
