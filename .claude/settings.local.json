@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(done)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(git mv:*)",
+      "Bash(git checkout:*)"
+    ]
+  }
+}

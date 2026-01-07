@@ -68,8 +68,11 @@ public class VRGameManager : MonoBehaviour
     private Quaternion _lastSyncRotation;
     private Vector3 _lastSyncHeadPos;
     private Quaternion _lastSyncHeadRot;
-    private Vector3 _lastSyncLeftHandPos;   // ✅ NOUVEAU
-    private Vector3 _lastSyncRightHandPos;  // ✅ NOUVEAU
+    private Vector3 _lastSyncLeftHandPos;
+    private Vector3 _lastSyncRightHandPos;
+
+    // Cache pour éviter allocations GC à chaque sync
+    private readonly VRPositionData _cachedPositionData = new VRPositionData();
 
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
@@ -390,9 +393,6 @@ public class VRGameManager : MonoBehaviour
         foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
         foreach (var al in go.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
 
-        var desktopController = go.GetComponent<DesktopPlayerController>();
-        if (desktopController != null) Destroy(desktopController);
-
         var vrController = go.GetComponent<VRPlayerController>();
         if (vrController != null) Destroy(vrController);
 
@@ -583,28 +583,25 @@ public class VRGameManager : MonoBehaviour
         if (_localRightHand != null)
             _lastSyncRightHandPos = _localRightHand.position;
 
-        var data = new VRPositionData
-        {
-            roomId = VRRoomManager.Instance.CurrentRoomId,
-            roomType = VRRoomManager.Instance.CurrentRoomType,
-
-            posX = originTf.position.x,
-            posY = originTf.position.y,
-            posZ = originTf.position.z,
-            rotY = originTf.eulerAngles.y
-        };
+        // Réutilise l'objet caché pour éviter les allocations GC
+        _cachedPositionData.roomId = VRRoomManager.Instance.CurrentRoomId;
+        _cachedPositionData.roomType = VRRoomManager.Instance.CurrentRoomType;
+        _cachedPositionData.posX = originTf.position.x;
+        _cachedPositionData.posY = originTf.position.y;
+        _cachedPositionData.posZ = originTf.position.z;
+        _cachedPositionData.rotY = originTf.eulerAngles.y;
 
         // Tête en WORLD
         if (_localHead != null)
         {
-            data.headPosX = _localHead.position.x;
-            data.headPosY = _localHead.position.y;
-            data.headPosZ = _localHead.position.z;
+            _cachedPositionData.headPosX = _localHead.position.x;
+            _cachedPositionData.headPosY = _localHead.position.y;
+            _cachedPositionData.headPosZ = _localHead.position.z;
 
-            data.headRotX = _localHead.rotation.x;
-            data.headRotY = _localHead.rotation.y;
-            data.headRotZ = _localHead.rotation.z;
-            data.headRotW = _localHead.rotation.w;
+            _cachedPositionData.headRotX = _localHead.rotation.x;
+            _cachedPositionData.headRotY = _localHead.rotation.y;
+            _cachedPositionData.headRotZ = _localHead.rotation.z;
+            _cachedPositionData.headRotW = _localHead.rotation.w;
         }
 
         // Mains en WORLD
@@ -612,30 +609,30 @@ public class VRGameManager : MonoBehaviour
         {
             if (_localLeftHand != null)
             {
-                data.leftHandPosX = _localLeftHand.position.x;
-                data.leftHandPosY = _localLeftHand.position.y;
-                data.leftHandPosZ = _localLeftHand.position.z;
-                
-                data.leftHandRotX = _localLeftHand.rotation.x;
-                data.leftHandRotY = _localLeftHand.rotation.y;
-                data.leftHandRotZ = _localLeftHand.rotation.z;
-                data.leftHandRotW = _localLeftHand.rotation.w;
+                _cachedPositionData.leftHandPosX = _localLeftHand.position.x;
+                _cachedPositionData.leftHandPosY = _localLeftHand.position.y;
+                _cachedPositionData.leftHandPosZ = _localLeftHand.position.z;
+
+                _cachedPositionData.leftHandRotX = _localLeftHand.rotation.x;
+                _cachedPositionData.leftHandRotY = _localLeftHand.rotation.y;
+                _cachedPositionData.leftHandRotZ = _localLeftHand.rotation.z;
+                _cachedPositionData.leftHandRotW = _localLeftHand.rotation.w;
             }
 
             if (_localRightHand != null)
             {
-                data.rightHandPosX = _localRightHand.position.x;
-                data.rightHandPosY = _localRightHand.position.y;
-                data.rightHandPosZ = _localRightHand.position.z;
-                
-                data.rightHandRotX = _localRightHand.rotation.x;
-                data.rightHandRotY = _localRightHand.rotation.y;
-                data.rightHandRotZ = _localRightHand.rotation.z;
-                data.rightHandRotW = _localRightHand.rotation.w;
+                _cachedPositionData.rightHandPosX = _localRightHand.position.x;
+                _cachedPositionData.rightHandPosY = _localRightHand.position.y;
+                _cachedPositionData.rightHandPosZ = _localRightHand.position.z;
+
+                _cachedPositionData.rightHandRotX = _localRightHand.rotation.x;
+                _cachedPositionData.rightHandRotY = _localRightHand.rotation.y;
+                _cachedPositionData.rightHandRotZ = _localRightHand.rotation.z;
+                _cachedPositionData.rightHandRotW = _localRightHand.rotation.w;
             }
         }
 
-        VRNetworkManager.Instance.Send("vr-position", data);
+        VRNetworkManager.Instance.Send("vr-position", _cachedPositionData);
     }
 
     void HandleNetworkMessage(NetworkMessage msg)

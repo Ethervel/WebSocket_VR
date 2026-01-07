@@ -52,6 +52,16 @@ public class BootstrapManager : MonoBehaviour
         {
             StartCoroutine(LoadMainSceneDelayed());
         }
+        
+        // ✅ FIX: Aussi nettoyer au démarrage au cas où Meet est déjà chargé
+        StartCoroutine(CleanupEventSystemsDelayed());
+    }
+    
+    // ✅ NOUVEAU : Nettoyer après un délai pour être sûr que tout est chargé
+    IEnumerator CleanupEventSystemsDelayed()
+    {
+        yield return new WaitForSeconds(1f); // Attendre que tout soit initialisé
+        CleanupDuplicateEventSystems();
     }
     
     IEnumerator LoadMainSceneDelayed()
@@ -121,6 +131,10 @@ public class BootstrapManager : MonoBehaviour
             SceneManager.SetActiveScene(loadedScene);
         }
         
+        // ✅ FIX: Nettoyer les EventSystems en double après chargement
+        yield return null; // Attendre 1 frame que tout soit initialisé
+        CleanupDuplicateEventSystems();
+        
         // Cacher l'écran de chargement
         if (loadingScreen != null)
             loadingScreen.SetActive(false);
@@ -129,6 +143,75 @@ public class BootstrapManager : MonoBehaviour
         
         if (showDebugLogs)
             Debug.Log($"[Bootstrap] Scene loaded: {sceneName}");
+    }
+    
+    /// ✅ Nettoie les EventSystems en double (désactive ceux dans Bootstrap)
+    void CleanupDuplicateEventSystems()
+    {
+        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
+        
+        if (allEventSystems.Length <= 1)
+        {
+            if (showDebugLogs)
+                Debug.Log($"[Bootstrap] ✅ {allEventSystems.Length} EventSystem - OK");
+            return;
+        }
+        
+        if (showDebugLogs)
+            Debug.Log($"[Bootstrap] ⚠️ {allEventSystems.Length} EventSystems détectés, nettoyage...");
+        
+        UnityEngine.EventSystems.EventSystem keepThis = null;
+        
+        // Priorité 1 : Garder celui avec XRUIInputModule (celui de Meet)
+        foreach (var es in allEventSystems)
+        {
+            var xrModule = es.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
+            if (xrModule != null)
+            {
+                keepThis = es;
+                if (showDebugLogs)
+                    Debug.Log($"[Bootstrap] ✅ Garde EventSystem avec XR UI: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
+                break;
+            }
+        }
+        
+        // Priorité 2 : Garder celui dans la scène active (Meet)
+        if (keepThis == null)
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            foreach (var es in allEventSystems)
+            {
+                if (es.gameObject.scene == activeScene)
+                {
+                    keepThis = es;
+                    if (showDebugLogs)
+                        Debug.Log($"[Bootstrap] ✅ Garde EventSystem de la scène active: {es.gameObject.name}");
+                    break;
+                }
+            }
+        }
+        
+        // Priorité 3 : Garder le premier (par sécurité)
+        if (keepThis == null)
+        {
+            keepThis = allEventSystems[0];
+            if (showDebugLogs)
+                Debug.Log($"[Bootstrap] ✅ Garde le premier EventSystem: {keepThis.gameObject.name}");
+        }
+        
+        // Désactiver (pas détruire) tous les autres
+        foreach (var es in allEventSystems)
+        {
+            if (es != keepThis)
+            {
+                if (showDebugLogs)
+                    Debug.Log($"[Bootstrap] ❌ Désactive EventSystem: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
+                es.gameObject.SetActive(false);
+            }
+        }
+        
+        if (showDebugLogs)
+            Debug.Log("[Bootstrap] ✅ Nettoyage EventSystem terminé");
     }
     
     /// Recharge la scène actuelle.
@@ -140,7 +223,7 @@ public class BootstrapManager : MonoBehaviour
         }
     }
     
-    /// Retourne le nom de la scène actuellement chargée.>
+    /// Retourne le nom de la scène actuellement chargée.
     public string GetCurrentSceneName()
     {
         return _currentLoadedScene;
