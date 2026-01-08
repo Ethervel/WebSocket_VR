@@ -5,7 +5,8 @@
       "Bash(rm:*)",
       "Bash(mv:*)",
       "Bash(git mv:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(node:*)"
     ]
   }
 }

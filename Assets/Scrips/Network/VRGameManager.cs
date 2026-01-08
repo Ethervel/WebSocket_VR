@@ -74,6 +74,9 @@ public class VRGameManager : MonoBehaviour
     // Cache pour éviter allocations GC à chaque sync
     private readonly VRPositionData _cachedPositionData = new VRPositionData();
 
+    // Cache XRInteractionManager pour éviter FindFirstObjectByType répété et fuites mémoire
+    private XRInteractionManager _cachedInteractionManager;
+
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
     public static event Action<string, GameObject> OnRemotePlayerSpawned;
@@ -295,12 +298,19 @@ public class VRGameManager : MonoBehaviour
     {
         if (_localPlayer == null) return;
 
-        var interactionManager = FindFirstObjectByType<XRInteractionManager>();
-        if (interactionManager == null)
+        // Utiliser le cache pour éviter FindFirstObjectByType répété et fuites mémoire
+        if (_cachedInteractionManager == null)
         {
-            var managerObj = new GameObject("XR Interaction Manager");
-            interactionManager = managerObj.AddComponent<XRInteractionManager>();
+            _cachedInteractionManager = FindFirstObjectByType<XRInteractionManager>();
+            if (_cachedInteractionManager == null)
+            {
+                var managerObj = new GameObject("XR Interaction Manager");
+                managerObj.transform.SetParent(transform); // Attacher au manager pour éviter les orphelins
+                _cachedInteractionManager = managerObj.AddComponent<XRInteractionManager>();
+                Debug.Log("[VRGame] Created and cached XRInteractionManager");
+            }
         }
+        var interactionManager = _cachedInteractionManager;
 
         var interactors = _localPlayer.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.Interactors.XRBaseInteractor>(true);
         foreach (var interactor in interactors)
