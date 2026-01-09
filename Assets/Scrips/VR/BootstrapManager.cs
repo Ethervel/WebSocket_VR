@@ -251,6 +251,12 @@ public class BootstrapManager : MonoBehaviour
         
         if (showDebugLogs)
             Debug.Log("[Bootstrap] ✅ Nettoyage EventSystem terminé");
+            
+        // ✅ FIX: Force le rafraîchissement de l'interaction UI maintenant que le bon EventSystem est actif
+        if (VRGameManager.Instance != null)
+        {
+            VRGameManager.Instance.RefreshUIInteraction();
+        }
     }
     
     /// Recharge la scène actuelle.

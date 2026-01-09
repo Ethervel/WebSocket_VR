@@ -276,7 +276,11 @@ public class WhiteboardMarker : MonoBehaviour
         if (_renderer != null)
             _renderer.material.color = color;
 
-        _colors = Enumerable.Repeat(color, penSize * penSize).ToArray();
+        // ✅ OPTIMIZATION: Allocation manuelle pour éviter LINQ
+        int pixelCount = penSize * penSize;
+        _colors = new Color[pixelCount];
+        for (int i = 0; i < pixelCount; i++)
+            _colors[i] = color;
     }
 
     void OnDestroy()

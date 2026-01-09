@@ -351,29 +351,53 @@ public class VRGameManager : MonoBehaviour
         }
     }
     
+    // ✅ FIX: Méthode publique pour forcer la configuration de l'interaction UI (appelée par BootstrapManager après nettoyage)
+    public void RefreshUIInteraction()
+    {
+        SetupUIInteraction();
+    }
+
     // ✅ FIX: Méthode pour configurer l'interaction UI avec le nouveau joueur
     void SetupUIInteraction()
     {
-        if (_localHead == null) return;
-        
-        // Trouver l'EventSystem actif
-        var currentES = EventSystem.current;
-        if (currentES == null)
+        if (_localHead == null)
         {
-             var allES = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
-             if (allES.Length > 0) currentES = allES[0];
+            Debug.LogWarning("[VRGame] ⚠️ Impossible de configurer UI : _localHead est null (Joueur pas encore spawné ?)");
+            return;
         }
         
-        if (currentES != null)
+        // 1. Chercher l'EventSystem actif dans la scène
+        EventSystem targetES = null;
+        
+        // D'abord vérifier EventSystem.current s'il est actif
+        if (EventSystem.current != null && EventSystem.current.gameObject.activeInHierarchy)
         {
-            var xrInputModule = currentES.GetComponent<XRUIInputModule>();
-            if (xrInputModule != null)
+            targetES = EventSystem.current;
+        }
+        else
+        {
+            // Sinon chercher tous les EventSystems et prendre le premier actif
+            var allES = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
+            foreach (var es in allES)
+            {
+                if (es.gameObject.activeInHierarchy)
+                {
+                    targetES = es;
+                    break;
+                }
+            }
+        }
+        
+        if (targetES != null)
+        {
+            var xrModule = targetES.GetComponent<XRUIInputModule>();
+            if (xrModule != null)
             {
                 var cam = _localHead.GetComponent<Camera>();
                 if (cam != null)
                 {
-                    xrInputModule.uiCamera = cam;
-                    Debug.Log($"[VRGame] ✅ XRUIInputModule configuré avec la caméra du joueur local: {cam.name}");
+                    xrModule.uiCamera = cam;
+                    Debug.Log($"[VRGame] ✅ UI Interaction LIÉE -> EventSystem: '{targetES.name}' utilise Camera: '{cam.name}'");
                 }
                 else
                 {
@@ -382,12 +406,20 @@ public class VRGameManager : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning($"[VRGame] ⚠️ L'EventSystem '{currentES.name}' n'a pas de XRUIInputModule !");
+                // Si pas de module XR, on essaie de l'ajouter ou de prévenir
+                Debug.LogWarning($"[VRGame] ⚠️ L'EventSystem actif '{targetES.name}' n'a pas de XRUIInputModule ! L'interaction VR risque de ne pas marcher.");
             }
         }
         else
         {
-            Debug.LogError("[VRGame] ❌ Aucun EventSystem trouvé pour configurer l'UI !");
+            Debug.LogError("[VRGame] ❌ Aucun EventSystem ACTIF trouvé pour configurer l'UI !");
+        }
+        
+        // Relancer aussi le binding du clavier si nécessaire
+        var keyboardBinder = FindFirstObjectByType<GlobalKeyboardAutoBind>();
+        if (keyboardBinder != null && _localPlayer != null)
+        {
+            keyboardBinder.BindToPlayer(_localPlayer);
         }
     }
 
@@ -651,22 +683,24 @@ public class VRGameManager : MonoBehaviour
         // Réutilise l'objet caché pour éviter les allocations GC
         _cachedPositionData.roomId = VRRoomManager.Instance.CurrentRoomId;
         _cachedPositionData.roomType = VRRoomManager.Instance.CurrentRoomType;
-        _cachedPositionData.posX = originTf.position.x;
-        _cachedPositionData.posY = originTf.position.y;
-        _cachedPositionData.posZ = originTf.position.z;
-        _cachedPositionData.rotY = originTf.eulerAngles.y;
+        
+        // ✅ OPTIMIZATION: Arrondir à 3 décimales (mm) pour réduire la taille du JSON
+        _cachedPositionData.posX = Round(originTf.position.x);
+        _cachedPositionData.posY = Round(originTf.position.y);
+        _cachedPositionData.posZ = Round(originTf.position.z);
+        _cachedPositionData.rotY = Round(originTf.eulerAngles.y);
 
         // Tête en WORLD
         if (_localHead != null)
         {
-            _cachedPositionData.headPosX = _localHead.position.x;
-            _cachedPositionData.headPosY = _localHead.position.y;
-            _cachedPositionData.headPosZ = _localHead.position.z;
+            _cachedPositionData.headPosX = Round(_localHead.position.x);
+            _cachedPositionData.headPosY = Round(_localHead.position.y);
+            _cachedPositionData.headPosZ = Round(_localHead.position.z);
 
-            _cachedPositionData.headRotX = _localHead.rotation.x;
-            _cachedPositionData.headRotY = _localHead.rotation.y;
-            _cachedPositionData.headRotZ = _localHead.rotation.z;
-            _cachedPositionData.headRotW = _localHead.rotation.w;
+            _cachedPositionData.headRotX = Round(_localHead.rotation.x);
+            _cachedPositionData.headRotY = Round(_localHead.rotation.y);
+            _cachedPositionData.headRotZ = Round(_localHead.rotation.z);
+            _cachedPositionData.headRotW = Round(_localHead.rotation.w);
         }
 
         // Mains en WORLD
@@ -674,30 +708,36 @@ public class VRGameManager : MonoBehaviour
         {
             if (_localLeftHand != null)
             {
-                _cachedPositionData.leftHandPosX = _localLeftHand.position.x;
-                _cachedPositionData.leftHandPosY = _localLeftHand.position.y;
-                _cachedPositionData.leftHandPosZ = _localLeftHand.position.z;
+                _cachedPositionData.leftHandPosX = Round(_localLeftHand.position.x);
+                _cachedPositionData.leftHandPosY = Round(_localLeftHand.position.y);
+                _cachedPositionData.leftHandPosZ = Round(_localLeftHand.position.z);
 
-                _cachedPositionData.leftHandRotX = _localLeftHand.rotation.x;
-                _cachedPositionData.leftHandRotY = _localLeftHand.rotation.y;
-                _cachedPositionData.leftHandRotZ = _localLeftHand.rotation.z;
-                _cachedPositionData.leftHandRotW = _localLeftHand.rotation.w;
+                _cachedPositionData.leftHandRotX = Round(_localLeftHand.rotation.x);
+                _cachedPositionData.leftHandRotY = Round(_localLeftHand.rotation.y);
+                _cachedPositionData.leftHandRotZ = Round(_localLeftHand.rotation.z);
+                _cachedPositionData.leftHandRotW = Round(_localLeftHand.rotation.w);
             }
 
             if (_localRightHand != null)
             {
-                _cachedPositionData.rightHandPosX = _localRightHand.position.x;
-                _cachedPositionData.rightHandPosY = _localRightHand.position.y;
-                _cachedPositionData.rightHandPosZ = _localRightHand.position.z;
+                _cachedPositionData.rightHandPosX = Round(_localRightHand.position.x);
+                _cachedPositionData.rightHandPosY = Round(_localRightHand.position.y);
+                _cachedPositionData.rightHandPosZ = Round(_localRightHand.position.z);
 
-                _cachedPositionData.rightHandRotX = _localRightHand.rotation.x;
-                _cachedPositionData.rightHandRotY = _localRightHand.rotation.y;
-                _cachedPositionData.rightHandRotZ = _localRightHand.rotation.z;
-                _cachedPositionData.rightHandRotW = _localRightHand.rotation.w;
+                _cachedPositionData.rightHandRotX = Round(_localRightHand.rotation.x);
+                _cachedPositionData.rightHandRotY = Round(_localRightHand.rotation.y);
+                _cachedPositionData.rightHandRotZ = Round(_localRightHand.rotation.z);
+                _cachedPositionData.rightHandRotW = Round(_localRightHand.rotation.w);
             }
         }
 
         VRNetworkManager.Instance.Send("vr-position", _cachedPositionData);
+    }
+    
+    // Helper pour arrondir à 3 décimales
+    float Round(float value)
+    {
+        return (float)Math.Round(value, 3);
     }
 
     void HandleNetworkMessage(NetworkMessage msg)
