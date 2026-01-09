@@ -560,6 +560,8 @@ MonoBehaviour:
   mainSceneName: Meet
   loadMainSceneOnStart: 1
   loadDelay: 0.5
+  showCustomizationOnStart: 1
+  customizationPanel: {fileID: 0}
   loadingScreen: {fileID: 0}
   progressBar: {fileID: 0}
   loadingText: {fileID: 0}

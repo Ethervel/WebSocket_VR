@@ -17,7 +17,12 @@
       "Bash(pip install:*)",
       "Bash(cat:*)",
       "mcp__UnityMCP__manage_editor",
-      "Bash(claude mcp remove:*)"
+      "Bash(claude mcp remove:*)",
+      "Bash(cd:*)",
+      "Bash(tree:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude mcp get:*)"
     ]
   }
 }
