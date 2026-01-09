@@ -185,6 +185,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: XR Interaction Simulator
       objectReference: {fileID: 0}
+    - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x
       value: -1.6501
@@ -556,6 +560,8 @@ MonoBehaviour:
   mainSceneName: Meet
   loadMainSceneOnStart: 1
   loadDelay: 0.5
+  showCustomizationOnStart: 1
+  customizationPanel: {fileID: 0}
   loadingScreen: {fileID: 0}
   progressBar: {fileID: 0}
   loadingText: {fileID: 0}
@@ -656,7 +662,7 @@ MonoBehaviour:
   usePushToTalk: 0
   pushToTalkKey: 118
   useVRPushToTalk: 0
-  showDebugInfo: 0
+  showDebugInfo: 1
 --- !u!4 &1816735480
 Transform:
   m_ObjectHideFlags: 0

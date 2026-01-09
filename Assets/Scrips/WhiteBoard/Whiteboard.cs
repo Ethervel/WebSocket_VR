@@ -147,8 +147,6 @@ public class Whiteboard : MonoBehaviour
 
     void HandleBatchReceived(string dataJson, string senderId)
     {
-        
-
         WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
         
         if (batchData.whiteboardId != id)
@@ -172,21 +170,24 @@ public class Whiteboard : MonoBehaviour
                 continue;
             }
 
-            // Appliquer le packet
-            ApplyReceivedPacket(packet);
+            // Appliquer le packet SANS upload GPU immédiat (optimisation)
+            ApplyReceivedPacket(packet, false);
             AddToHistory(packet);
             
             totalPoints += packet.pointsFlat.Length / 2;
         }
 
+        // ✅ OPTIMIZATION: Un seul upload GPU pour tout le batch
+        if (texture != null)
+            texture.Apply();
+
         _receivedBatches++;
         _receivedDraws += batchData.draws.Count;
         _receivedPoints += totalPoints;
-
-        
     }
 
-    public void ApplyReceivedPacket(WhiteboardPacket packet)
+    // ✅ OPTIMIZATION: Paramètre 'apply' pour contrôler l'upload GPU
+    public void ApplyReceivedPacket(WhiteboardPacket packet, bool apply = true)
     {
         if (!_isInitialized)
         {
@@ -209,7 +210,11 @@ public class Whiteboard : MonoBehaviour
         }
 
         Color col = new Color(packet.r, packet.g, packet.b, packet.a);
-        Color[] paintPixels = Enumerable.Repeat(col, packet.penSize * packet.penSize).ToArray();
+        
+        // ✅ OPTIMIZATION: Remplacer Enumerable.Repeat par allocation simple
+        int pixelCount = packet.penSize * packet.penSize;
+        Color[] paintPixels = new Color[pixelCount];
+        for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
 
         Vector2? lastPoint = null;
 
@@ -245,7 +250,8 @@ public class Whiteboard : MonoBehaviour
             lastPoint = new Vector2(x, y);
         }
 
-        texture.Apply();
+        if (apply)
+            texture.Apply();
     }
 
     void InterpolatePoints(Vector2 start, Vector2 end, Color[] paintPixels, int penSize)

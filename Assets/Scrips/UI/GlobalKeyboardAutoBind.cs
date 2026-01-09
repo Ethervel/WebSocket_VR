@@ -5,7 +5,10 @@ using UnityEngine.XR.Interaction.Toolkit.Samples.SpatialKeyboard;
 
 public class GlobalKeyboardAutoBind : MonoBehaviour
 {
-    GlobalNonNativeKeyboard _global;
+    [Header("Debug Info")]
+    public GlobalNonNativeKeyboard linkedKeyboard;
+    public Transform linkedPlayerRoot;
+    public Transform linkedCamera;
 
     void OnEnable()
     {
@@ -19,15 +22,35 @@ public class GlobalKeyboardAutoBind : MonoBehaviour
 
     void Start()
     {
-        _global = FindFirstObjectByType<GlobalNonNativeKeyboard>();
-        if (_global == null)
-            Debug.LogError("[KeyboardBind] GlobalNonNativeKeyboard introuvable dans la scène.");
+        FindKeyboard();
     }
 
-    void OnLocalPlayerSpawned(GameObject player)
+    void FindKeyboard()
     {
-        if (_global == null) _global = FindFirstObjectByType<GlobalNonNativeKeyboard>();
-        if (_global == null) return;
+        if (linkedKeyboard == null)
+        {
+            linkedKeyboard = FindFirstObjectByType<GlobalNonNativeKeyboard>();
+            if (linkedKeyboard == null)
+                Debug.LogWarning("[KeyboardBind] GlobalNonNativeKeyboard introuvable dans la scène au démarrage.");
+            else
+                Debug.Log("[KeyboardBind] GlobalNonNativeKeyboard trouvé.");
+        }
+    }
+
+    public void OnLocalPlayerSpawned(GameObject player)
+    {
+        BindToPlayer(player);
+    }
+
+    public void BindToPlayer(GameObject player)
+    {
+        FindKeyboard();
+        
+        if (linkedKeyboard == null)
+        {
+            Debug.LogError("[KeyboardBind] Impossible de lier : Clavier introuvable !");
+            return;
+        }
 
         var cam = player.GetComponentInChildren<Camera>(true);
         if (cam == null)
@@ -39,20 +62,44 @@ public class GlobalKeyboardAutoBind : MonoBehaviour
         var xrOrigin = player.GetComponentInChildren<XROrigin>(true);
         Transform playerRoot = xrOrigin != null ? xrOrigin.transform : player.transform;
 
-        SetPrivateField(_global, "m_CameraTransform", cam.transform);
-        SetPrivateField(_global, "m_PlayerRoot", playerRoot);
+        // Mise à jour des références locales pour debug
+        linkedCamera = cam.transform;
+        linkedPlayerRoot = playerRoot;
 
-        Debug.Log($"[KeyboardBind] OK -> Camera={cam.name}, PlayerRoot={playerRoot.name}");
+        // Injection via réflexion
+        bool camSet = SetPrivateField(linkedKeyboard, "m_CameraTransform", linkedCamera);
+        bool rootSet = SetPrivateField(linkedKeyboard, "m_PlayerRoot", linkedPlayerRoot);
+
+        if (camSet && rootSet)
+            Debug.Log($"[KeyboardBind] ✅ SUCCÈS : Clavier lié au joueur '{player.name}' (Cam: {cam.name})");
+        else
+            Debug.LogError($"[KeyboardBind] ❌ ÉCHEC : Impossible de définir les champs privés du clavier via réflexion.");
+            
+        // Forcer le Canvas du clavier à utiliser la caméra du joueur si nécessaire
+        var keyboardCanvas = linkedKeyboard.GetComponentInChildren<Canvas>(true);
+        if (keyboardCanvas != null && keyboardCanvas.renderMode == RenderMode.WorldSpace && keyboardCanvas.worldCamera == null)
+        {
+            keyboardCanvas.worldCamera = cam;
+            Debug.Log("[KeyboardBind] ✅ Canvas du clavier lié à la caméra du joueur.");
+        }
     }
 
-    static void SetPrivateField(object obj, string fieldName, object value)
+    static bool SetPrivateField(object obj, string fieldName, object value)
     {
-        var f = obj.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        var type = obj.GetType();
+        var f = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        
         if (f == null)
         {
-            Debug.LogWarning($"[KeyboardBind] Champ '{fieldName}' introuvable (changement de version ?).");
-            return;
+            Debug.LogWarning($"[KeyboardBind] Champ '{fieldName}' introuvable dans '{type.Name}'. Champs disponibles :");
+            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
+            {
+                Debug.Log($" - {field.Name} ({field.FieldType})");
+            }
+            return false;
         }
+        
         f.SetValue(obj, value);
+        return true;
     }
 }

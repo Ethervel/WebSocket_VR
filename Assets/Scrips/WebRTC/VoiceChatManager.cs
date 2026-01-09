@@ -43,18 +43,26 @@ public class VoiceChatManager : MonoBehaviour
     
     [Header("Debug")]
     public bool showDebugInfo = true;
-    
+
+    [Header("Connection Timeout (P0 Fix)")]
+    [Tooltip("Timeout in seconds for peer connections that don't complete")]
+    public float peerConnectionTimeout = 15f;
+
     // État
     private bool _isInitialized = false;
     private bool _isMicrophoneActive = false;
     private AudioSource _microphoneAudioSource;
     private string _selectedMicrophone;
-    
+
     // WebRTC
     private Dictionary<string, RTCPeerConnection> _peerConnections = new Dictionary<string, RTCPeerConnection>();
     private Dictionary<string, AudioSource> _remoteAudioSources = new Dictionary<string, AudioSource>();
     private MediaStream _localStream;
     private AudioStreamTrack _localAudioTrack;
+
+    // P0 FIX: Track pending connections with their creation time for timeout handling
+    private Dictionary<string, float> _pendingConnectionStartTimes = new Dictionary<string, float>();
+    private Coroutine _timeoutCheckCoroutine;
     
     // Configuration STUN/TURN
     private RTCConfiguration _rtcConfig = new RTCConfiguration
@@ -159,13 +167,68 @@ public class VoiceChatManager : MonoBehaviour
         
         _isInitialized = true;
         LogDebug("[VoiceChat] WebRTC initialized successfully");
-        
+
+        // P0 FIX: Start the connection timeout checker coroutine
+        if (_timeoutCheckCoroutine != null)
+            StopCoroutine(_timeoutCheckCoroutine);
+        _timeoutCheckCoroutine = StartCoroutine(ConnectionTimeoutChecker());
+
         OnVoiceChatReady?.Invoke();
-        
+
         // Auto-start si configuré
         if (autoStartMicrophone)
         {
             StartMicrophone();
+        }
+    }
+
+    /// <summary>
+    /// P0 FIX: Coroutine that periodically checks for timed out peer connections
+    /// and cleans them up to prevent resource leaks
+    /// </summary>
+    IEnumerator ConnectionTimeoutChecker()
+    {
+        WaitForSeconds checkInterval = new WaitForSeconds(2f); // Check every 2 seconds
+
+        while (true)
+        {
+            yield return checkInterval;
+
+            if (_pendingConnectionStartTimes.Count == 0)
+                continue;
+
+            float currentTime = Time.time;
+            List<string> timedOutPeers = new List<string>();
+
+            foreach (var kvp in _pendingConnectionStartTimes)
+            {
+                string peerId = kvp.Key;
+                float startTime = kvp.Value;
+
+                // Check if connection has timed out
+                if (currentTime - startTime > peerConnectionTimeout)
+                {
+                    // Verify the connection is actually still pending (not connected)
+                    if (_peerConnections.TryGetValue(peerId, out var pc))
+                    {
+                        var state = pc.IceConnectionState;
+                        if (state != RTCIceConnectionState.Connected &&
+                            state != RTCIceConnectionState.Completed)
+                        {
+                            timedOutPeers.Add(peerId);
+                            Debug.LogWarning($"[VoiceChat] P0 FIX: Connection to {peerId} timed out after {peerConnectionTimeout}s (state: {state})");
+                        }
+                    }
+                }
+            }
+
+            // Clean up timed out connections
+            foreach (string peerId in timedOutPeers)
+            {
+                _pendingConnectionStartTimes.Remove(peerId);
+                ClosePeerConnection(peerId);
+                Debug.Log($"[VoiceChat] P0 FIX: Cleaned up timed out connection: {peerId}");
+            }
         }
     }
     
@@ -348,11 +411,14 @@ public class VoiceChatManager : MonoBehaviour
             LogDebug($"[VoiceChat] Peer connection already exists for: {peerId}");
             yield break;
         }
-        
+
         LogDebug($"[VoiceChat] Creating peer connection for: {peerId} (initiator: {createOffer})");
-        
+
         var pc = new RTCPeerConnection(ref _rtcConfig);
         _peerConnections[peerId] = pc;
+
+        // P0 FIX: Track connection start time for timeout handling
+        _pendingConnectionStartTimes[peerId] = Time.time;
         
         // ADAPTÉ: Créer l'AudioSource et l'attacher au GameObject du remote player
         AudioSource audioSource = CreateAudioSourceForPlayer(peerId);
@@ -373,14 +439,18 @@ public class VoiceChatManager : MonoBehaviour
         pc.OnIceConnectionChange = state =>
         {
             LogDebug($"[VoiceChat] ICE state for {peerId}: {state}");
-            
+
             if (state == RTCIceConnectionState.Connected)
             {
+                // P0 FIX: Connection succeeded, remove from pending tracking
+                _pendingConnectionStartTimes.Remove(peerId);
                 OnPeerVoiceConnected?.Invoke(peerId);
             }
-            else if (state == RTCIceConnectionState.Disconnected || 
+            else if (state == RTCIceConnectionState.Disconnected ||
                      state == RTCIceConnectionState.Failed)
             {
+                // P0 FIX: Connection failed, remove from pending tracking
+                _pendingConnectionStartTimes.Remove(peerId);
                 OnPeerVoiceDisconnected?.Invoke(peerId);
             }
         };
@@ -422,7 +492,9 @@ public class VoiceChatManager : MonoBehaviour
         {
             Debug.LogWarning($"[VoiceChat] Remote player GameObject not found for {playerId}, creating fallback");
             // Fallback: créer un GameObject enfant de VoiceChatManager
-            GameObject audioGO = new GameObject($"VoiceAudio_{playerId.Substring(0, 8)}");
+            // Safe substring pour éviter IndexOutOfRangeException si playerId < 8 caractères
+            string shortId = playerId.Length >= 8 ? playerId.Substring(0, 8) : playerId;
+            GameObject audioGO = new GameObject($"VoiceAudio_{shortId}");
             audioGO.transform.SetParent(transform);
             playerGO = audioGO;
         }
@@ -501,20 +573,23 @@ public class VoiceChatManager : MonoBehaviour
     
     void ClosePeerConnection(string peerId)
     {
+        // P0 FIX: Remove from pending tracking when closing
+        _pendingConnectionStartTimes.Remove(peerId);
+
         if (_peerConnections.TryGetValue(peerId, out var pc))
         {
             pc.Close();
             pc.Dispose();
             _peerConnections.Remove(peerId);
         }
-        
+
         if (_remoteAudioSources.TryGetValue(peerId, out var audioSource))
         {
             if (audioSource != null)
                 Destroy(audioSource.gameObject);
             _remoteAudioSources.Remove(peerId);
         }
-        
+
         LogDebug($"[VoiceChat] Closed peer connection: {peerId}");
         OnPeerVoiceDisconnected?.Invoke(peerId);
     }
@@ -530,9 +605,19 @@ public class VoiceChatManager : MonoBehaviour
     
     void CleanupAll()
     {
+        // P0 FIX: Stop the timeout checker coroutine
+        if (_timeoutCheckCoroutine != null)
+        {
+            StopCoroutine(_timeoutCheckCoroutine);
+            _timeoutCheckCoroutine = null;
+        }
+
+        // P0 FIX: Clear pending connection tracking
+        _pendingConnectionStartTimes.Clear();
+
         StopMicrophone();
         CloseAllPeerConnections();
-        
+
         LogDebug("[VoiceChat] Cleanup complete");
     }
     
@@ -817,7 +902,8 @@ public class VoiceChatManager : MonoBehaviour
         {
             var state = kvp.Value.IceConnectionState;
             string stateIcon = state == RTCIceConnectionState.Connected ? "✅" : "⏳";
-            GUILayout.Label($"{stateIcon} {kvp.Key.Substring(0, 8)}: {state}");
+            string shortId = kvp.Key.Length >= 8 ? kvp.Key.Substring(0, 8) : kvp.Key;
+            GUILayout.Label($"{stateIcon} {shortId}: {state}");
         }
         
         GUILayout.Space(10);
