@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Unity.XR.CoreUtils; // XROrigin
+using UnityEngine.EventSystems;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.UI;
+using Unity.XR.CoreUtils; // XROrigin
 
 public class VRGameManager : MonoBehaviour
 {
@@ -77,6 +79,10 @@ public class VRGameManager : MonoBehaviour
     // Cache XRInteractionManager pour éviter FindFirstObjectByType répété et fuites mémoire
     private XRInteractionManager _cachedInteractionManager;
 
+    // Container for detached remote player parts (head/hands) to avoid memory leaks
+    // Using a parent container instead of individual DontDestroyOnLoad calls
+    private Transform _detachedPartsContainer;
+
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
     public static event Action<string, GameObject> OnRemotePlayerSpawned;
@@ -91,6 +97,12 @@ public class VRGameManager : MonoBehaviour
         }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        // P0 FIX: Create a persistent container for detached remote player parts
+        // This prevents memory leaks by keeping all detached objects under a single parent
+        // that gets cleaned up properly when remote players leave
+        _detachedPartsContainer = new GameObject("DetachedRemotePlayerParts").transform;
+        _detachedPartsContainer.SetParent(transform);
     }
 
     void Start()
@@ -220,6 +232,7 @@ public class VRGameManager : MonoBehaviour
 
         FindVRReferences();
         SetupTeleportation();
+        SetupUIInteraction(); // ✅ FIX: Configurer l'interaction UI après le spawn
         
         //  Initialiser toutes les dernières positions
         if (_localXrOrigin != null)
@@ -337,6 +350,46 @@ public class VRGameManager : MonoBehaviour
             anchor.interactionManager = interactionManager;
         }
     }
+    
+    // ✅ FIX: Méthode pour configurer l'interaction UI avec le nouveau joueur
+    void SetupUIInteraction()
+    {
+        if (_localHead == null) return;
+        
+        // Trouver l'EventSystem actif
+        var currentES = EventSystem.current;
+        if (currentES == null)
+        {
+             var allES = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
+             if (allES.Length > 0) currentES = allES[0];
+        }
+        
+        if (currentES != null)
+        {
+            var xrInputModule = currentES.GetComponent<XRUIInputModule>();
+            if (xrInputModule != null)
+            {
+                var cam = _localHead.GetComponent<Camera>();
+                if (cam != null)
+                {
+                    xrInputModule.uiCamera = cam;
+                    Debug.Log($"[VRGame] ✅ XRUIInputModule configuré avec la caméra du joueur local: {cam.name}");
+                }
+                else
+                {
+                    Debug.LogWarning("[VRGame] ⚠️ Impossible de trouver la caméra sur _localHead pour l'UI !");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[VRGame] ⚠️ L'EventSystem '{currentES.name}' n'a pas de XRUIInputModule !");
+            }
+        }
+        else
+        {
+            Debug.LogError("[VRGame] ❌ Aucun EventSystem trouvé pour configurer l'UI !");
+        }
+    }
 
     public void TeleportLocalPlayer(RoomType roomType)
     {
@@ -441,25 +494,27 @@ public class VRGameManager : MonoBehaviour
         }
 
         // CRITICAL: Détacher tête et mains pour qu'ils suivent les positions world
+        // P0 FIX: Parent to persistent container instead of using DontDestroyOnLoad individually
+        // This prevents memory leaks - objects are now tracked and cleaned up properly
         if (remote.head != null)
         {
-            remote.head.SetParent(null);
-            DontDestroyOnLoad(remote.head.gameObject);
-            Debug.Log($"[VRGame] Detached head for {playerData.playerName}");
+            remote.head.SetParent(_detachedPartsContainer);
+            remote.head.name = $"Head_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached head for {playerData.playerName} (parented to container)");
         }
 
         if (remote.leftHand != null)
         {
-            remote.leftHand.SetParent(null);
-            DontDestroyOnLoad(remote.leftHand.gameObject);
-            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName}");
+            remote.leftHand.SetParent(_detachedPartsContainer);
+            remote.leftHand.name = $"LeftHand_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName} (parented to container)");
         }
 
         if (remote.rightHand != null)
         {
-            remote.rightHand.SetParent(null);
-            DontDestroyOnLoad(remote.rightHand.gameObject);
-            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName}");
+            remote.rightHand.SetParent(_detachedPartsContainer);
+            remote.rightHand.name = $"RightHand_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName} (parented to container)");
         }
 
         var nameTag = go.GetComponentInChildren<TMPro.TextMeshPro>(true);

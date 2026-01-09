@@ -19,12 +19,20 @@ public class VRNetworkManager : MonoBehaviour
     public bool autoReconnect = true;
     public float reconnectDelay = 3f;
 
+    [Header("Connection Timeout (P0 Fix)")]
+    [Tooltip("Timeout in seconds waiting for 'welcome' message after connection")]
+    public float welcomeTimeout = 5f;
+
     public static string LocalId { get; private set; }
     public static bool IsConnected { get; private set; }
 
     private WebSocket _websocket;
     private bool _isReconnecting;
     private float _reconnectTimer;
+
+    // P0 FIX: Track welcome message timeout
+    private float _welcomeTimeoutTimer;
+    private bool _waitingForWelcome;
 
     // Cache pour réduire les allocations GC lors de l'envoi fréquent (30Hz)
     private readonly NetworkMessage _cachedOutgoingMessage = new NetworkMessage();
@@ -65,6 +73,18 @@ public class VRNetworkManager : MonoBehaviour
         _websocket?.DispatchMessageQueue();
 #endif
 
+        // P0 FIX: Check for welcome message timeout
+        if (_waitingForWelcome)
+        {
+            _welcomeTimeoutTimer -= Time.deltaTime;
+            if (_welcomeTimeoutTimer <= 0f)
+            {
+                Debug.LogWarning($"[VRNet] P0 FIX: Welcome message timeout after {welcomeTimeout}s - reconnecting");
+                _waitingForWelcome = false;
+                HandleDisconnection();
+            }
+        }
+
         if (_isReconnecting && autoReconnect)
         {
             _reconnectTimer -= Time.deltaTime;
@@ -97,7 +117,10 @@ public class VRNetworkManager : MonoBehaviour
             _websocket.OnOpen += () =>
             {
                 Debug.Log("[VRNet] WebSocket opened");
-                // On attend explicitement le message "welcome"
+                // P0 FIX: Start welcome timeout - server must send "welcome" within timeout
+                _waitingForWelcome = true;
+                _welcomeTimeoutTimer = welcomeTimeout;
+                Debug.Log($"[VRNet] P0 FIX: Waiting for welcome message (timeout: {welcomeTimeout}s)");
             };
 
             _websocket.OnMessage += bytes =>
@@ -147,6 +170,9 @@ public class VRNetworkManager : MonoBehaviour
     {
         bool wasConnected = IsConnected;
 
+        // P0 FIX: Reset welcome timeout state
+        _waitingForWelcome = false;
+
         IsConnected = false;
         LocalId = null;
 
@@ -173,6 +199,9 @@ public class VRNetworkManager : MonoBehaviour
             // 1. Auth handshake
             if (msg.type == "welcome")
             {
+                // P0 FIX: Welcome received, cancel timeout
+                _waitingForWelcome = false;
+
                 LocalId = msg.senderId;
                 IsConnected = true;
                 Debug.Log($"[VRNet] Assigned ID: {LocalId}");

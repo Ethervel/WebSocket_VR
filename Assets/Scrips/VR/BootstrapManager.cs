@@ -96,6 +96,9 @@ public class BootstrapManager : MonoBehaviour
         if (showDebugLogs)
             Debug.Log($"[Bootstrap] Starting to load scene: {sceneName}");
         
+        // ✅ FIX: Désactiver l'EventSystem de la scène Bootstrap UNIQUEMENT
+        DisableBootstrapSceneEventSystem();
+        
         // Afficher l'écran de chargement
         if (loadingScreen != null)
             loadingScreen.SetActive(true);
@@ -151,16 +154,37 @@ public class BootstrapManager : MonoBehaviour
         if (showDebugLogs)
             Debug.Log($"[Bootstrap] Scene loaded: {sceneName}");
     }
+
+    void DisableBootstrapSceneEventSystem()
+    {
+        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
+        foreach (var es in allEventSystems)
+        {
+            // Ne désactiver que s'il appartient à la scène Bootstrap (ou DontDestroyOnLoad)
+            // Cela protège l'EventSystem de la scène cible si elle est déjà chargée ou si on est en éditeur
+            if (es.gameObject.scene == gameObject.scene || es.gameObject.scene.name == "DontDestroyOnLoad")
+            {
+                if (es.gameObject.activeInHierarchy)
+                {
+                    if (showDebugLogs) Debug.Log($"[Bootstrap] Désactivation préventive EventSystem Bootstrap: {es.gameObject.name}");
+                    es.gameObject.SetActive(false);
+                }
+            }
+        }
+    }
     
     /// ✅ Nettoie les EventSystems en double (désactive ceux dans Bootstrap)
     void CleanupDuplicateEventSystems()
     {
-        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
+        // ✅ FIX: Chercher aussi les inactifs
+        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         
         if (allEventSystems.Length <= 1)
         {
-            if (showDebugLogs)
-                Debug.Log($"[Bootstrap] ✅ {allEventSystems.Length} EventSystem - OK");
+            if (allEventSystems.Length > 0 && !allEventSystems[0].gameObject.activeInHierarchy)
+            {
+                 allEventSystems[0].gameObject.SetActive(true);
+            }
             return;
         }
         
@@ -168,8 +192,9 @@ public class BootstrapManager : MonoBehaviour
             Debug.Log($"[Bootstrap] ⚠️ {allEventSystems.Length} EventSystems détectés, nettoyage...");
         
         UnityEngine.EventSystems.EventSystem keepThis = null;
-        
-        // Priorité 1 : Garder celui avec XRUIInputModule (celui de Meet)
+        Scene activeScene = SceneManager.GetActiveScene();
+
+        // Priorité 1 : Garder celui avec XRUIInputModule (CRITIQUE POUR VR)
         foreach (var es in allEventSystems)
         {
             var xrModule = es.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
@@ -181,11 +206,10 @@ public class BootstrapManager : MonoBehaviour
                 break;
             }
         }
-        
+
         // Priorité 2 : Garder celui dans la scène active (Meet)
         if (keepThis == null)
         {
-            Scene activeScene = SceneManager.GetActiveScene();
             foreach (var es in allEventSystems)
             {
                 if (es.gameObject.scene == activeScene)
@@ -206,14 +230,22 @@ public class BootstrapManager : MonoBehaviour
                 Debug.Log($"[Bootstrap] ✅ Garde le premier EventSystem: {keepThis.gameObject.name}");
         }
         
-        // Désactiver (pas détruire) tous les autres
+        // Désactiver (pas détruire) tous les autres et activer le gagnant
         foreach (var es in allEventSystems)
         {
-            if (es != keepThis)
+            if (es == keepThis)
             {
-                if (showDebugLogs)
-                    Debug.Log($"[Bootstrap] ❌ Désactive EventSystem: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
-                es.gameObject.SetActive(false);
+                if (!es.gameObject.activeInHierarchy)
+                    es.gameObject.SetActive(true);
+            }
+            else
+            {
+                if (es.gameObject.activeInHierarchy)
+                {
+                    if (showDebugLogs)
+                        Debug.Log($"[Bootstrap] ❌ Désactive EventSystem: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
+                    es.gameObject.SetActive(false);
+                }
             }
         }
         
