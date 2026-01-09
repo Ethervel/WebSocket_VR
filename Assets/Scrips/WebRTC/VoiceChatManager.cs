@@ -422,7 +422,9 @@ public class VoiceChatManager : MonoBehaviour
         {
             Debug.LogWarning($"[VoiceChat] Remote player GameObject not found for {playerId}, creating fallback");
             // Fallback: créer un GameObject enfant de VoiceChatManager
-            GameObject audioGO = new GameObject($"VoiceAudio_{playerId.Substring(0, 8)}");
+            // Safe substring pour éviter IndexOutOfRangeException si playerId < 8 caractères
+            string shortId = playerId.Length >= 8 ? playerId.Substring(0, 8) : playerId;
+            GameObject audioGO = new GameObject($"VoiceAudio_{shortId}");
             audioGO.transform.SetParent(transform);
             playerGO = audioGO;
         }
@@ -817,7 +819,8 @@ public class VoiceChatManager : MonoBehaviour
         {
             var state = kvp.Value.IceConnectionState;
             string stateIcon = state == RTCIceConnectionState.Connected ? "✅" : "⏳";
-            GUILayout.Label($"{stateIcon} {kvp.Key.Substring(0, 8)}: {state}");
+            string shortId = kvp.Key.Length >= 8 ? kvp.Key.Substring(0, 8) : kvp.Key;
+            GUILayout.Label($"{stateIcon} {shortId}: {state}");
         }
         
         GUILayout.Space(10);

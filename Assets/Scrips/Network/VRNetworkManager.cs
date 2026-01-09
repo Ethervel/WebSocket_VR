@@ -26,6 +26,9 @@ public class VRNetworkManager : MonoBehaviour
     private bool _isReconnecting;
     private float _reconnectTimer;
 
+    // Cache pour réduire les allocations GC lors de l'envoi fréquent (30Hz)
+    private readonly NetworkMessage _cachedOutgoingMessage = new NetworkMessage();
+
     // ============================
     // EVENTS
     // ============================
@@ -222,14 +225,12 @@ public class VRNetworkManager : MonoBehaviour
         if (_websocket == null || _websocket.State != WebSocketState.Open)
             return;
 
-        NetworkMessage msg = new NetworkMessage
-        {
-            type = type,
-            senderId = LocalId,
-            data = dataJson
-        };
+        // Réutiliser le message caché pour éviter les allocations GC
+        _cachedOutgoingMessage.type = type;
+        _cachedOutgoingMessage.senderId = LocalId;
+        _cachedOutgoingMessage.data = dataJson;
 
-        await _websocket.SendText(JsonUtility.ToJson(msg));
+        await _websocket.SendText(JsonUtility.ToJson(_cachedOutgoingMessage));
     }
 
     // ============================

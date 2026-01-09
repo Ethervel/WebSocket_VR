@@ -7,17 +7,24 @@ using System.Collections;
 public class BootstrapManager : MonoBehaviour
 {
     public static BootstrapManager Instance { get; private set; }
-    
+
     [Header("Scene Settings")]
     [Tooltip("Nom de la scène principale à charger")]
     public string mainSceneName = "MainScene";
-    
+
     [Tooltip("Charger la scène principale au démarrage")]
     public bool loadMainSceneOnStart = true;
-    
+
     [Tooltip("Délai avant de charger la scène principale (secondes)")]
     public float loadDelay = 0.5f;
-    
+
+    [Header("Avatar Customization")]
+    [Tooltip("Afficher l'écran de personnalisation avant de charger la scène")]
+    public bool showCustomizationOnStart = true;
+
+    [Tooltip("Panel de personnalisation d'avatar")]
+    public GameObject customizationPanel;
+
     [Header("Loading UI (Optionnel)")]
     public GameObject loadingScreen;
     public UnityEngine.UI.Slider progressBar;

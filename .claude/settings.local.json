@@ -6,7 +6,18 @@
       "Bash(mv:*)",
       "Bash(git mv:*)",
       "Bash(git checkout:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(claude mcp list:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(dir:*)",
+      "Bash(where:*)",
+      "Bash(powershell -Command \"$env:USERNAME\")",
+      "Bash(powershell -Command \"Test-Path ''C:\\\\Users$env:USERNAME\\\\AppData\\\\Local\\\\UnityMCP''\")",
+      "Bash(powershell -Command \"Get-Command uv -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(pip install:*)",
+      "Bash(cat:*)",
+      "mcp__UnityMCP__manage_editor",
+      "Bash(claude mcp remove:*)"
     ]
   }
 }
