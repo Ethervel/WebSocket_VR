@@ -22,7 +22,10 @@
       "Bash(tree:*)",
       "Bash(curl:*)",
       "WebFetch(domain:github.com)",
-      "Bash(claude mcp get:*)"
+      "Bash(claude mcp get:*)",
+      "WebSearch",
+      "mcp__UnityMCP__manage_scene",
+      "mcp__UnityMCP__manage_gameobject"
     ]
   }
 }
