@@ -229,10 +229,13 @@ public class WhiteboardMarker : MonoBehaviour
             return;
         }
 
-        // 🔧 FIX: Créer packet avec liste plate de floats
+        // 🔧 FIX: Créer packet avec liste plate de floats + roomId
+        string currentRoomId = VRRoomManager.Instance.CurrentRoomId;
+
         WhiteboardPacket packet = new WhiteboardPacket
         {
             whiteboardId = _currentWhiteboardId,
+            roomId = currentRoomId,
             r = currentColor.r,
             g = currentColor.g,
             b = currentColor.b,
@@ -244,6 +247,7 @@ public class WhiteboardMarker : MonoBehaviour
         WhiteboardBatchData batch = new WhiteboardBatchData
         {
             whiteboardId = _currentWhiteboardId,
+            roomId = currentRoomId,
             draws = new List<WhiteboardPacket> { packet }
         };
 

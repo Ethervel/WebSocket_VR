@@ -28,11 +28,19 @@ public class VRNetworkedInteractable : MonoBehaviour
     private string _currentOwnerId = "";
     private string _currentRoomId = "";
 
+    // 🔧 FIX: Sauvegarder la position initiale pour reset entre rooms
+    private Vector3 _initialPosition;
+    private Quaternion _initialRotation;
+
     void Awake()
     {
         _interactable = GetComponent<XRGrabInteractable>();
         _rb = GetComponent<Rigidbody>();
-        
+
+        // 🔧 FIX: Sauvegarder la position de spawn
+        _initialPosition = transform.position;
+        _initialRotation = transform.rotation;
+
         _targetPos = transform.position;
         _targetRot = transform.rotation;
     }
@@ -92,9 +100,15 @@ public class VRNetworkedInteractable : MonoBehaviour
     void OnRoomChanged(string roomId)
     {
         _currentRoomId = roomId;
-        
+
+        // 🔧 FIX: Réinitialiser à la position de spawn quand on change de room
+        ResetToInitialPosition();
+
+        // 🔧 FIX: Demander l'état actuel de l'objet aux autres joueurs
+        StartCoroutine(RequestObjectStateDelayed());
+
         if (showDebugLogs)
-            Debug.Log($"[NetObj:{objectId}] Room changed to: {roomId}");
+            Debug.Log($"[NetObj:{objectId}] Room changed to: {roomId}, position reset");
     }
 
     void OnRoomLeft()
@@ -102,9 +116,51 @@ public class VRNetworkedInteractable : MonoBehaviour
         _currentRoomId = "";
         _isOwner = false;
         _hasReceivedData = false;
-        
+
+        // 🔧 FIX: Réinitialiser à la position de spawn quand on quitte une room
+        ResetToInitialPosition();
+
         if (showDebugLogs)
-            Debug.Log($"[NetObj:{objectId}] Left room");
+            Debug.Log($"[NetObj:{objectId}] Left room, position reset");
+    }
+
+    // 🔧 FIX: Réinitialiser l'objet à sa position de spawn
+    void ResetToInitialPosition()
+    {
+        transform.position = _initialPosition;
+        transform.rotation = _initialRotation;
+        _targetPos = _initialPosition;
+        _targetRot = _initialRotation;
+        _hasReceivedData = false;
+        _isOwner = false;
+
+        // Arrêter le mouvement
+        if (_rb != null)
+        {
+            _rb.linearVelocity = Vector3.zero;
+            _rb.angularVelocity = Vector3.zero;
+        }
+    }
+
+    // 🔧 FIX: Demander l'état actuel aux autres joueurs après un délai
+    System.Collections.IEnumerator RequestObjectStateDelayed()
+    {
+        yield return new WaitForSeconds(0.5f);
+
+        if (IsInRoom() && VRNetworkManager.IsConnected)
+        {
+            var request = new ObjectStateRequest
+            {
+                objId = objectId,
+                roomId = _currentRoomId,
+                requesterId = VRNetworkManager.LocalId
+            };
+
+            VRNetworkManager.Instance.Send("obj-state-request", request);
+
+            if (showDebugLogs)
+                Debug.Log($"[NetObj:{objectId}] Requested state from other players");
+        }
     }
 
     bool IsInRoom()
@@ -191,6 +247,13 @@ public class VRNetworkedInteractable : MonoBehaviour
         // 🔥 FILTRAGE 1: Vérifier qu'on est dans une room
         if (!IsInRoom()) return;
 
+        // 🔧 FIX: Gérer les requêtes d'état des nouveaux joueurs
+        if (msg.type == "obj-state-request")
+        {
+            HandleStateRequest(msg);
+            return;
+        }
+
         if (msg.type == "obj-sync")
         {
             var data = JsonUtility.FromJson<ObjectSyncData>(msg.data);
@@ -246,6 +309,23 @@ public class VRNetworkedInteractable : MonoBehaviour
             }
         }
     }
+
+    // 🔧 FIX: Répondre aux requêtes d'état des nouveaux joueurs
+    void HandleStateRequest(NetworkMessage msg)
+    {
+        var request = JsonUtility.FromJson<ObjectStateRequest>(msg.data);
+
+        // Vérifier que c'est notre objet et notre room
+        if (request.objId != objectId) return;
+        if (request.roomId != _currentRoomId) return;
+        if (request.requesterId == VRNetworkManager.LocalId) return;
+
+        // Envoyer notre position actuelle
+        SendTransformUpdate();
+
+        if (showDebugLogs)
+            Debug.Log($"[NetObj:{objectId}] Sent state to {request.requesterId}");
+    }
 }
 
 // ========================================
@@ -270,4 +350,13 @@ public class ObjectStateData
     public bool isGrabbed;
     public float velX, velY, velZ;
     public float angX, angY, angZ;
+}
+
+// 🔧 FIX: Structure pour demander l'état d'un objet
+[System.Serializable]
+public class ObjectStateRequest
+{
+    public string objId;
+    public string roomId;
+    public string requesterId;
 }

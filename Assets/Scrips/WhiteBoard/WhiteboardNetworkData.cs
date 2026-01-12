@@ -52,6 +52,7 @@ public class WhiteboardBatchData
 public class WhiteboardClearData
 {
     public string whiteboardId;
+    public string roomId; // ID de la room pour filtrer les clears
     public string senderId;
 }
 
@@ -66,6 +67,7 @@ public class WhiteboardClearData
 public class WhiteboardRequestData
 {
     public string whiteboardId;
+    public string roomId; // ID de la room pour filtrer les requêtes
     public string requesterId;
 }
 
@@ -76,6 +78,7 @@ public class WhiteboardRequestData
 public class WhiteboardStateData
 {
     public string whiteboardId;
+    public string roomId; // ID de la room pour filtrer les états
     public string textureData; // PNG encodé en base64
     public int width;
     public int height;

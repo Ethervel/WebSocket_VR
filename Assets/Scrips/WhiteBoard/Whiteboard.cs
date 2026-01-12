@@ -27,7 +27,7 @@ public class Whiteboard : MonoBehaviour
 
     private bool _isInitialized = false;
     private bool _hasRequestedState = false;
-    
+
     private int _receivedBatches = 0;
     private int _receivedDraws = 0;
     private int _receivedPoints = 0;
@@ -36,6 +36,15 @@ public class Whiteboard : MonoBehaviour
     {
         InitializeTexture();
         SubscribeToNetwork();
+
+        // 🔧 FIX: Si on est déjà dans une room (scène chargée après join), demander l'état
+        if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom)
+        {
+            string roomId = VRRoomManager.Instance.CurrentRoomId;
+            Debug.Log($"[Whiteboard:{id}] Already in room {roomId} at Start, requesting state...");
+            _hasRequestedState = false;
+            StartCoroutine(RequestWhiteboardStateDelayed());
+        }
     }
 
     void OnEnable()
@@ -51,6 +60,14 @@ public class Whiteboard : MonoBehaviour
     void OnDestroy()
     {
         UnsubscribeFromNetwork();
+    }
+
+    // Retourne le roomId actuel ou null si pas dans une room
+    string GetCurrentRoomId()
+    {
+        if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
+            return null;
+        return VRRoomManager.Instance.CurrentRoomId;
     }
 
     void InitializeTexture()
@@ -75,39 +92,58 @@ public class Whiteboard : MonoBehaviour
 
     void SubscribeToNetwork()
     {
-        if (VRNetworkManager.Instance == null) return;
-
         VRNetworkManager.OnMessageReceived -= HandleNetworkMessage;
         VRNetworkManager.OnMessageReceived += HandleNetworkMessage;
-        
-        VRNetworkManager.OnConnected -= OnNetworkConnected;
-        VRNetworkManager.OnConnected += OnNetworkConnected;
+
+        // S'abonner aux événements de room pour sync whiteboard
+        VRRoomManager.OnRoomJoined -= OnRoomJoined;
+        VRRoomManager.OnRoomJoined += OnRoomJoined;
+
+        VRRoomManager.OnRoomLeft -= OnRoomLeft;
+        VRRoomManager.OnRoomLeft += OnRoomLeft;
     }
 
     void UnsubscribeFromNetwork()
     {
-        if (VRNetworkManager.Instance == null) return;
-
         VRNetworkManager.OnMessageReceived -= HandleNetworkMessage;
-        VRNetworkManager.OnConnected -= OnNetworkConnected;
+        VRRoomManager.OnRoomJoined -= OnRoomJoined;
+        VRRoomManager.OnRoomLeft -= OnRoomLeft;
     }
 
-    void OnNetworkConnected()
+    void OnRoomJoined(string roomId)
     {
-        if (!_hasRequestedState)
-        {
-            StartCoroutine(RequestWhiteboardStateDelayed());
-        }
+        Debug.Log($"[Whiteboard:{id}] Joined room {roomId}, requesting state...");
+
+        // Reset le flag pour permettre une nouvelle demande
+        _hasRequestedState = false;
+
+        // Demander l'état du whiteboard aux autres joueurs de la room
+        StartCoroutine(RequestWhiteboardStateDelayed());
+    }
+
+    void OnRoomLeft()
+    {
+        Debug.Log($"[Whiteboard:{id}] Left room, clearing whiteboard");
+
+        // Effacer le whiteboard quand on quitte la room
+        ClearTextureLocal();
+
+        // Reset le flag pour la prochaine room
+        _hasRequestedState = false;
     }
 
     IEnumerator RequestWhiteboardStateDelayed()
     {
-        yield return new WaitForSeconds(1f);
-        
-        if (VRNetworkManager.IsConnected)
+        // Attendre un peu que les autres joueurs soient prêts
+        yield return new WaitForSeconds(1.5f);
+
+        if (VRNetworkManager.IsConnected && VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom)
         {
-            RequestWhiteboardState();
-            _hasRequestedState = true;
+            if (!_hasRequestedState)
+            {
+                RequestWhiteboardState();
+                _hasRequestedState = true;
+            }
         }
     }
 
@@ -148,9 +184,17 @@ public class Whiteboard : MonoBehaviour
     void HandleBatchReceived(string dataJson, string senderId)
     {
         WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
-        
+
         if (batchData.whiteboardId != id)
         {
+            return;
+        }
+
+        // 🔧 FIX: Vérifier que le batch vient de la même room
+        string currentRoom = GetCurrentRoomId();
+        if (!string.IsNullOrEmpty(batchData.roomId) && batchData.roomId != currentRoom)
+        {
+            // Ignorer les dessins d'autres rooms
             return;
         }
 
@@ -288,12 +332,19 @@ public class Whiteboard : MonoBehaviour
     void HandleClearReceived(string dataJson, string senderId)
     {
         WhiteboardClearData clearData = JsonUtility.FromJson<WhiteboardClearData>(dataJson);
-        
+
         if (clearData.whiteboardId != id) return;
         if (senderId == VRNetworkManager.LocalId) return;
 
+        // 🔧 FIX: Vérifier que le clear vient de la même room
+        string currentRoom = GetCurrentRoomId();
+        if (!string.IsNullOrEmpty(clearData.roomId) && clearData.roomId != currentRoom)
+        {
+            return; // Ignorer les clears d'autres rooms
+        }
+
         ClearTextureLocal();
-        
+        Debug.Log($"[Whiteboard:{id}] Cleared by {senderId} (room: {currentRoom})");
     }
 
     void ClearTextureLocal()
@@ -319,9 +370,12 @@ public class Whiteboard : MonoBehaviour
     {
         if (!VRNetworkManager.IsConnected) return;
 
+        string currentRoom = GetCurrentRoomId();
+
         WhiteboardClearData data = new WhiteboardClearData
         {
             whiteboardId = id,
+            roomId = currentRoom,
             senderId = VRNetworkManager.LocalId
         };
 
@@ -332,27 +386,40 @@ public class Whiteboard : MonoBehaviour
     {
         if (!VRNetworkManager.IsConnected) return;
 
+        string currentRoom = GetCurrentRoomId();
+        if (string.IsNullOrEmpty(currentRoom)) return;
+
         WhiteboardRequestData request = new WhiteboardRequestData
         {
             whiteboardId = id,
+            roomId = currentRoom,
             requesterId = VRNetworkManager.LocalId
         };
 
         VRNetworkManager.Instance.Send("whiteboard-request", request);
-        
-    
+        Debug.Log($"[Whiteboard:{id}] Requesting state for room {currentRoom}");
     }
 
     void HandleStateRequest(string dataJson, string requesterId)
     {
         WhiteboardRequestData request = JsonUtility.FromJson<WhiteboardRequestData>(dataJson);
-        
+
         if (request.whiteboardId != id) return;
         if (request.requesterId == VRNetworkManager.LocalId) return;
 
-        if (_drawHistory.Count > 0)
+        // 🔧 FIX: Vérifier que la requête vient de la même room
+        string currentRoom = GetCurrentRoomId();
+        if (!string.IsNullOrEmpty(request.roomId) && request.roomId != currentRoom)
         {
-            SendWhiteboardState(requesterId);
+            return; // Ignorer les requêtes d'autres rooms
+        }
+
+        // 🔧 FIX: Toujours envoyer l'état de la texture (pas seulement si _drawHistory > 0)
+        // Car les dessins locaux ne sont pas dans _drawHistory
+        if (texture != null)
+        {
+            Debug.Log($"[Whiteboard:{id}] Sending state to {request.requesterId} (room: {currentRoom})");
+            SendWhiteboardState(request.requesterId);
         }
     }
 
@@ -360,33 +427,42 @@ public class Whiteboard : MonoBehaviour
     {
         if (texture == null) return;
 
+        string currentRoom = GetCurrentRoomId();
+        if (string.IsNullOrEmpty(currentRoom)) return;
+
         byte[] pngData = texture.EncodeToPNG();
         string base64Data = Convert.ToBase64String(pngData);
 
         WhiteboardStateData state = new WhiteboardStateData
         {
             whiteboardId = id,
+            roomId = currentRoom,
             textureData = base64Data,
             width = (int)textureSize.x,
             height = (int)textureSize.y
         };
 
         VRNetworkManager.Instance.Send("whiteboard-state", state);
-
-        
     }
 
     void HandleStateReceived(string dataJson, string senderId)
     {
         WhiteboardStateData state = JsonUtility.FromJson<WhiteboardStateData>(dataJson);
-        
+
         if (state.whiteboardId != id) return;
         if (senderId == VRNetworkManager.LocalId) return;
+
+        // 🔧 FIX: Vérifier que l'état vient de la même room
+        string currentRoom = GetCurrentRoomId();
+        if (!string.IsNullOrEmpty(state.roomId) && state.roomId != currentRoom)
+        {
+            return; // Ignorer les états d'autres rooms
+        }
 
         try
         {
             byte[] pngData = Convert.FromBase64String(state.textureData);
-            
+
             Texture2D receivedTexture = new Texture2D(state.width, state.height);
             receivedTexture.LoadImage(pngData);
 
@@ -394,7 +470,7 @@ public class Whiteboard : MonoBehaviour
             texture.Apply();
 
             Destroy(receivedTexture);
-
+            Debug.Log($"[Whiteboard:{id}] State received from {senderId} (room: {currentRoom})");
         }
         catch (Exception e)
         {

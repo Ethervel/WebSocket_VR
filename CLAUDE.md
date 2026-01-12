@@ -226,8 +226,23 @@ public class NetworkMessage {
 
 - **Texture:** 2048x2048 (configurable)
 - **Network format:** `WhiteboardPacket` with `pointsFlat` array (u,v pairs)
-- **State sync:** PNG base64 encoding for late joiners
-- **History buffer:** 100 packets max
+- **Room-scoped:** All messages include `roomId` for filtering
+- **Late joiner sync:**
+  - Requests state on `OnRoomJoined` or at `Start()` if already in room
+  - Responds with PNG base64 encoded texture (not history-dependent)
+- **Room change behavior:**
+  - Clears texture on `OnRoomLeft`
+  - Requests state on `OnRoomJoined`
+- **History buffer:** 100 packets max (for received network packets only)
+
+### Networked Interactables (`VRNetworkedInteractable.cs`)
+
+- **Room-scoped sync:** All sync messages include `roomId`
+- **Room change behavior:**
+  - Resets to initial spawn position on room change/leave
+  - Requests current state from other players on room join
+- **Ownership:** Grab to take ownership, deterministic sync
+- **State request:** Late joiners request object positions via `obj-state-request`
 
 ## Key Data Classes
 
