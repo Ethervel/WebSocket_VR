@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.XR.Management;
 using System.Collections;
 
 /// Gère le chargement des scènes. Cette scène contient tous les managers
@@ -86,6 +88,42 @@ public class BootstrapManager : MonoBehaviour
         if (_persistentEventSystem == null)
         {
             Debug.LogError("[Bootstrap] ❌ Aucun EventSystem trouvé dans la scène Bootstrap!");
+        }
+
+        // Setup pour mode Desktop: ajouter InputSystemUIInputModule pour support souris
+        SetupDesktopInputModule();
+    }
+
+    /// Ajoute InputSystemUIInputModule pour le support souris en mode Desktop
+    void SetupDesktopInputModule()
+    {
+        // Vérifier si on est en mode Desktop (pas de XR actif)
+        bool isDesktopMode = false;
+        var xrSettings = XRGeneralSettings.Instance;
+        if (xrSettings == null || xrSettings.Manager == null || xrSettings.Manager.activeLoader == null)
+        {
+            isDesktopMode = true;
+        }
+
+        if (isDesktopMode && _persistentEventSystem != null)
+        {
+            // Désactiver XRUIInputModule en mode Desktop
+            var xrModule = _persistentEventSystem.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
+            if (xrModule != null)
+            {
+                xrModule.enabled = false;
+                if (showDebugLogs)
+                    Debug.Log("[Bootstrap] XRUIInputModule désactivé pour mode Desktop");
+            }
+
+            // Ajouter InputSystemUIInputModule pour la souris
+            var inputModule = _persistentEventSystem.GetComponent<InputSystemUIInputModule>();
+            if (inputModule == null)
+            {
+                inputModule = _persistentEventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+                if (showDebugLogs)
+                    Debug.Log("[Bootstrap] ✅ InputSystemUIInputModule ajouté pour support souris Desktop");
+            }
         }
     }
     
