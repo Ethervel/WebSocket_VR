@@ -1,39 +1,45 @@
 using System;
+using System.Threading.Tasks;
 using UnityEngine;
 using NativeWebSocket;
 
-// Main network manager for VR / WebGL
-// Handles WebSocket connection, reconnection, and message dispatching
-
+/// <summary>
+/// Central WebSocket manager for VR / WebGL
+/// - Singleton
+/// - Auto reconnect
+/// - Server-driven authentication via "welcome"
+/// - Clean event dispatch
+/// </summary>
 public class VRNetworkManager : MonoBehaviour
 {
-    // Singleton instance (one network manager for the whole app)
     public static VRNetworkManager Instance { get; private set; }
+
     [Header("Server Configuration")]
-
-    // Websocket signaling server URL
-    public string serverUrl = "ws://localhost:8080/game";
-    
-    // Enable / disable automatic reconnection
+    public string serverUrl = "ws://localhost:8080";
     public bool autoReconnect = true;
-
-    // Delay before attempting reconnection
     public float reconnectDelay = 3f;
 
-    // Local client ID assigned by the server
-    public static string LocalId {get; private set;}
+    [Header("Connection Timeout (P0 Fix)")]
+    [Tooltip("Timeout in seconds waiting for 'welcome' message after connection")]
+    public float welcomeTimeout = 5f;
 
-    // True when handshake is completed and ID is assigned
+    public static string LocalId { get; private set; }
     public static bool IsConnected { get; private set; }
 
-    // WebSocket client instance
     private WebSocket _websocket;
-
-    // Reconnection state
     private bool _isReconnecting;
     private float _reconnectTimer;
 
-    // Public events for the rest of the app
+    // P0 FIX: Track welcome message timeout
+    private float _welcomeTimeoutTimer;
+    private bool _waitingForWelcome;
+
+    // Cache pour réduire les allocations GC lors de l'envoi fréquent (30Hz)
+    private readonly NetworkMessage _cachedOutgoingMessage = new NetworkMessage();
+
+    // ============================
+    // EVENTS
+    // ============================
     public static event Action OnConnected;
     public static event Action OnDisconnected;
     public static event Action<string> OnPeerConnected;
@@ -41,9 +47,11 @@ public class VRNetworkManager : MonoBehaviour
     public static event Action<NetworkMessage> OnMessageReceived;
     public static event Action<string> OnConnectionError;
 
+    // ============================
+    // LIFECYCLE
+    // ============================
     void Awake()
     {
-        //Enforce the singleton pattern
         if (Instance != null)
         {
             Destroy(gameObject);
@@ -56,180 +64,169 @@ public class VRNetworkManager : MonoBehaviour
 
     async void Start()
     {
-        // Automatically connect at startup
         await Connect();
     }
 
     void Update()
     {
-        #if !UNITY_WEBGL || UNITY_EDITOR
-                // Required for NativeWebSocket outside WebGL
-                // Dispatches received messages on the main thread
-                _websocket?.DispatchMessageQueue();
-        #endif
+#if !UNITY_WEBGL || UNITY_EDITOR
+        _websocket?.DispatchMessageQueue();
+#endif
 
-        // Handle automatic reconnection timing
+        // P0 FIX: Check for welcome message timeout
+        if (_waitingForWelcome)
+        {
+            _welcomeTimeoutTimer -= Time.deltaTime;
+            if (_welcomeTimeoutTimer <= 0f)
+            {
+                Debug.LogWarning($"[VRNet] P0 FIX: Welcome message timeout after {welcomeTimeout}s - reconnecting");
+                _waitingForWelcome = false;
+                HandleDisconnection();
+            }
+        }
+
         if (_isReconnecting && autoReconnect)
         {
             _reconnectTimer -= Time.deltaTime;
-
             if (_reconnectTimer <= 0f)
             {
                 _isReconnecting = false;
-                _ = Connect(); // fire-and-forget reconnect
+                _ = Connect();
             }
         }
     }
-    async void OnDestroy()
-    {
-        await Disconnect();
-    }
 
-    async void OnApplicationQuit()
-    {
-        await Disconnect();
-    }
+    async void OnDestroy() => await Disconnect();
+    async void OnApplicationQuit() => await Disconnect();
 
     // ============================
-    // Connection Management
+    // CONNECTION
     // ============================
-
-    // Opens a WebSocket connection to the server
-    public async System.Threading.Tasks.Task Connect()
+    public async Task Connect()
     {
-        // Prevent double connections
-        if (_websocket != null && _websocket.State == WebSocketState.Open)
-        {
-            Debug.Log("[VRNet] Already connected");
+        if (_websocket != null &&
+            (_websocket.State == WebSocketState.Open ||
+             _websocket.State == WebSocketState.Connecting))
             return;
-        }
 
         try
         {
             Debug.Log($"[VRNet] Connecting to {serverUrl}");
-
             _websocket = new WebSocket(serverUrl);
 
-            // Register WebSocket callbacks
-            _websocket.OnOpen += OnWebSocketOpen;
-            _websocket.OnMessage += OnWebSocketMessage;
-            _websocket.OnClose += OnWebSocketClose;
-            _websocket.OnError += OnWebSocketError;
+            _websocket.OnOpen += () =>
+            {
+                Debug.Log("[VRNet] WebSocket opened");
+                // P0 FIX: Start welcome timeout - server must send "welcome" within timeout
+                _waitingForWelcome = true;
+                _welcomeTimeoutTimer = welcomeTimeout;
+                Debug.Log($"[VRNet] P0 FIX: Waiting for welcome message (timeout: {welcomeTimeout}s)");
+            };
 
-            // Async connection
+            _websocket.OnMessage += bytes =>
+            {
+                string json = System.Text.Encoding.UTF8.GetString(bytes);
+                HandleMessage(json);
+            };
+
+            _websocket.OnClose += code =>
+            {
+                Debug.Log($"[VRNet] Closed ({code})");
+                HandleDisconnection();
+            };
+
+            _websocket.OnError += err =>
+            {
+                Debug.LogError($"[VRNet] Error: {err}");
+                OnConnectionError?.Invoke(err);
+                HandleDisconnection();
+            };
+
             await _websocket.Connect();
         }
         catch (Exception e)
         {
-            Debug.LogError($"[VRNet] Connection failed: {e.Message}");
-            OnConnectionError?.Invoke(e.Message);
-            ScheduleReconnect();
+            Debug.LogError($"[VRNet] Connection exception: {e.Message}");
+            HandleDisconnection();
         }
     }
-    // Closes the WebSocket connection cleanly
-    public async System.Threading.Tasks.Task Disconnect()
+
+    public async Task Disconnect()
     {
         autoReconnect = false;
         _isReconnecting = false;
 
-        if (_websocket != null && _websocket.State == WebSocketState.Open)
+        if (_websocket != null)
         {
             await _websocket.Close();
+            _websocket = null;
         }
 
-        _websocket = null;
         IsConnected = false;
+        LocalId = null;
     }
 
-    // Starts a delayed reconnection attempt
-    void ScheduleReconnect()
+    private void HandleDisconnection()
     {
-        if (!autoReconnect || _isReconnecting)
-            return;
+        bool wasConnected = IsConnected;
 
-        _isReconnecting = true;
-        _reconnectTimer = reconnectDelay;
-
-        Debug.Log($"[VRNet] Reconnecting in {reconnectDelay}s");
-    }
-    // ============================
-    // WebSocket Callbacks
-    // ============================
-
-    // Called when the socket opens (TCP-level connection)
-    void OnWebSocketOpen()
-    {
-        Debug.Log("[VRNet] WebSocket opened");
-    }
-
-    // Called when a message is received (raw bytes)
-    void OnWebSocketMessage(byte[] data)
-    {
-        string json = System.Text.Encoding.UTF8.GetString(data);
-        HandleMessage(json);
-    }
-
-    // Called when the socket closes
-    void OnWebSocketClose(WebSocketCloseCode closeCode)
-    {
-        Debug.Log($"[VRNet] WebSocket closed: {closeCode}");
+        // P0 FIX: Reset welcome timeout state
+        _waitingForWelcome = false;
 
         IsConnected = false;
         LocalId = null;
 
-        OnDisconnected?.Invoke();
-        ScheduleReconnect();
+        if (wasConnected)
+            OnDisconnected?.Invoke();
+
+        if (autoReconnect && !_isReconnecting)
+        {
+            _isReconnecting = true;
+            _reconnectTimer = reconnectDelay;
+            Debug.Log($"[VRNet] Reconnecting in {reconnectDelay}s");
+        }
     }
 
-    // Called on WebSocket error
-    void OnWebSocketError(string errorMsg)
-    {
-        Debug.LogError($"[VRNet] WebSocket error: {errorMsg}");
-        OnConnectionError?.Invoke(errorMsg);
-    }
     // ============================
-    // Message Handling
+    // MESSAGE HANDLING
     // ============================
-
-    // Parses JSON messages and routes them
     void HandleMessage(string json)
     {
         try
         {
             NetworkMessage msg = JsonUtility.FromJson<NetworkMessage>(json);
 
-            // Server assigns our client ID
+            // 1. Auth handshake
             if (msg.type == "welcome")
             {
+                // P0 FIX: Welcome received, cancel timeout
+                _waitingForWelcome = false;
+
                 LocalId = msg.senderId;
                 IsConnected = true;
-
                 Debug.Log($"[VRNet] Assigned ID: {LocalId}");
                 OnConnected?.Invoke();
                 return;
             }
 
-            // Another client joined
+            // 2. Peer management
             if (msg.type == "peer-connected")
             {
-                Debug.Log($"[VRNet] Peer connected: {msg.senderId}");
                 OnPeerConnected?.Invoke(msg.senderId);
                 return;
             }
 
-            // Another client left
             if (msg.type == "peer-disconnected")
             {
-                Debug.Log($"[VRNet] Peer disconnected: {msg.senderId}");
                 OnPeerDisconnected?.Invoke(msg.senderId);
                 return;
             }
 
-            // Ignore messages sent by ourselves
-            if (msg.senderId == LocalId)
+            // 3. Ignore echo (except server-only payloads)
+            if (msg.senderId == LocalId && msg.type != "whiteboard-history")
                 return;
 
-            // Forward message to game logic
+            // 4. Forward to gameplay systems
             OnMessageReceived?.Invoke(msg);
         }
         catch (Exception e)
@@ -237,49 +234,50 @@ public class VRNetworkManager : MonoBehaviour
             Debug.LogError($"[VRNet] JSON parse error: {e.Message}\n{json}");
         }
     }
-    // ============================
-    // Public API - Sending Messages
-    // ============================
 
-    // Sends a simple text payload
-    public async void Send(string type, string data = "")
+    // ============================
+    // SEND API
+    // ============================
+    public void Send(string type)
+    {
+        SendInternal(type, "{}");
+    }
+
+    public void Send(string type, object payload)
+    {
+        string dataJson = payload is string s ? s : JsonUtility.ToJson(payload);
+        SendInternal(type, dataJson);
+    }
+
+    private async void SendInternal(string type, string dataJson)
     {
         if (_websocket == null || _websocket.State != WebSocketState.Open)
-        {
-            Debug.LogWarning("[VRNet] Send failed: not connected");
             return;
-        }
 
-        NetworkMessage msg = new NetworkMessage
-        {
-            type = type,
-            senderId = LocalId,
-            data = data
-        };
+        // Réutiliser le message caché pour éviter les allocations GC
+        _cachedOutgoingMessage.type = type;
+        _cachedOutgoingMessage.senderId = LocalId;
+        _cachedOutgoingMessage.data = dataJson;
 
-        string json = JsonUtility.ToJson(msg);
-        await _websocket.SendText(json);
+        await _websocket.SendText(JsonUtility.ToJson(_cachedOutgoingMessage));
     }
 
-    // Sends a structured object serialized as JSON
-    public void Send<T>(string type, T payload)
-    {
-        Send(type, JsonUtility.ToJson(payload));
-    }
-
-    // Returns true if WebSocket is open and usable
+    // ============================
+    // HELPERS
+    // ============================
     public bool IsConnectionOpen()
     {
         return _websocket != null && _websocket.State == WebSocketState.Open;
     }
 }
 
-
-// Generic network message format
+// ============================
+// MESSAGE FORMAT
+// ============================
 [Serializable]
 public class NetworkMessage
 {
-    public string type;      // Message type (e.g. move, sync, chat, etc.)
-    public string senderId; // Sender client ID
-    public string data;     // JSON payload
+    public string type;
+    public string senderId;
+    public string data; // Always JSON string (JsonUtility constraint)
 }

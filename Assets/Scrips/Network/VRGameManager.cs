@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Unity.XR.CoreUtils; // XROrigin
+using UnityEngine.EventSystems;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.UI;
+using Unity.XR.CoreUtils; // XROrigin
+using UnityEngine.XR.Management; // XRGeneralSettings pour détection VR
 
 public class VRGameManager : MonoBehaviour
 {
@@ -47,6 +50,14 @@ public class VRGameManager : MonoBehaviour
     [Tooltip("Spawner le joueur local au démarrage")]
     public bool spawnPlayerOnStart = true;
 
+    [Header("Desktop Mode")]
+    [Tooltip("Prefab du joueur Desktop (non-VR)")]
+    public GameObject desktopPlayerPrefab;
+
+    // Desktop mode detection
+    private bool _isDesktopMode = false;
+    public bool IsDesktopMode => _isDesktopMode;
+
     // Local
     private GameObject _localPlayer;
     private XROrigin _localXrOrigin;
@@ -68,8 +79,18 @@ public class VRGameManager : MonoBehaviour
     private Quaternion _lastSyncRotation;
     private Vector3 _lastSyncHeadPos;
     private Quaternion _lastSyncHeadRot;
-    private Vector3 _lastSyncLeftHandPos;   // ✅ NOUVEAU
-    private Vector3 _lastSyncRightHandPos;  // ✅ NOUVEAU
+    private Vector3 _lastSyncLeftHandPos;
+    private Vector3 _lastSyncRightHandPos;
+
+    // Cache pour éviter allocations GC à chaque sync
+    private readonly VRPositionData _cachedPositionData = new VRPositionData();
+
+    // Cache XRInteractionManager pour éviter FindFirstObjectByType répété et fuites mémoire
+    private XRInteractionManager _cachedInteractionManager;
+
+    // Container for detached remote player parts (head/hands) to avoid memory leaks
+    // Using a parent container instead of individual DontDestroyOnLoad calls
+    private Transform _detachedPartsContainer;
 
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
@@ -85,6 +106,32 @@ public class VRGameManager : MonoBehaviour
         }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        // P0 FIX: Create a persistent container for detached remote player parts
+        // This prevents memory leaks by keeping all detached objects under a single parent
+        // that gets cleaned up properly when remote players leave
+        _detachedPartsContainer = new GameObject("DetachedRemotePlayerParts").transform;
+        _detachedPartsContainer.SetParent(transform);
+
+        // Detect VR vs Desktop mode
+        DetectMode();
+    }
+
+    void DetectMode()
+    {
+        var xrSettings = XRGeneralSettings.Instance;
+        _isDesktopMode = xrSettings == null ||
+                         xrSettings.Manager == null ||
+                         xrSettings.Manager.activeLoader == null;
+
+        Debug.Log($"[VRGame] Mode: {(_isDesktopMode ? "Desktop" : "VR")}");
+
+        // In Desktop mode, unlock cursor for UI interaction initially
+        if (_isDesktopMode)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 
     void Start()
@@ -181,16 +228,19 @@ public class VRGameManager : MonoBehaviour
             Debug.LogWarning("[VRGame] Spawn already in progress, ignoring...");
             return;
         }
-        
+
         if (_localPlayer != null)
         {
             Debug.Log("[VRGame] Local player already exists");
             return;
         }
 
-        if (localPlayerPrefab == null)
+        // Select prefab based on mode
+        GameObject prefabToSpawn = _isDesktopMode ? desktopPlayerPrefab : localPlayerPrefab;
+
+        if (prefabToSpawn == null)
         {
-            Debug.LogError("[VRGame] localPlayerPrefab not assigned!");
+            Debug.LogError($"[VRGame] {(_isDesktopMode ? "desktopPlayerPrefab" : "localPlayerPrefab")} not assigned!");
             return;
         }
 
@@ -198,8 +248,8 @@ public class VRGameManager : MonoBehaviour
 
         GetSpawnPoint(roomType, true, out var position, out var rotation);
 
-        _localPlayer = Instantiate(localPlayerPrefab, Vector3.zero, Quaternion.identity);
-        _localPlayer.name = "LocalVRPlayer";
+        _localPlayer = Instantiate(prefabToSpawn, Vector3.zero, Quaternion.identity);
+        _localPlayer.name = _isDesktopMode ? "LocalDesktopPlayer" : "LocalVRPlayer";
         
         var charController = _localPlayer.GetComponent<CharacterController>();
         bool hadCharController = charController != null;
@@ -212,27 +262,41 @@ public class VRGameManager : MonoBehaviour
         _localPlayer.transform.SetPositionAndRotation(position, rotation);
         Debug.Log($"[SPAWN FIX] Local player positionné à {position}");
 
-        FindVRReferences();
-        SetupTeleportation();
-        
-        // ✅ Initialiser toutes les dernières positions
-        if (_localXrOrigin != null)
+        if (_isDesktopMode)
         {
-            _lastSyncPosition = _localXrOrigin.transform.position;
-            _lastSyncRotation = _localXrOrigin.transform.rotation;
+            FindDesktopReferences();
+            SetupDesktopInput();
         }
+        else
+        {
+            FindVRReferences();
+            SetupTeleportation();
+        }
+        SetupUIInteraction(); // ✅ FIX: Configurer l'interaction UI après le spawn
+        
+        // Initialiser toutes les dernières positions
+        // Desktop mode uses _localPlayer.transform, VR mode uses _localXrOrigin
+        Transform originTf = (_localXrOrigin != null) ? _localXrOrigin.transform : _localPlayer.transform;
+        _lastSyncPosition = originTf.position;
+        _lastSyncRotation = originTf.rotation;
+
         if (_localHead != null)
         {
             _lastSyncHeadPos = _localHead.position;
             _lastSyncHeadRot = _localHead.rotation;
         }
-        if (_localLeftHand != null)
+
+        // Only initialize hand positions in VR mode
+        if (!_isDesktopMode)
         {
-            _lastSyncLeftHandPos = _localLeftHand.position;
-        }
-        if (_localRightHand != null)
-        {
-            _lastSyncRightHandPos = _localRightHand.position;
+            if (_localLeftHand != null)
+            {
+                _lastSyncLeftHandPos = _localLeftHand.position;
+            }
+            if (_localRightHand != null)
+            {
+                _lastSyncRightHandPos = _localRightHand.position;
+            }
         }
         
         if (hadCharController && charController != null)
@@ -267,6 +331,37 @@ public class VRGameManager : MonoBehaviour
         Debug.Log($"[VRGame] VR References - XROrigin: {_localXrOrigin != null}, Head: {_localHead != null}, L: {_localLeftHand != null}, R: {_localRightHand != null}");
     }
 
+    void FindDesktopReferences()
+    {
+        if (_localPlayer == null) return;
+
+        // Desktop mode: no XROrigin, no hands
+        _localXrOrigin = null;
+        _localLeftHand = null;
+        _localRightHand = null;
+
+        // Find camera for head tracking
+        var cam = _localPlayer.GetComponentInChildren<Camera>(true);
+        if (cam != null)
+        {
+            _localHead = cam.transform;
+            Debug.Log($"[VRGame] Desktop References - Head/Camera: {_localHead.name}");
+        }
+        else
+        {
+            // Fallback: find Head transform
+            _localHead = FindChildRecursive(_localPlayer.transform, "Head");
+            Debug.Log($"[VRGame] Desktop References - Head: {(_localHead != null ? _localHead.name : "NOT FOUND")}");
+        }
+    }
+
+    void SetupDesktopInput()
+    {
+        // Desktop mode specific setup
+        // The DesktopPlayerController handles input, this is for any additional setup
+        Debug.Log("[VRGame] Desktop input setup complete");
+    }
+
     Transform FindChildRecursive(Transform parent, string nameContains)
     {
         string cleanSearch = nameContains.ToLower().Replace(" ", "");
@@ -292,12 +387,19 @@ public class VRGameManager : MonoBehaviour
     {
         if (_localPlayer == null) return;
 
-        var interactionManager = FindFirstObjectByType<XRInteractionManager>();
-        if (interactionManager == null)
+        // Utiliser le cache pour éviter FindFirstObjectByType répété et fuites mémoire
+        if (_cachedInteractionManager == null)
         {
-            var managerObj = new GameObject("XR Interaction Manager");
-            interactionManager = managerObj.AddComponent<XRInteractionManager>();
+            _cachedInteractionManager = FindFirstObjectByType<XRInteractionManager>();
+            if (_cachedInteractionManager == null)
+            {
+                var managerObj = new GameObject("XR Interaction Manager");
+                managerObj.transform.SetParent(transform); // Attacher au manager pour éviter les orphelins
+                _cachedInteractionManager = managerObj.AddComponent<XRInteractionManager>();
+                Debug.Log("[VRGame] Created and cached XRInteractionManager");
+            }
         }
+        var interactionManager = _cachedInteractionManager;
 
         var interactors = _localPlayer.GetComponentsInChildren<UnityEngine.XR.Interaction.Toolkit.Interactors.XRBaseInteractor>(true);
         foreach (var interactor in interactors)
@@ -322,6 +424,131 @@ public class VRGameManager : MonoBehaviour
         {
             anchor.teleportationProvider = teleportProvider;
             anchor.interactionManager = interactionManager;
+        }
+    }
+    
+    // ✅ FIX: Méthode publique pour forcer la configuration de l'interaction UI (appelée par BootstrapManager après nettoyage)
+    public void RefreshUIInteraction()
+    {
+        SetupUIInteraction();
+    }
+
+    // ✅ FIX: Méthode pour configurer l'interaction UI avec le nouveau joueur
+    void SetupUIInteraction()
+    {
+        if (_localHead == null)
+        {
+            Debug.LogWarning("[VRGame] ⚠️ Impossible de configurer UI : _localHead est null (Joueur pas encore spawné ?)");
+            return;
+        }
+
+        var playerCamera = _localHead.GetComponent<Camera>();
+        if (playerCamera == null)
+        {
+            Debug.LogWarning("[VRGame] ⚠️ Impossible de trouver la caméra sur _localHead pour l'UI !");
+            return;
+        }
+
+        // 1. Chercher l'EventSystem actif dans la scène
+        EventSystem targetES = null;
+
+        // D'abord vérifier EventSystem.current s'il est actif
+        if (EventSystem.current != null && EventSystem.current.gameObject.activeInHierarchy)
+        {
+            targetES = EventSystem.current;
+        }
+        else
+        {
+            // Sinon chercher tous les EventSystems et prendre le premier actif
+            var allES = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
+            foreach (var es in allES)
+            {
+                if (es.gameObject.activeInHierarchy)
+                {
+                    targetES = es;
+                    break;
+                }
+            }
+        }
+
+        if (targetES != null)
+        {
+            var xrModule = targetES.GetComponent<XRUIInputModule>();
+            if (xrModule != null)
+            {
+                xrModule.uiCamera = playerCamera;
+                Debug.Log($"[VRGame] ✅ UI Interaction LIÉE -> EventSystem: '{targetES.name}' utilise Camera: '{playerCamera.name}'");
+            }
+            else
+            {
+                // Si pas de module XR, on essaie de l'ajouter ou de prévenir
+                Debug.LogWarning($"[VRGame] ⚠️ L'EventSystem actif '{targetES.name}' n'a pas de XRUIInputModule ! L'interaction VR risque de ne pas marcher.");
+            }
+        }
+        else
+        {
+            Debug.LogError("[VRGame] ❌ Aucun EventSystem ACTIF trouvé pour configurer l'UI !");
+        }
+
+        // 2. ✅ Desktop Mode: Configurer tous les Canvas WorldSpace avec la caméra du joueur
+        if (_isDesktopMode)
+        {
+            SetupWorldSpaceCanvases(playerCamera);
+        }
+
+        // Relancer aussi le binding du clavier si nécessaire
+        var keyboardBinder = FindFirstObjectByType<GlobalKeyboardAutoBind>();
+        if (keyboardBinder != null && _localPlayer != null)
+        {
+            keyboardBinder.BindToPlayer(_localPlayer);
+        }
+    }
+
+    /// <summary>
+    /// Configure tous les Canvas WorldSpace pour utiliser la caméra du joueur Desktop
+    /// Nécessaire pour que GraphicRaycaster détecte les clics souris sur UI WorldSpace
+    /// </summary>
+    void SetupWorldSpaceCanvases(Camera playerCamera)
+    {
+        var allCanvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+        int worldSpaceCount = 0;
+
+        foreach (var canvas in allCanvases)
+        {
+            // RenderMode.WorldSpace = 2
+            if (canvas.renderMode == RenderMode.WorldSpace)
+            {
+                canvas.worldCamera = playerCamera;
+                worldSpaceCount++;
+
+                // Désactiver TrackedDeviceGraphicRaycaster en mode Desktop (interfère avec souris)
+                var trackedRaycaster = canvas.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>();
+                if (trackedRaycaster != null)
+                {
+                    trackedRaycaster.enabled = false;
+                    Debug.Log($"[VRGame] TrackedDeviceGraphicRaycaster désactivé sur '{canvas.name}'");
+                }
+
+                // S'assurer qu'il y a un GraphicRaycaster standard pour la souris
+                var graphicRaycaster = canvas.GetComponent<UnityEngine.UI.GraphicRaycaster>();
+                if (graphicRaycaster == null)
+                {
+                    graphicRaycaster = canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                    Debug.Log($"[VRGame] GraphicRaycaster ajouté sur '{canvas.name}'");
+                }
+                graphicRaycaster.enabled = true;
+
+                Debug.Log($"[VRGame] ✅ Canvas WorldSpace '{canvas.name}' → Camera: '{playerCamera.name}'");
+            }
+        }
+
+        if (worldSpaceCount > 0)
+        {
+            Debug.Log($"[VRGame] ✅ {worldSpaceCount} Canvas WorldSpace configurés pour mode Desktop");
+        }
+        else
+        {
+            Debug.Log("[VRGame] Aucun Canvas WorldSpace trouvé dans la scène");
         }
     }
 
@@ -390,9 +617,6 @@ public class VRGameManager : MonoBehaviour
         foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
         foreach (var al in go.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
 
-        var desktopController = go.GetComponent<DesktopPlayerController>();
-        if (desktopController != null) Destroy(desktopController);
-
         var vrController = go.GetComponent<VRPlayerController>();
         if (vrController != null) Destroy(vrController);
 
@@ -431,25 +655,27 @@ public class VRGameManager : MonoBehaviour
         }
 
         // CRITICAL: Détacher tête et mains pour qu'ils suivent les positions world
+        // P0 FIX: Parent to persistent container instead of using DontDestroyOnLoad individually
+        // This prevents memory leaks - objects are now tracked and cleaned up properly
         if (remote.head != null)
         {
-            remote.head.SetParent(null);
-            DontDestroyOnLoad(remote.head.gameObject);
-            Debug.Log($"[VRGame] Detached head for {playerData.playerName}");
+            remote.head.SetParent(_detachedPartsContainer);
+            remote.head.name = $"Head_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached head for {playerData.playerName} (parented to container)");
         }
 
         if (remote.leftHand != null)
         {
-            remote.leftHand.SetParent(null);
-            DontDestroyOnLoad(remote.leftHand.gameObject);
-            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName}");
+            remote.leftHand.SetParent(_detachedPartsContainer);
+            remote.leftHand.name = $"LeftHand_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName} (parented to container)");
         }
 
         if (remote.rightHand != null)
         {
-            remote.rightHand.SetParent(null);
-            DontDestroyOnLoad(remote.rightHand.gameObject);
-            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName}");
+            remote.rightHand.SetParent(_detachedPartsContainer);
+            remote.rightHand.name = $"RightHand_{playerData.playerId.Substring(0, 6)}";
+            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName} (parented to container)");
         }
 
         var nameTag = go.GetComponentInChildren<TMPro.TextMeshPro>(true);
@@ -554,16 +780,16 @@ public class VRGameManager : MonoBehaviour
             headMoved = headPosChange > movementThreshold || headRotChange > rotationThreshold;
         }
         
-        // ✅ FIX: Détecter aussi le mouvement des mains !
+        // FIX: Détecter aussi le mouvement des mains (VR only)
         bool handsMoved = false;
-        if (syncHands && _localLeftHand != null && _localRightHand != null)
+        if (!_isDesktopMode && syncHands && _localLeftHand != null && _localRightHand != null)
         {
             float leftHandPosChange = Vector3.Distance(_lastSyncLeftHandPos, _localLeftHand.position);
             float rightHandPosChange = Vector3.Distance(_lastSyncRightHandPos, _localRightHand.position);
             handsMoved = leftHandPosChange > movementThreshold || rightHandPosChange > movementThreshold;
         }
-        
-        // ✅ FIX: Ne sync que si AU MOINS UNE partie a bougé (corps, tête, ou mains)
+
+        // FIX: Ne sync que si AU MOINS UNE partie a bougé (corps, tête, ou mains)
         if (posChange < movementThreshold && rotChange < rotationThreshold && !headMoved && !handsMoved)
         {
             return;
@@ -577,65 +803,89 @@ public class VRGameManager : MonoBehaviour
             _lastSyncHeadRot = _localHead.rotation;
         }
         
-        // ✅ FIX: Mettre à jour les dernières positions des mains
+        //  FIX: Mettre à jour les dernières positions des mains
         if (_localLeftHand != null)
             _lastSyncLeftHandPos = _localLeftHand.position;
         if (_localRightHand != null)
             _lastSyncRightHandPos = _localRightHand.position;
 
-        var data = new VRPositionData
-        {
-            roomId = VRRoomManager.Instance.CurrentRoomId,
-            roomType = VRRoomManager.Instance.CurrentRoomType,
-
-            posX = originTf.position.x,
-            posY = originTf.position.y,
-            posZ = originTf.position.z,
-            rotY = originTf.eulerAngles.y
-        };
+        // Réutilise l'objet caché pour éviter les allocations GC
+        _cachedPositionData.roomId = VRRoomManager.Instance.CurrentRoomId;
+        _cachedPositionData.roomType = VRRoomManager.Instance.CurrentRoomType;
+        
+        // ✅ OPTIMIZATION: Arrondir à 3 décimales (mm) pour réduire la taille du JSON
+        _cachedPositionData.posX = Round(originTf.position.x);
+        _cachedPositionData.posY = Round(originTf.position.y);
+        _cachedPositionData.posZ = Round(originTf.position.z);
+        _cachedPositionData.rotY = Round(originTf.eulerAngles.y);
 
         // Tête en WORLD
         if (_localHead != null)
         {
-            data.headPosX = _localHead.position.x;
-            data.headPosY = _localHead.position.y;
-            data.headPosZ = _localHead.position.z;
+            _cachedPositionData.headPosX = Round(_localHead.position.x);
+            _cachedPositionData.headPosY = Round(_localHead.position.y);
+            _cachedPositionData.headPosZ = Round(_localHead.position.z);
 
-            data.headRotX = _localHead.rotation.x;
-            data.headRotY = _localHead.rotation.y;
-            data.headRotZ = _localHead.rotation.z;
-            data.headRotW = _localHead.rotation.w;
+            _cachedPositionData.headRotX = Round(_localHead.rotation.x);
+            _cachedPositionData.headRotY = Round(_localHead.rotation.y);
+            _cachedPositionData.headRotZ = Round(_localHead.rotation.z);
+            _cachedPositionData.headRotW = Round(_localHead.rotation.w);
         }
 
-        // Mains en WORLD
-        if (syncHands)
+        // Mains en WORLD (zeros for Desktop mode to signal no hands)
+        if (_isDesktopMode)
+        {
+            // Desktop mode: send zeros to indicate no hands
+            _cachedPositionData.leftHandPosX = 0;
+            _cachedPositionData.leftHandPosY = 0;
+            _cachedPositionData.leftHandPosZ = 0;
+            _cachedPositionData.leftHandRotX = 0;
+            _cachedPositionData.leftHandRotY = 0;
+            _cachedPositionData.leftHandRotZ = 0;
+            _cachedPositionData.leftHandRotW = 0;
+
+            _cachedPositionData.rightHandPosX = 0;
+            _cachedPositionData.rightHandPosY = 0;
+            _cachedPositionData.rightHandPosZ = 0;
+            _cachedPositionData.rightHandRotX = 0;
+            _cachedPositionData.rightHandRotY = 0;
+            _cachedPositionData.rightHandRotZ = 0;
+            _cachedPositionData.rightHandRotW = 0;
+        }
+        else if (syncHands)
         {
             if (_localLeftHand != null)
             {
-                data.leftHandPosX = _localLeftHand.position.x;
-                data.leftHandPosY = _localLeftHand.position.y;
-                data.leftHandPosZ = _localLeftHand.position.z;
-                
-                data.leftHandRotX = _localLeftHand.rotation.x;
-                data.leftHandRotY = _localLeftHand.rotation.y;
-                data.leftHandRotZ = _localLeftHand.rotation.z;
-                data.leftHandRotW = _localLeftHand.rotation.w;
+                _cachedPositionData.leftHandPosX = Round(_localLeftHand.position.x);
+                _cachedPositionData.leftHandPosY = Round(_localLeftHand.position.y);
+                _cachedPositionData.leftHandPosZ = Round(_localLeftHand.position.z);
+
+                _cachedPositionData.leftHandRotX = Round(_localLeftHand.rotation.x);
+                _cachedPositionData.leftHandRotY = Round(_localLeftHand.rotation.y);
+                _cachedPositionData.leftHandRotZ = Round(_localLeftHand.rotation.z);
+                _cachedPositionData.leftHandRotW = Round(_localLeftHand.rotation.w);
             }
 
             if (_localRightHand != null)
             {
-                data.rightHandPosX = _localRightHand.position.x;
-                data.rightHandPosY = _localRightHand.position.y;
-                data.rightHandPosZ = _localRightHand.position.z;
-                
-                data.rightHandRotX = _localRightHand.rotation.x;
-                data.rightHandRotY = _localRightHand.rotation.y;
-                data.rightHandRotZ = _localRightHand.rotation.z;
-                data.rightHandRotW = _localRightHand.rotation.w;
+                _cachedPositionData.rightHandPosX = Round(_localRightHand.position.x);
+                _cachedPositionData.rightHandPosY = Round(_localRightHand.position.y);
+                _cachedPositionData.rightHandPosZ = Round(_localRightHand.position.z);
+
+                _cachedPositionData.rightHandRotX = Round(_localRightHand.rotation.x);
+                _cachedPositionData.rightHandRotY = Round(_localRightHand.rotation.y);
+                _cachedPositionData.rightHandRotZ = Round(_localRightHand.rotation.z);
+                _cachedPositionData.rightHandRotW = Round(_localRightHand.rotation.w);
             }
         }
 
-        VRNetworkManager.Instance.Send("vr-position", data);
+        VRNetworkManager.Instance.Send("vr-position", _cachedPositionData);
+    }
+    
+    // Helper pour arrondir à 3 décimales
+    float Round(float value)
+    {
+        return (float)Math.Round(value, 3);
     }
 
     void HandleNetworkMessage(NetworkMessage msg)
@@ -656,17 +906,33 @@ public class VRGameManager : MonoBehaviour
             remote.targetHeadPosition = new Vector3(data.headPosX, data.headPosY, data.headPosZ);
             remote.targetHeadRotation = new Quaternion(data.headRotX, data.headRotY, data.headRotZ, data.headRotW);
 
-            if (syncHands)
+            // Check if remote player is in Desktop mode (all hand positions are zero)
+            bool remoteIsDesktop = data.leftHandPosX == 0 && data.leftHandPosY == 0 && data.leftHandPosZ == 0 &&
+                                   data.rightHandPosX == 0 && data.rightHandPosY == 0 && data.rightHandPosZ == 0 &&
+                                   data.leftHandRotW == 0 && data.rightHandRotW == 0;
+
+            if (syncHands && !remoteIsDesktop)
             {
                 remote.targetLeftHandPosition = new Vector3(data.leftHandPosX, data.leftHandPosY, data.leftHandPosZ);
                 remote.targetLeftHandRotation = new Quaternion(data.leftHandRotX, data.leftHandRotY, data.leftHandRotZ, data.leftHandRotW);
 
                 remote.targetRightHandPosition = new Vector3(data.rightHandPosX, data.rightHandPosY, data.rightHandPosZ);
                 remote.targetRightHandRotation = new Quaternion(data.rightHandRotX, data.rightHandRotY, data.rightHandRotZ, data.rightHandRotW);
+
+                // Show hands for VR players
+                if (remote.leftHand != null) remote.leftHand.gameObject.SetActive(true);
+                if (remote.rightHand != null) remote.rightHand.gameObject.SetActive(true);
+            }
+            else if (remoteIsDesktop)
+            {
+                // Hide hands for Desktop players
+                if (remote.leftHand != null) remote.leftHand.gameObject.SetActive(false);
+                if (remote.rightHand != null) remote.rightHand.gameObject.SetActive(false);
             }
 
             remote.currentRoomType = data.roomType;
             remote.hasReceivedData = true;
+            remote.isDesktopMode = remoteIsDesktop;
             
             if (VRRoomManager.Instance != null)
             {
@@ -809,6 +1075,10 @@ public class VRGameManager : MonoBehaviour
     public GameObject GetRemotePlayer(string playerId)
         => _remotePlayers.TryGetValue(playerId, out var remote) ? remote.gameObject : null;
 
+    /// Returns the head transform of a remote player (for spatial audio positioning)
+    public Transform GetRemotePlayerHead(string playerId)
+        => _remotePlayers.TryGetValue(playerId, out var remote) ? remote.head : null;
+
     public Dictionary<string, GameObject> GetAllRemotePlayers()
     {
         var result = new Dictionary<string, GameObject>();
@@ -848,6 +1118,7 @@ public class VRRemotePlayer
 
     public bool hasReceivedData;
     public RoomType currentRoomType;
+    public bool isDesktopMode;
 }
 
 [Serializable]
