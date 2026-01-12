@@ -244,6 +244,15 @@ public class NetworkMessage {
 - **Ownership:** Grab to take ownership, deterministic sync
 - **State request:** Late joiners request object positions via `obj-state-request`
 
+### XR Interaction Toolkit Configuration
+
+- **Prefab:** `Assets/Prefabs/Unity/XR Origin Hands (XR Rig).prefab`
+- **Interaction Layers:**
+  - Poke Interactors (hands): Layer "Default" only (`m_Bits: 1`)
+  - Teleport Interactor: Layer "Teleport" only (bit 31)
+  - TeleportationAreas: Layer "Teleport" (bit 31)
+- **Important:** Grab interactors must NOT include Teleport layer to avoid grabbing floor
+
 ## Key Data Classes
 
 ```csharp
