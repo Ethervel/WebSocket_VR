@@ -388,15 +388,9 @@ public class VoiceChatUI : MonoBehaviour
     
     void TogglePlayerMute(string playerId)
     {
-        if (VoiceChatManager.Instance == null) return;
-        
-        // TODO: Implémenter le système de mute par joueur
-        // Pour l'instant on toggle juste
-        Debug.Log($"[VoiceChatUI] Toggle mute for: {playerId}");
-        
-        // Exemple d'implémentation:
-        // bool isMuted = VoiceChatManager.Instance.IsPlayerMuted(playerId);
-        // VoiceChatManager.Instance.SetPlayerMuted(playerId, !isMuted);
+        // Fonctionnalité mute par joueur non implémentée
+        // Nécessite: VoiceChatManager.IsPlayerMuted() et SetPlayerMuted()
+        Debug.LogWarning($"[VoiceChatUI] Mute non implémenté pour: {playerId}");
     }
     
     string GetPlayerName(string playerId)

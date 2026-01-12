@@ -19,13 +19,6 @@ public class BootstrapManager : MonoBehaviour
     [Tooltip("Délai avant de charger la scène principale (secondes)")]
     public float loadDelay = 0.5f;
 
-    [Header("Avatar Customization")]
-    [Tooltip("Afficher l'écran de personnalisation avant de charger la scène")]
-    public bool showCustomizationOnStart = true;
-
-    [Tooltip("Panel de personnalisation d'avatar")]
-    public GameObject customizationPanel;
-
     [Header("Loading UI (Optionnel)")]
     public GameObject loadingScreen;
     public UnityEngine.UI.Slider progressBar;

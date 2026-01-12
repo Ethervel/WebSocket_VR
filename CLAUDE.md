@@ -22,7 +22,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | **Presentation Tools** | Screen sharing, slides, media playback | Planned |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
 | **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
-| **Expressive Professional Avatars** | Business-appropriate customizable avatars | Partial |
+| **Expressive Professional Avatars** | Business-appropriate customizable avatars | Not Started |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
 | **Screen Sharing** | Share desktop/window to virtual display | Planned |
@@ -95,7 +95,7 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   ├── VRRoomManager.cs          # Room lifecycle, player roster, zone tracking
 │   └── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
 ├── VR/
-│   ├── BootstrapManager.cs       # Additive scene loading, EventSystem cleanup
+│   ├── BootstrapManager.cs       # Additive scene loading, persistent EventSystem setup
 │   ├── VRPlayerController.cs     # Locomotion, snap/smooth turn, gravity
 │   └── TeleportOnGrab.cs         # VR teleportation mechanics
 ├── WebRTC/
@@ -105,11 +105,6 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   ├── WhiteboardMarker.cs       # Drawing input handling
 │   ├── WhiteboardNetworkData.cs  # Serializable network classes
 │   └── WhiteboardUIManager.cs    # Whiteboard UI controls
-├── Avatar/
-│   ├── AvatarCustomizationManager.cs  # Persists player name/color (PlayerPrefs)
-│   ├── AvatarCustomizationUI.cs       # Customization panel
-│   ├── AvatarCustomizationUIBuilder.cs
-│   └── PlayerNameDisplay.cs           # Floating name tags
 ├── UI/
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
@@ -283,12 +278,12 @@ public class NetworkMessage {
 ## Integration Flow
 
 ```
-Bootstrap Scene (Persistent)
+Bootstrap Scene (Persistent via DontDestroyOnLoad)
 ├── VRNetworkManager ─── WebSocket ──→ Server (ws://localhost:8080)
 ├── VRRoomManager ←──────── OnConnected, OnMessageReceived
 ├── VRGameManager ←──────── OnRoomCreated/Joined, OnPlayerJoined/Left, OnRoomTypeChanged
 ├── VoiceChatManager ←───── OnPlayerJoined/Left (host initiates WebRTC)
-├── AvatarCustomizationManager (PlayerPrefs persistence)
+├── EventSystem ←────────── Persistent, with XRUIInputModule (configured by BootstrapManager)
 └── BootstrapManager ──→ Loads Meet.unity additively
 
 Meet Scene (Additive)
