@@ -349,42 +349,35 @@ public class VoiceChatManager : MonoBehaviour
     void OnRoomCreated(string roomId)
     {
         LogDebug($"[VoiceChat] Room created: {roomId}");
-        // Pas besoin de créer de connexions, on attend que d'autres jouent rejoignent
+        // Pas besoin de créer de connexions, on attend que d'autres joueurs rejoignent
     }
-    
+
     void OnRoomJoined(string roomId)
     {
         LogDebug($"[VoiceChat] Joined room: {roomId}");
-        
-        // Connecter aux joueurs déjà présents
-        if (VRRoomManager.Instance != null)
-        {
-            var players = VRRoomManager.Instance.GetPlayers();
-            foreach (var player in players)
-            {
-                // Ne pas se connecter à soi-même
-                if (player.playerId != VRNetworkManager.LocalId)
-                {
-                    // L'hôte initie les connexions
-                    if (VRRoomManager.Instance.IsHost)
-                    {
-                        StartCoroutine(CreatePeerConnection(player.playerId, true));
-                    }
-                }
-            }
-        }
+        // Les connexions seront initiées via OnPlayerJoined quand room-welcome arrive
     }
-    
+
     void OnPlayerJoined(VRPlayerData player)
     {
         if (player.playerId == VRNetworkManager.LocalId) return;
-        
+
         LogDebug($"[VoiceChat] Player joined: {player.playerId} ({player.playerName})");
-        
-        // ADAPTÉ: Seul l'hôte initie la connexion pour éviter les doublons
-        if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsHost)
+
+        // MESH TOPOLOGY FIX: Utiliser une règle déterministe pour éviter les doublons
+        // Le joueur avec l'ID le plus petit (lexicographiquement) initie la connexion
+        // Cela garantit qu'un seul côté initie et crée une topologie mesh complète
+        string localId = VRNetworkManager.LocalId;
+        if (string.Compare(localId, player.playerId, StringComparison.Ordinal) < 0)
         {
+            // Notre ID est plus petit → on initie la connexion
+            LogDebug($"[VoiceChat] MESH: {localId} < {player.playerId} → Initiating connection");
             StartCoroutine(CreatePeerConnection(player.playerId, true));
+        }
+        else
+        {
+            // Leur ID est plus petit → ils vont initier la connexion vers nous
+            LogDebug($"[VoiceChat] MESH: {localId} > {player.playerId} → Waiting for them to initiate");
         }
     }
     
@@ -482,33 +475,45 @@ public class VoiceChatManager : MonoBehaviour
         }
     }
     
-    // ADAPTÉ: Créer l'AudioSource sur le GameObject du remote player
+    // ADAPTÉ: Créer l'AudioSource sur la TÊTE du remote player pour audio spatialisée correcte
     AudioSource CreateAudioSourceForPlayer(string playerId)
     {
-        // Essayer de trouver le GameObject du remote player via VRGameManager
-        GameObject playerGO = VRGameManager.Instance?.GetRemotePlayer(playerId);
-        
-        if (playerGO == null)
+        // Essayer de trouver la TÊTE du remote player (détachée du body)
+        Transform headTransform = VRGameManager.Instance?.GetRemotePlayerHead(playerId);
+        GameObject audioGO;
+
+        if (headTransform != null)
         {
-            Debug.LogWarning($"[VoiceChat] Remote player GameObject not found for {playerId}, creating fallback");
-            // Fallback: créer un GameObject enfant de VoiceChatManager
-            // Safe substring pour éviter IndexOutOfRangeException si playerId < 8 caractères
-            string shortId = playerId.Length >= 8 ? playerId.Substring(0, 8) : playerId;
-            GameObject audioGO = new GameObject($"VoiceAudio_{shortId}");
-            audioGO.transform.SetParent(transform);
-            playerGO = audioGO;
+            // Attacher l'audio à la tête pour une spatialisation correcte
+            audioGO = new GameObject("VoiceAudio");
+            audioGO.transform.SetParent(headTransform);
+            audioGO.transform.localPosition = Vector3.zero;
+            LogDebug($"[VoiceChat] AudioSource attached to HEAD of {playerId}");
         }
         else
         {
-            // Créer un enfant pour l'audio
-            GameObject audioGO = new GameObject("VoiceAudio");
-            audioGO.transform.SetParent(playerGO.transform);
-            audioGO.transform.localPosition = Vector3.zero;
-            playerGO = audioGO;
+            // Fallback: essayer le body du remote player
+            GameObject playerGO = VRGameManager.Instance?.GetRemotePlayer(playerId);
+
+            if (playerGO != null)
+            {
+                audioGO = new GameObject("VoiceAudio");
+                audioGO.transform.SetParent(playerGO.transform);
+                audioGO.transform.localPosition = new Vector3(0, 1.6f, 0); // Approximation hauteur tête
+                Debug.LogWarning($"[VoiceChat] Head not found for {playerId}, using body with offset");
+            }
+            else
+            {
+                // Fallback final: créer un GameObject enfant de VoiceChatManager
+                string shortId = playerId.Length >= 8 ? playerId.Substring(0, 8) : playerId;
+                audioGO = new GameObject($"VoiceAudio_{shortId}");
+                audioGO.transform.SetParent(transform);
+                Debug.LogWarning($"[VoiceChat] Remote player not found for {playerId}, creating fallback");
+            }
         }
-        
+
         // Configurer l'AudioSource
-        AudioSource audioSource = playerGO.AddComponent<AudioSource>();
+        AudioSource audioSource = audioGO.AddComponent<AudioSource>();
         audioSource.volume = playbackVolume;
         audioSource.loop = true;
         audioSource.playOnAwake = false;

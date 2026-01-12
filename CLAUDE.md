@@ -18,7 +18,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Spatial Audio** | 3D positional audio for natural conversations | In Progress |
+| **Spatial Audio** | 3D positional audio for natural conversations | Implemented |
 | **Presentation Tools** | Screen sharing, slides, media playback | Planned |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
 | **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
@@ -53,7 +53,8 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 **Phase 1 - Foundation (Current)**
 - [x] WebSocket networking
-- [x] WebRTC voice chat
+- [x] WebRTC voice chat (mesh topology)
+- [x] Spatial audio (3D positioned on head)
 - [x] Basic avatar sync
 - [x] Whiteboard
 - [ ] Desktop mode (non-VR)
@@ -203,13 +204,23 @@ public class NetworkMessage {
 - **Interpolation speed:** 15 (configurable)
 - **Remote player design:** Head and hands are **detached from hierarchy** to follow world-space targets
 - **Data synced:** Body position/Y-rotation, head position/quaternion, both hands position/quaternion
+- **Public utilities:**
+  - `GetLocalPlayer()` → local player GameObject
+  - `GetRemotePlayer(playerId)` → remote player body GameObject
+  - `GetRemotePlayerHead(playerId)` → remote player head Transform (for spatial audio)
 
 ### Voice Chat (`VoiceChatManager.cs`)
 
 - **STUN servers:** Google public (`stun:stun.l.google.com:19302`)
-- **Host initiates:** Prevents duplicate WebRTC connections
-- **Spatial audio:** 3D blend with 20m max distance (configurable)
+- **Mesh topology:** All clients connected to each other (not just to host)
+  - Deterministic rule: player with smaller ID (lexicographically) initiates connection
+  - Ensures no duplicate connections and full mesh with 3+ clients
+- **Spatial audio:**
+  - AudioSource attached to remote player's **head** (via `GetRemotePlayerHead()`)
+  - 3D spatialBlend = 1.0, maxDistance = 20m, Linear rolloff
+  - AudioListener on local player's Main Camera
 - **Push-to-talk:** V key (desktop), VR button (configurable)
+- **Auto-start:** Microphone starts automatically on initialization
 
 ### Whiteboard (`WhiteBoard/Whiteboard.cs`)
 
@@ -282,7 +293,7 @@ Bootstrap Scene (Persistent via DontDestroyOnLoad)
 ├── VRNetworkManager ─── WebSocket ──→ Server (ws://localhost:8080)
 ├── VRRoomManager ←──────── OnConnected, OnMessageReceived
 ├── VRGameManager ←──────── OnRoomCreated/Joined, OnPlayerJoined/Left, OnRoomTypeChanged
-├── VoiceChatManager ←───── OnPlayerJoined/Left (host initiates WebRTC)
+├── VoiceChatManager ←───── OnPlayerJoined (mesh topology: smaller ID initiates WebRTC)
 ├── EventSystem ←────────── Persistent, with XRUIInputModule (configured by BootstrapManager)
 └── BootstrapManager ──→ Loads Meet.unity additively
 
@@ -292,3 +303,20 @@ Meet Scene (Additive)
 ├── Whiteboard components
 └── UI (VoiceChat, Menu, QuickRoomJoiner)
 ```
+
+## Recent Fixes & Changes
+
+### WebRTC Mesh Topology (VoiceChatManager.cs:367-381)
+- **Problem:** With 3+ clients, only host was connected to everyone (star topology)
+- **Solution:** Deterministic rule - player with lexicographically smaller ID initiates
+- **Result:** Full mesh where all clients hear each other
+
+### Spatial Audio Positioning (VoiceChatManager.cs:485-520)
+- **Problem:** AudioSource was attached to remote player body, not head
+- **Solution:** AudioSource now attached to detached head Transform via `GetRemotePlayerHead()`
+- **Result:** Correct 3D audio positioning based on head position
+
+### EventSystem Fix (BootstrapManager.cs)
+- **Problem:** Duplicate EventSystems caused random VR UI interaction failures
+- **Solution:** Single persistent EventSystem in Bootstrap with XRUIInputModule
+- **Result:** Reliable VR controller UI interaction

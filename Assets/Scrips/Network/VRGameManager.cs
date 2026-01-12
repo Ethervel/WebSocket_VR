@@ -911,6 +911,10 @@ public class VRGameManager : MonoBehaviour
     public GameObject GetRemotePlayer(string playerId)
         => _remotePlayers.TryGetValue(playerId, out var remote) ? remote.gameObject : null;
 
+    /// Returns the head transform of a remote player (for spatial audio positioning)
+    public Transform GetRemotePlayerHead(string playerId)
+        => _remotePlayers.TryGetValue(playerId, out var remote) ? remote.head : null;
+
     public Dictionary<string, GameObject> GetAllRemotePlayers()
     {
         var result = new Dictionary<string, GameObject>();
