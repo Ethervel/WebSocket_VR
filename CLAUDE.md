@@ -19,13 +19,13 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | Feature | Description | Status |
 |---------|-------------|--------|
 | **Spatial Audio** | 3D positional audio for natural conversations | Implemented |
-| **Presentation Tools** | Screen sharing, slides, media playback | Planned |
+| **Presentation Tools** | Screen sharing, slides, media playback | In Progress |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
 | **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
 | **Expressive Professional Avatars** | Business-appropriate customizable avatars | Not Started |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
-| **Screen Sharing** | Share desktop/window to virtual display | Planned |
+| **Screen Sharing** | Share desktop/window to Whiteboard | In Progress |
 
 ### Must Have (Non-Negotiable)
 
@@ -61,7 +61,8 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [ ] MariaDB integration
 
 **Phase 2 - Collaboration**
-- [ ] Screen sharing
+- [~] Screen sharing (implémenté, à tester)
+- [~] File sharing (implémenté, à tester)
 - [ ] 3D object manipulation
 - [ ] Presentation mode
 - [ ] Note-taking system
@@ -102,10 +103,19 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── WebRTC/
 │   └── VoiceChatManager.cs       # WebRTC peers, spatial audio, push-to-talk
 ├── WhiteBoard/
-│   ├── Whiteboard.cs             # Network-synced whiteboard (2048x2048 texture)
+│   ├── Whiteboard.cs             # Network-synced whiteboard + presentation mode
 │   ├── WhiteboardMarker.cs       # Drawing input handling
 │   ├── WhiteboardNetworkData.cs  # Serializable network classes
 │   └── WhiteboardUIManager.cs    # Whiteboard UI controls
+├── Sharing/
+│   ├── ScreenShareManager.cs     # Screen capture + WebRTC video streaming
+│   ├── ScreenShareUI.cs          # UI controls for screen share
+│   ├── FileShareManager.cs       # File chunking and transfer
+│   ├── FileShareData.cs          # Serializable file data classes
+│   ├── FileViewer.cs             # Open/display shared files
+│   ├── SharedFileUI.cs           # UI for file list
+│   ├── VirtualScreen.cs          # Virtual display (unused, Whiteboard used instead)
+│   └── SharingSystemSetup.cs     # Menu: VR Meeting > Setup Sharing System
 ├── UI/
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
@@ -188,6 +198,8 @@ public class NetworkMessage {
 | VR Sync | `vr-position` (30Hz, optimized with movement threshold) |
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
+| Screen Share | `screen-share-start`, `screen-share-stop`, `screen-video-offer`, `screen-video-answer`, `screen-video-ice` |
+| File Share | `file-announce`, `file-chunk`, `file-complete`, `file-request`, `file-list-request`, `file-list-response` |
 
 ### Room System
 
@@ -327,6 +339,96 @@ Meet Scene (Additive)
 ├── Whiteboard components
 └── UI (VoiceChat, Menu, QuickRoomJoiner)
 ```
+
+## Screen Sharing & File Sharing (Work In Progress)
+
+### Status: Partially Implemented - Needs Testing
+
+**Files créés dans `Assets/Scrips/Sharing/`:**
+
+| Fichier | Description | Status |
+|---------|-------------|--------|
+| `ScreenShareManager.cs` | Capture écran + WebRTC VideoStreamTrack | Implémenté |
+| `ScreenShareUI.cs` | UI simple pour contrôler le partage | Implémenté |
+| `FileShareManager.cs` | Envoi/réception fichiers en chunks Base64 | Implémenté |
+| `FileShareData.cs` | Classes sérialisables pour fichiers | Implémenté |
+| `FileViewer.cs` | Ouverture fichiers + affichage sur Whiteboard | Implémenté |
+| `SharedFileUI.cs` | UI liste des fichiers partagés | Implémenté |
+| `VirtualScreen.cs` | Écran virtuel (non utilisé, remplacé par Whiteboard) | Implémenté |
+| `SharingSystemSetup.cs` | Menu setup automatique des managers | Implémenté |
+
+### Architecture Screen Share
+
+- **Affichage:** Sur le Whiteboard (mode présentation), pas d'écran virtuel séparé
+- **Capture:** `ScreenCapture.CaptureScreenshotIntoRenderTexture()` → RenderTexture BGRA32
+- **Streaming:** WebRTC VideoStreamTrack
+- **Restriction:** Desktop uniquement (VR ne peut pas partager)
+
+### Whiteboard - Mode Présentation
+
+Le Whiteboard a été étendu avec un mode présentation:
+
+```csharp
+// Propriétés
+whiteboard.IsPresentationMode      // true si affiche screen share ou image
+whiteboard.CurrentPresentationTitle
+whiteboard.CurrentPresenterId
+
+// Méthodes
+whiteboard.StartPresentationMode(presenterId, title)  // Sauvegarde le dessin
+whiteboard.StopPresentationMode()                      // Restaure le dessin
+whiteboard.UpdatePresentationTexture(texture, flipY)  // Met à jour l'affichage
+whiteboard.DisplayImage(texture, presenterId, fileName)
+whiteboard.DisplayScreenShare(texture, presenterId, name)
+
+// Events
+Whiteboard.OnPresentationModeChanged(whiteboard, isPresenting)
+Whiteboard.OnPresentationTextureUpdated(whiteboard, texture)
+```
+
+### Messages Réseau Screen Share
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `screen-share-start` | Sharer → Room | Annonce début partage |
+| `screen-share-stop` | Sharer → Room | Annonce fin partage |
+| `screen-video-offer` | Receiver → Sharer | Demande flux vidéo |
+| `screen-video-answer` | Sharer → Receiver | Réponse WebRTC |
+| `screen-video-ice` | Bidirectionnel | ICE candidates |
+
+### Messages Réseau File Share
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `file-announce` | Sender → Room | Annonce nouveau fichier |
+| `file-chunk` | Sender → Room | Chunk Base64 (64KB) |
+| `file-complete` | Sender → Room | Fichier complet |
+| `file-request` | Receiver → Sender | Demande re-envoi |
+| `file-list-request` | Late joiner → Room | Demande liste fichiers |
+| `file-list-response` | Host → Requester | Liste des fichiers |
+
+### Server (D:\Test_project\LocalServ\Server\server.js)
+
+Handlers ajoutés pour Screen Share et File Share:
+- `handleScreenVideoOffer`, `handleScreenVideoAnswer`, `handleScreenVideoIce`
+- `handleFileListResponse`
+- Broadcast par room pour tous les messages `screen-share-*` et `file-*`
+
+### Setup Required
+
+1. **Menu Unity:** `VR Meeting → Setup Sharing System` crée les managers
+2. **UI Screen Share:** Créer Canvas World Space près du Whiteboard avec:
+   - Button "Share Screen" → `shareButton`
+   - Button "Stop" → `stopButton`
+   - TextMeshPro status → `statusText`
+   - Ajouter script `ScreenShareUI` et assigner les références
+
+### Known Issues / TODO
+
+- [ ] Tester Screen Share entre Unity Editor et Build
+- [ ] Tester File Share complet
+- [ ] Le flip Y de la texture peut nécessiter ajustement selon la plateforme
+- [ ] Late joiner ne reçoit pas automatiquement le screen share en cours
 
 ## Recent Fixes & Changes
 

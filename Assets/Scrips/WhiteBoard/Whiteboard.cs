@@ -32,6 +32,16 @@ public class Whiteboard : MonoBehaviour
     private int _receivedDraws = 0;
     private int _receivedPoints = 0;
 
+    // Mode présentation (screen share / fichiers)
+    private bool _isPresentationMode = false;
+    private Texture2D _savedDrawingTexture;
+    private string _currentPresenterId;
+    private string _currentPresentationTitle;
+
+    // Events pour le mode présentation
+    public static event Action<Whiteboard, bool> OnPresentationModeChanged;  // whiteboard, isPresenting
+    public static event Action<Whiteboard, Texture> OnPresentationTextureUpdated;
+
     void Start()
     {
         InitializeTexture();
@@ -488,5 +498,172 @@ public class Whiteboard : MonoBehaviour
         }
     }
 
-    
+    #region Presentation Mode (Screen Share / File Display)
+
+    /// <summary>
+    /// Est-ce que le whiteboard est en mode présentation?
+    /// </summary>
+    public bool IsPresentationMode => _isPresentationMode;
+
+    /// <summary>
+    /// ID du présentateur actuel
+    /// </summary>
+    public string CurrentPresenterId => _currentPresenterId;
+
+    /// <summary>
+    /// Titre de la présentation actuelle (nom fichier ou "Screen Share")
+    /// </summary>
+    public string CurrentPresentationTitle => _currentPresentationTitle;
+
+    /// <summary>
+    /// Démarre le mode présentation - sauvegarde le dessin actuel
+    /// </summary>
+    public void StartPresentationMode(string presenterId, string title)
+    {
+        if (_isPresentationMode)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] Already in presentation mode");
+            return;
+        }
+
+        if (texture == null)
+        {
+            Debug.LogError($"[Whiteboard:{id}] Cannot start presentation: texture not initialized");
+            return;
+        }
+
+        // Sauvegarder le dessin actuel
+        _savedDrawingTexture = new Texture2D((int)textureSize.x, (int)textureSize.y);
+        _savedDrawingTexture.SetPixels(texture.GetPixels());
+        _savedDrawingTexture.Apply();
+
+        _isPresentationMode = true;
+        _currentPresenterId = presenterId;
+        _currentPresentationTitle = title;
+
+        Debug.Log($"[Whiteboard:{id}] Presentation mode started: {title} by {presenterId}");
+        OnPresentationModeChanged?.Invoke(this, true);
+    }
+
+    /// <summary>
+    /// Arrête le mode présentation - restaure le dessin
+    /// </summary>
+    public void StopPresentationMode()
+    {
+        if (!_isPresentationMode)
+        {
+            return;
+        }
+
+        // Restaurer le dessin sauvegardé
+        if (_savedDrawingTexture != null && texture != null)
+        {
+            texture.SetPixels(_savedDrawingTexture.GetPixels());
+            texture.Apply();
+
+            Destroy(_savedDrawingTexture);
+            _savedDrawingTexture = null;
+        }
+
+        _isPresentationMode = false;
+        _currentPresenterId = null;
+        _currentPresentationTitle = null;
+
+        // Remettre la texture de dessin sur le renderer
+        if (targetRenderer != null)
+        {
+            targetRenderer.material.mainTexture = texture;
+            // Reset texture scale/offset
+            targetRenderer.material.mainTextureScale = new Vector2(1, 1);
+            targetRenderer.material.mainTextureOffset = new Vector2(0, 0);
+        }
+
+        Debug.Log($"[Whiteboard:{id}] Presentation mode stopped, drawing restored");
+        OnPresentationModeChanged?.Invoke(this, false);
+    }
+
+    /// <summary>
+    /// Met à jour la texture de présentation (pour screen share)
+    /// </summary>
+    public void UpdatePresentationTexture(Texture newTexture, bool flipY = true)
+    {
+        if (!_isPresentationMode)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] Not in presentation mode");
+            return;
+        }
+
+        if (targetRenderer != null && newTexture != null)
+        {
+            targetRenderer.material.mainTexture = newTexture;
+
+            // Flip Y pour corriger l'inversion du screen capture
+            if (flipY)
+            {
+                targetRenderer.material.mainTextureScale = new Vector2(1, -1);
+                targetRenderer.material.mainTextureOffset = new Vector2(0, 1);
+            }
+
+            OnPresentationTextureUpdated?.Invoke(this, newTexture);
+        }
+    }
+
+    /// <summary>
+    /// Affiche une image sur le whiteboard (pour fichiers partagés)
+    /// </summary>
+    public void DisplayImage(Texture2D image, string presenterId, string fileName)
+    {
+        if (image == null)
+        {
+            Debug.LogError($"[Whiteboard:{id}] Cannot display null image");
+            return;
+        }
+
+        // Démarrer le mode présentation si pas déjà actif
+        if (!_isPresentationMode)
+        {
+            StartPresentationMode(presenterId, fileName);
+        }
+        else
+        {
+            _currentPresentationTitle = fileName;
+        }
+
+        // Afficher l'image
+        if (targetRenderer != null)
+        {
+            targetRenderer.material.mainTexture = image;
+        }
+
+        Debug.Log($"[Whiteboard:{id}] Displaying image: {fileName}");
+        OnPresentationTextureUpdated?.Invoke(this, image);
+    }
+
+    /// <summary>
+    /// Affiche une texture de screen share sur le whiteboard
+    /// </summary>
+    public void DisplayScreenShare(Texture screenTexture, string presenterId, string presenterName)
+    {
+        if (screenTexture == null)
+        {
+            Debug.LogError($"[Whiteboard:{id}] Cannot display null screen texture");
+            return;
+        }
+
+        // Démarrer le mode présentation si pas déjà actif
+        if (!_isPresentationMode)
+        {
+            StartPresentationMode(presenterId, $"Screen: {presenterName}");
+        }
+
+        // Afficher le screen share
+        if (targetRenderer != null)
+        {
+            targetRenderer.material.mainTexture = screenTexture;
+        }
+
+        OnPresentationTextureUpdated?.Invoke(this, screenTexture);
+    }
+
+    #endregion
 }
