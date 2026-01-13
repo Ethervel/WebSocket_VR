@@ -11,10 +11,10 @@ using TMPro;
 public class WhiteboardUISetup : MonoBehaviour
 {
     [Header("Configuration")]
-    [Tooltip("Laisser vide pour auto-détecter le whiteboard le plus proche")]
-    public Whiteboard targetWhiteboard;
+    [Tooltip("Laisser vide pour auto-détecter la surface de dessin la plus proche")]
+    public WhiteboardDrawingSurface targetDrawingSurface;
 
-    [Tooltip("Distance max pour auto-détection du whiteboard")]
+    [Tooltip("Distance max pour auto-détection de la surface")]
     public float autoDetectRadius = 5f;
 
     [Header("Panel Settings")]
@@ -117,7 +117,7 @@ public class WhiteboardUISetup : MonoBehaviour
             uiManager = gameObject.AddComponent<WhiteboardUIManager>();
         }
 
-        uiManager.targetWhiteboard = targetWhiteboard;
+        uiManager.targetDrawingSurface = targetDrawingSurface;
         uiManager.clearButton = clearButton;
         uiManager.colorButtons = new Button[] { redButton, blueButton, greenButton };
         uiManager.availableColors = new Color[] { redColor, blueColor, greenColor };

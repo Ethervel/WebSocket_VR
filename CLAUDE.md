@@ -103,19 +103,15 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── WebRTC/
 │   └── VoiceChatManager.cs       # WebRTC peers, spatial audio, push-to-talk
 ├── WhiteBoard/
-│   ├── Whiteboard.cs             # Network-synced whiteboard + presentation mode
-│   ├── WhiteboardMarker.cs       # Drawing input handling
-│   ├── WhiteboardNetworkData.cs  # Serializable network classes
-│   └── WhiteboardUIManager.cs    # Whiteboard UI controls
+│   ├── Whiteboard.cs             # Fond blanc + mode présentation (screen share)
+│   ├── WhiteboardDrawingSurface.cs # Surface transparente, reçoit dessins réseau
+│   ├── WhiteboardMarker.cs       # Dessin VR (stylo)
+│   ├── DesktopWhiteboardDrawer.cs # Dessin Desktop (souris)
+│   ├── WhiteboardNetworkData.cs  # Classes sérialisables réseau
+│   └── WhiteboardUIManager.cs    # UI (couleurs, clear)
 ├── Sharing/
-│   ├── ScreenShareManager.cs     # Screen capture + WebRTC video streaming
-│   ├── ScreenShareUI.cs          # UI controls for screen share
-│   ├── FileShareManager.cs       # File chunking and transfer
-│   ├── FileShareData.cs          # Serializable file data classes
-│   ├── FileViewer.cs             # Open/display shared files
-│   ├── SharedFileUI.cs           # UI for file list
-│   ├── VirtualScreen.cs          # Virtual display (unused, Whiteboard used instead)
-│   └── SharingSystemSetup.cs     # Menu: VR Meeting > Setup Sharing System
+│   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
+│   └── ScreenShareData.cs        # Classes sérialisables pour messages réseau
 ├── UI/
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
@@ -198,8 +194,7 @@ public class NetworkMessage {
 | VR Sync | `vr-position` (30Hz, optimized with movement threshold) |
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
-| Screen Share | `screen-share-start`, `screen-share-stop`, `screen-video-offer`, `screen-video-answer`, `screen-video-ice` |
-| File Share | `file-announce`, `file-chunk`, `file-complete`, `file-request`, `file-list-request`, `file-list-response` |
+| Screen Share | `screen-share-start`, `screen-share-stop`, `screen-share-frame`, `screen-share-request`, `screen-share-state` |
 
 ### Room System
 
@@ -234,18 +229,33 @@ public class NetworkMessage {
 - **Push-to-talk:** V key (desktop), VR button (configurable)
 - **Auto-start:** Microphone starts automatically on initialization
 
-### Whiteboard (`WhiteBoard/Whiteboard.cs`)
+### Whiteboard System (`Assets/Scrips/WhiteBoard/`)
 
-- **Texture:** 2048x2048 (configurable)
-- **Network format:** `WhiteboardPacket` with `pointsFlat` array (u,v pairs)
-- **Room-scoped:** All messages include `roomId` for filtering
-- **Late joiner sync:**
-  - Requests state on `OnRoomJoined` or at `Start()` if already in room
-  - Responds with PNG base64 encoded texture (not history-dependent)
-- **Room change behavior:**
-  - Clears texture on `OnRoomLeft`
-  - Requests state on `OnRoomJoined`
-- **History buffer:** 100 packets max (for received network packets only)
+**Architecture à 3 couches:**
+1. **Whiteboard.cs** - Fond blanc + mode présentation (screen share)
+2. **WhiteboardDrawingSurface.cs** - Surface transparente devant le fond, reçoit les dessins du réseau
+3. **Systèmes de dessin** - WhiteboardMarker (VR) et DesktopWhiteboardDrawer (Desktop)
+
+**Systèmes de dessin (IMPORTANT - ne pas dupliquer):**
+- **WhiteboardMarker** → VR uniquement (stylo à tenir)
+- **DesktopWhiteboardDrawer** → Desktop uniquement (clic souris/molette)
+- **WhiteboardDrawingSurface** → NE dessine PAS, reçoit seulement les données réseau
+- **Couleur par défaut:** Bleu (`Color.blue`)
+- **ATTENTION:** Les couleurs doivent être synchronisées entre les systèmes dans la scène Meet.unity pour éviter les mélanges de couleurs
+
+**Configuration texture:**
+- **Taille:** 2048x2048 (configurable)
+- **Network format:** `WhiteboardPacket` avec `pointsFlat` array (u,v pairs)
+- **Room-scoped:** Tous les messages incluent `roomId` pour filtrage
+
+**Late joiner sync:**
+- Demande état via `whiteboard-request` à `OnRoomJoined` ou `Start()`
+- Réponse avec texture PNG encodée en base64
+
+**Room change behavior:**
+- Clear texture à `OnRoomLeft`
+- Demande état à `OnRoomJoined`
+- **History buffer:** 100 packets max
 
 ### Networked Interactables (`VRNetworkedInteractable.cs`)
 
@@ -340,95 +350,53 @@ Meet Scene (Additive)
 └── UI (VoiceChat, Menu, QuickRoomJoiner)
 ```
 
-## Screen Sharing & File Sharing (Work In Progress)
+## Screen Sharing (`Assets/Scrips/Sharing/`)
 
-### Status: Partially Implemented - Needs Testing
+### Architecture
+- **Méthode:** Capture écran → JPEG → Base64 → WebSocket → Broadcast room
+- **Affichage:** Sur le Whiteboard (mode présentation)
+- **Restriction:** Desktop uniquement (VR peut voir, pas partager)
+- **Performance:** ~5 FPS, ~50-100KB par frame
 
-**Files créés dans `Assets/Scrips/Sharing/`:**
+### ScreenShareManager.cs
+Singleton avec DontDestroyOnLoad.
 
-| Fichier | Description | Status |
-|---------|-------------|--------|
-| `ScreenShareManager.cs` | Capture écran + WebRTC VideoStreamTrack | Implémenté |
-| `ScreenShareUI.cs` | UI simple pour contrôler le partage | Implémenté |
-| `FileShareManager.cs` | Envoi/réception fichiers en chunks Base64 | Implémenté |
-| `FileShareData.cs` | Classes sérialisables pour fichiers | Implémenté |
-| `FileViewer.cs` | Ouverture fichiers + affichage sur Whiteboard | Implémenté |
-| `SharedFileUI.cs` | UI liste des fichiers partagés | Implémenté |
-| `VirtualScreen.cs` | Écran virtuel (non utilisé, remplacé par Whiteboard) | Implémenté |
-| `SharingSystemSetup.cs` | Menu setup automatique des managers | Implémenté |
+**Settings:**
+- `captureWidth = 1280`, `captureHeight = 720`
+- `jpegQuality = 70` (0-100)
+- `captureFrameRate = 5f`
 
-### Architecture Screen Share
+**API publique:**
+- `CanShare()` → true si Desktop mode
+- `StartSharing()` → démarre capture + broadcast
+- `StopSharing()` → arrête capture + notifie room
+- `IsSharing`, `IsReceiving`, `CurrentSharerName`
 
-- **Affichage:** Sur le Whiteboard (mode présentation), pas d'écran virtuel séparé
-- **Capture:** `ScreenCapture.CaptureScreenshotIntoRenderTexture()` → RenderTexture BGRA32
-- **Streaming:** WebRTC VideoStreamTrack
-- **Restriction:** Desktop uniquement (VR ne peut pas partager)
+**Events:**
+- `OnScreenShareStarted(sharerId, sharerName)`
+- `OnScreenShareStopped(sharerId)`
 
 ### Whiteboard - Mode Présentation
-
-Le Whiteboard a été étendu avec un mode présentation:
-
 ```csharp
-// Propriétés
-whiteboard.IsPresentationMode      // true si affiche screen share ou image
-whiteboard.CurrentPresentationTitle
-whiteboard.CurrentPresenterId
-
-// Méthodes
-whiteboard.StartPresentationMode(presenterId, title)  // Sauvegarde le dessin
-whiteboard.StopPresentationMode()                      // Restaure le dessin
-whiteboard.UpdatePresentationTexture(texture, flipY)  // Met à jour l'affichage
-whiteboard.DisplayImage(texture, presenterId, fileName)
-whiteboard.DisplayScreenShare(texture, presenterId, name)
-
-// Events
-Whiteboard.OnPresentationModeChanged(whiteboard, isPresenting)
-Whiteboard.OnPresentationTextureUpdated(whiteboard, texture)
+whiteboard.IsPresentationMode          // true si screen share actif
+whiteboard.PresenterName               // nom du présentateur
+whiteboard.EnterPresentationMode(name) // sauvegarde dessin, active mode
+whiteboard.ExitPresentationMode()      // restaure dessin
+whiteboard.UpdatePresentationTexture(texture) // affiche frame
 ```
 
-### Messages Réseau Screen Share
+### Flux réseau
+1. Sharer envoie `screen-share-start` → room notifiée
+2. Sharer envoie `screen-share-frame` (JPEG Base64) à 5 FPS
+3. Receivers décodent et affichent sur whiteboard
+4. Late joiner envoie `screen-share-request`, sharer répond avec `screen-share-state`
+5. Sharer envoie `screen-share-stop` → room sort du mode présentation
 
-| Type | Direction | Description |
-|------|-----------|-------------|
-| `screen-share-start` | Sharer → Room | Annonce début partage |
-| `screen-share-stop` | Sharer → Room | Annonce fin partage |
-| `screen-video-offer` | Receiver → Sharer | Demande flux vidéo |
-| `screen-video-answer` | Sharer → Receiver | Réponse WebRTC |
-| `screen-video-ice` | Bidirectionnel | ICE candidates |
-
-### Messages Réseau File Share
-
-| Type | Direction | Description |
-|------|-----------|-------------|
-| `file-announce` | Sender → Room | Annonce nouveau fichier |
-| `file-chunk` | Sender → Room | Chunk Base64 (64KB) |
-| `file-complete` | Sender → Room | Fichier complet |
-| `file-request` | Receiver → Sender | Demande re-envoi |
-| `file-list-request` | Late joiner → Room | Demande liste fichiers |
-| `file-list-response` | Host → Requester | Liste des fichiers |
-
-### Server (D:\Test_project\LocalServ\Server\server.js)
-
-Handlers ajoutés pour Screen Share et File Share:
-- `handleScreenVideoOffer`, `handleScreenVideoAnswer`, `handleScreenVideoIce`
-- `handleFileListResponse`
-- Broadcast par room pour tous les messages `screen-share-*` et `file-*`
-
-### Setup Required
-
-1. **Menu Unity:** `VR Meeting → Setup Sharing System` crée les managers
-2. **UI Screen Share:** Créer Canvas World Space près du Whiteboard avec:
-   - Button "Share Screen" → `shareButton`
-   - Button "Stop" → `stopButton`
-   - TextMeshPro status → `statusText`
-   - Ajouter script `ScreenShareUI` et assigner les références
-
-### Known Issues / TODO
-
-- [ ] Tester Screen Share entre Unity Editor et Build
-- [ ] Tester File Share complet
-- [ ] Le flip Y de la texture peut nécessiter ajustement selon la plateforme
-- [ ] Late joiner ne reçoit pas automatiquement le screen share en cours
+### Setup UI (à faire par l'utilisateur)
+Créer un Canvas World Space près du whiteboard avec:
+- Button "Start Share" → `ScreenShareManager.Instance.StartSharing()`
+- Button "Stop" → `ScreenShareManager.Instance.StopSharing()`
+- Connecter aux events pour update UI
 
 ## Recent Fixes & Changes
 
@@ -446,3 +414,11 @@ Handlers ajoutés pour Screen Share et File Share:
 - **Problem:** Duplicate EventSystems caused random VR UI interaction failures
 - **Solution:** Single persistent EventSystem in Bootstrap with XRUIInputModule
 - **Result:** Reliable VR controller UI interaction
+
+### Whiteboard Color Mix Fix (WhiteboardDrawingSurface.cs)
+- **Problem:** Plusieurs systèmes de dessin actifs avec des couleurs différentes (rouge, vert, bleu) causaient un mélange de couleurs indésirable
+- **Solution:**
+  - Désactivé le dessin direct dans `WhiteboardDrawingSurface` (ne reçoit que les données réseau)
+  - Conservé uniquement `WhiteboardMarker` (VR) et `DesktopWhiteboardDrawer` (Desktop)
+  - Synchronisé toutes les couleurs en bleu par défaut dans la scène et le code
+- **Result:** Un seul système de dessin actif selon le mode (VR/Desktop), couleur bleue uniforme

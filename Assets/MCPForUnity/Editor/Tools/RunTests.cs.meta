@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: b177f204e300948f7ae07fb45d4c7ca9
+guid: 5cc0c41b1a8b4e0e9d0f1f8b1d7d2a9c
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
@@ -12,7 +12,7 @@ MonoImporter:
 AssetOrigin:
   serializedVersion: 1
   productId: 329908
-  packageName: MCP for Unity
-  packageVersion: 8.5.0
+  packageName: MCP for Unity | AI Driven Development
+  packageVersion: 9.0.2
   assetPath: Assets/MCPForUnity/Editor/Tools/RunTests.cs
-  uploadId: 840798
+  uploadId: 844774
