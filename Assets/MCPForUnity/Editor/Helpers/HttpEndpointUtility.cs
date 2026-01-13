@@ -12,7 +12,7 @@ namespace MCPForUnity.Editor.Helpers
     public static class HttpEndpointUtility
     {
         private const string PrefKey = EditorPrefKeys.HttpBaseUrl;
-        private const string DefaultBaseUrl = "https://mc-f51b526566384d86b44b59eb81097218.ecs.us-east-2.on.aws";
+        private const string DefaultBaseUrl = "https://mc-0cb5e1039f6b4499b473670f70662d29.ecs.us-east-2.on.aws/";
 
         /// <summary>
         /// Returns the normalized base URL currently stored in EditorPrefs.

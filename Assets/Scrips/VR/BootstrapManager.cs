@@ -1,5 +1,8 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.XR.Management;
 using System.Collections;
 
 /// Gère le chargement des scènes. Cette scène contient tous les managers
@@ -18,25 +21,21 @@ public class BootstrapManager : MonoBehaviour
     [Tooltip("Délai avant de charger la scène principale (secondes)")]
     public float loadDelay = 0.5f;
 
-    [Header("Avatar Customization")]
-    [Tooltip("Afficher l'écran de personnalisation avant de charger la scène")]
-    public bool showCustomizationOnStart = true;
-
-    [Tooltip("Panel de personnalisation d'avatar")]
-    public GameObject customizationPanel;
-
     [Header("Loading UI (Optionnel)")]
     public GameObject loadingScreen;
     public UnityEngine.UI.Slider progressBar;
     public TMPro.TextMeshProUGUI loadingText;
-    
+
     [Header("Debug")]
     public bool showDebugLogs = true;
-    
+
     // État
     private bool _isLoading = false;
     private string _currentLoadedScene = "";
-    
+
+    // Référence à l'EventSystem persistant
+    private EventSystem _persistentEventSystem;
+
     void Awake()
     {
         if (Instance != null)
@@ -45,30 +44,87 @@ public class BootstrapManager : MonoBehaviour
             Destroy(gameObject);
             return;
         }
-        
+
         Instance = this;
         DontDestroyOnLoad(gameObject);
-        
+
+        // Rendre l'EventSystem persistant
+        SetupPersistentEventSystem();
+
         if (showDebugLogs)
             Debug.Log("[Bootstrap] Bootstrap initialized");
     }
-    
+
     void Start()
     {
         if (loadMainSceneOnStart)
         {
             StartCoroutine(LoadMainSceneDelayed());
         }
-        
-        // ✅ FIX: Aussi nettoyer au démarrage au cas où Meet est déjà chargé
-        StartCoroutine(CleanupEventSystemsDelayed());
     }
-    
-    // ✅ NOUVEAU : Nettoyer après un délai pour être sûr que tout est chargé
-    IEnumerator CleanupEventSystemsDelayed()
+
+    /// Configure l'EventSystem de Bootstrap comme persistant
+    void SetupPersistentEventSystem()
     {
-        yield return new WaitForSeconds(1f); // Attendre que tout soit initialisé
-        CleanupDuplicateEventSystems();
+        // Chercher l'EventSystem dans la scène Bootstrap
+        var allEventSystems = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
+
+        foreach (var es in allEventSystems)
+        {
+            // Prendre celui avec XRUIInputModule (priorité) ou le premier trouvé
+            var xrModule = es.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
+            if (xrModule != null || _persistentEventSystem == null)
+            {
+                _persistentEventSystem = es;
+                DontDestroyOnLoad(es.gameObject);
+
+                if (showDebugLogs)
+                    Debug.Log($"[Bootstrap] ✅ EventSystem '{es.gameObject.name}' rendu persistant (XRUIInputModule: {xrModule != null})");
+
+                if (xrModule != null) break; // Si on a trouvé un XR, on arrête
+            }
+        }
+
+        if (_persistentEventSystem == null)
+        {
+            Debug.LogError("[Bootstrap] ❌ Aucun EventSystem trouvé dans la scène Bootstrap!");
+        }
+
+        // Setup pour mode Desktop: ajouter InputSystemUIInputModule pour support souris
+        SetupDesktopInputModule();
+    }
+
+    /// Ajoute InputSystemUIInputModule pour le support souris en mode Desktop
+    void SetupDesktopInputModule()
+    {
+        // Vérifier si on est en mode Desktop (pas de XR actif)
+        bool isDesktopMode = false;
+        var xrSettings = XRGeneralSettings.Instance;
+        if (xrSettings == null || xrSettings.Manager == null || xrSettings.Manager.activeLoader == null)
+        {
+            isDesktopMode = true;
+        }
+
+        if (isDesktopMode && _persistentEventSystem != null)
+        {
+            // Désactiver XRUIInputModule en mode Desktop
+            var xrModule = _persistentEventSystem.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
+            if (xrModule != null)
+            {
+                xrModule.enabled = false;
+                if (showDebugLogs)
+                    Debug.Log("[Bootstrap] XRUIInputModule désactivé pour mode Desktop");
+            }
+
+            // Ajouter InputSystemUIInputModule pour la souris
+            var inputModule = _persistentEventSystem.GetComponent<InputSystemUIInputModule>();
+            if (inputModule == null)
+            {
+                inputModule = _persistentEventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+                if (showDebugLogs)
+                    Debug.Log("[Bootstrap] ✅ InputSystemUIInputModule ajouté pour support souris Desktop");
+            }
+        }
     }
     
     IEnumerator LoadMainSceneDelayed()
@@ -92,171 +148,75 @@ public class BootstrapManager : MonoBehaviour
     IEnumerator LoadSceneAsync(string sceneName)
     {
         _isLoading = true;
-        
+
         if (showDebugLogs)
             Debug.Log($"[Bootstrap] Starting to load scene: {sceneName}");
-        
-        // ✅ FIX: Désactiver l'EventSystem de la scène Bootstrap UNIQUEMENT
-        DisableBootstrapSceneEventSystem();
-        
+
         // Afficher l'écran de chargement
         if (loadingScreen != null)
             loadingScreen.SetActive(true);
-        
+
         // Décharger l'ancienne scène si elle existe
         if (!string.IsNullOrEmpty(_currentLoadedScene))
         {
             if (showDebugLogs)
                 Debug.Log($"[Bootstrap] Unloading previous scene: {_currentLoadedScene}");
-            
+
             AsyncOperation unloadOp = SceneManager.UnloadSceneAsync(_currentLoadedScene);
             while (unloadOp != null && !unloadOp.isDone)
             {
                 yield return null;
             }
         }
-        
+
         // Charger la nouvelle scène
         AsyncOperation loadOp = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
-        
+
         while (!loadOp.isDone)
         {
             float progress = Mathf.Clamp01(loadOp.progress / 0.9f);
-            
+
             if (progressBar != null)
                 progressBar.value = progress;
-            
+
             if (loadingText != null)
                 loadingText.text = $"Loading... {(progress * 100):F0}%";
-            
+
             yield return null;
         }
-        
+
         _currentLoadedScene = sceneName;
-        
+
         // Définir la scène comme active (pour que les nouveaux objets y soient créés)
         Scene loadedScene = SceneManager.GetSceneByName(sceneName);
         if (loadedScene.IsValid())
         {
             SceneManager.SetActiveScene(loadedScene);
         }
-        
-        // ✅ FIX: Nettoyer les EventSystems en double après chargement
-        yield return null; // Attendre 1 frame que tout soit initialisé
-        CleanupDuplicateEventSystems();
-        
-        // Cacher l'écran de chargement
-        if (loadingScreen != null)
-            loadingScreen.SetActive(false);
-        
-        _isLoading = false;
-        
-        if (showDebugLogs)
-            Debug.Log($"[Bootstrap] Scene loaded: {sceneName}");
-    }
 
-    void DisableBootstrapSceneEventSystem()
-    {
-        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
-        foreach (var es in allEventSystems)
-        {
-            // Ne désactiver que s'il appartient à la scène Bootstrap (ou DontDestroyOnLoad)
-            // Cela protège l'EventSystem de la scène cible si elle est déjà chargée ou si on est en éditeur
-            if (es.gameObject.scene == gameObject.scene || es.gameObject.scene.name == "DontDestroyOnLoad")
-            {
-                if (es.gameObject.activeInHierarchy)
-                {
-                    if (showDebugLogs) Debug.Log($"[Bootstrap] Désactivation préventive EventSystem Bootstrap: {es.gameObject.name}");
-                    es.gameObject.SetActive(false);
-                }
-            }
-        }
-    }
-    
-    /// ✅ Nettoie les EventSystems en double (désactive ceux dans Bootstrap)
-    void CleanupDuplicateEventSystems()
-    {
-        // ✅ FIX: Chercher aussi les inactifs
-        var allEventSystems = FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        
-        if (allEventSystems.Length <= 1)
-        {
-            if (allEventSystems.Length > 0 && !allEventSystems[0].gameObject.activeInHierarchy)
-            {
-                 allEventSystems[0].gameObject.SetActive(true);
-            }
-            return;
-        }
-        
-        if (showDebugLogs)
-            Debug.Log($"[Bootstrap] ⚠️ {allEventSystems.Length} EventSystems détectés, nettoyage...");
-        
-        UnityEngine.EventSystems.EventSystem keepThis = null;
-        Scene activeScene = SceneManager.GetActiveScene();
+        // Attendre une frame puis configurer l'UI
+        yield return null;
 
-        // Priorité 1 : Garder celui avec XRUIInputModule (CRITIQUE POUR VR)
-        foreach (var es in allEventSystems)
-        {
-            var xrModule = es.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
-            if (xrModule != null)
-            {
-                keepThis = es;
-                if (showDebugLogs)
-                    Debug.Log($"[Bootstrap] ✅ Garde EventSystem avec XR UI: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
-                break;
-            }
-        }
-
-        // Priorité 2 : Garder celui dans la scène active (Meet)
-        if (keepThis == null)
-        {
-            foreach (var es in allEventSystems)
-            {
-                if (es.gameObject.scene == activeScene)
-                {
-                    keepThis = es;
-                    if (showDebugLogs)
-                        Debug.Log($"[Bootstrap] ✅ Garde EventSystem de la scène active: {es.gameObject.name}");
-                    break;
-                }
-            }
-        }
-        
-        // Priorité 3 : Garder le premier (par sécurité)
-        if (keepThis == null)
-        {
-            keepThis = allEventSystems[0];
-            if (showDebugLogs)
-                Debug.Log($"[Bootstrap] ✅ Garde le premier EventSystem: {keepThis.gameObject.name}");
-        }
-        
-        // Désactiver (pas détruire) tous les autres et activer le gagnant
-        foreach (var es in allEventSystems)
-        {
-            if (es == keepThis)
-            {
-                if (!es.gameObject.activeInHierarchy)
-                    es.gameObject.SetActive(true);
-            }
-            else
-            {
-                if (es.gameObject.activeInHierarchy)
-                {
-                    if (showDebugLogs)
-                        Debug.Log($"[Bootstrap] ❌ Désactive EventSystem: {es.gameObject.name} (scène: {es.gameObject.scene.name})");
-                    es.gameObject.SetActive(false);
-                }
-            }
-        }
-        
-        if (showDebugLogs)
-            Debug.Log("[Bootstrap] ✅ Nettoyage EventSystem terminé");
-            
-        // ✅ FIX: Force le rafraîchissement de l'interaction UI maintenant que le bon EventSystem est actif
+        // Rafraîchir l'interaction UI avec le joueur local (si déjà spawné)
         if (VRGameManager.Instance != null)
         {
             VRGameManager.Instance.RefreshUIInteraction();
         }
+
+        // Cacher l'écran de chargement
+        if (loadingScreen != null)
+            loadingScreen.SetActive(false);
+
+        _isLoading = false;
+
+        if (showDebugLogs)
+            Debug.Log($"[Bootstrap] Scene loaded: {sceneName}");
+    }
+
+    /// Retourne l'EventSystem persistant (utile pour d'autres scripts)
+    public EventSystem GetPersistentEventSystem()
+    {
+        return _persistentEventSystem;
     }
     
     /// Recharge la scène actuelle.

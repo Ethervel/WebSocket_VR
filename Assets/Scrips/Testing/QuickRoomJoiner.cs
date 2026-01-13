@@ -9,38 +9,43 @@ public class QuickRoomJoiner : MonoBehaviour
     [Header("Quick Actions")]
     [Tooltip("Créer automatiquement une room au démarrage")]
     public bool autoCreateRoomOnStart = false;
-    
+
     [Tooltip("Joindre automatiquement cette room au démarrage (laisser vide pour créer)")]
     public string autoJoinRoomCode = "";
-    
+
     [Header("Room Settings")]
     public RoomType defaultRoomType = RoomType.MeetingRoomA;
     public string defaultRoomName = "Test Room";
-    
+
     [Header("UI Settings")]
     public bool showDebugUI = true;
     public KeyCode toggleUIKey = KeyCode.F1;
-    
+
     [Header("Quick Keys")]
     public KeyCode createRoomKey = KeyCode.F2;
     public KeyCode leaveRoomKey = KeyCode.F3;
-    
+
     private bool _showUI = true;
     private string _roomCodeInput = "";
     private string _roomNameInput = "Test Room";
     private Vector2 _scrollPosition;
-    
+
     // GUI Style
     private GUIStyle _boxStyle;
     private GUIStyle _buttonStyle;
     private GUIStyle _labelStyle;
     private bool _stylesInitialized = false;
 
+    // Retry limit for auto-connect
+    private int _autoConnectRetryCount = 0;
+    private const int MAX_AUTO_CONNECT_RETRIES = 10;
+
     void Start()
     {
         // Auto join/create au démarrage
         if (autoCreateRoomOnStart)
         {
+            _autoConnectRetryCount = 0;
             Invoke(nameof(AutoJoinOrCreate), 2f); // Attendre 2s que le réseau se connecte
         }
     }
@@ -49,7 +54,13 @@ public class QuickRoomJoiner : MonoBehaviour
     {
         if (VRNetworkManager.Instance == null || !VRNetworkManager.IsConnected)
         {
-            Debug.LogWarning("[QuickRoomJoiner] Réseau pas encore connecté, retry...");
+            _autoConnectRetryCount++;
+            if (_autoConnectRetryCount >= MAX_AUTO_CONNECT_RETRIES)
+            {
+                Debug.LogError($"[QuickRoomJoiner] Abandon après {MAX_AUTO_CONNECT_RETRIES} tentatives de connexion");
+                return;
+            }
+            Debug.LogWarning($"[QuickRoomJoiner] Réseau pas encore connecté, retry {_autoConnectRetryCount}/{MAX_AUTO_CONNECT_RETRIES}...");
             Invoke(nameof(AutoJoinOrCreate), 1f);
             return;
         }

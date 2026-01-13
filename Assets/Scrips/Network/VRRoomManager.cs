@@ -16,10 +16,6 @@ public class VRRoomManager : MonoBehaviour
     [Tooltip("Maximum number of players per room")]
     public int maxPlayersPerRoom = 10;
 
-    // Timeout duration for inactive rooms (currently unused)
-    [Tooltip("Time before an inactive room should be removed (seconds)")]
-    public float roomTimeoutDuration = 300f;
-
     // Current room ID (6-character code)
     public string CurrentRoomId { get; private set; }
     
