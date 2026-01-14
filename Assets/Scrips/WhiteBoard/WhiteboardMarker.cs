@@ -17,13 +17,13 @@ public class WhiteboardMarker : MonoBehaviour
 
     [Header("Touch Detection")]
     [Tooltip("Distance maximale pour considérer que le stylo touche la surface (en mètres)")]
-    public float touchThreshold = 0.15f; // 15cm - plus permissif pour VR
+    public float touchThreshold = 0.15f;
 
     [Header("Network Settings")]
     [Tooltip("Intervalle d'envoi réseau (plus petit = plus fluide mais plus de bande passante)")]
-    public float sendRate = 0.033f; // ~30fps pour fluidité
+    public float sendRate = 0.033f;
     [Tooltip("Nombre minimum de points avant envoi")]
-    public int minPointsBeforeSend = 1; // Envoyer plus souvent pour éviter les coupures
+    public int minPointsBeforeSend = 1;
 
     // Components
     private Renderer _renderer;
@@ -40,7 +40,7 @@ public class WhiteboardMarker : MonoBehaviour
     private float _networkTimer;
     private List<float> _pendingPointsFlat = new List<float>();
     private string _currentSurfaceId;
-    private Vector2 _lastSentPoint = Vector2.zero; // Pour continuité entre batches
+    private Vector2 _lastSentPoint = Vector2.zero;
     private bool _hasLastSentPoint = false;
 
     // VR grab state
@@ -50,10 +50,6 @@ public class WhiteboardMarker : MonoBehaviour
     // Desktop mode
     private bool _isDesktopMode = false;
     private Camera _mainCamera;
-
-    // Stats
-    private int _totalPointsSent = 0;
-    private int _totalBatchesSent = 0;
 
     void Start()
     {
@@ -74,21 +70,14 @@ public class WhiteboardMarker : MonoBehaviour
         }
         else
         {
-            // Pas de grab = toujours actif (debug ou Desktop)
             _isHeld = true;
         }
 
         _tipHeight = tip.localScale.y;
         ApplyColor(currentColor);
 
-        // Check desktop mode
         _isDesktopMode = VRGameManager.Instance == null || VRGameManager.Instance.IsDesktopMode;
         _mainCamera = Camera.main;
-
-        if (_isDesktopMode)
-        {
-            Debug.Log("[WhiteboardMarker] Desktop mode - clic gauche pour dessiner");
-        }
     }
 
     void OnGrabbed()
@@ -101,7 +90,6 @@ public class WhiteboardMarker : MonoBehaviour
         _isHeld = false;
         _touchedLastFrame = false;
 
-        // Envoyer les points restants
         if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
         {
             SendBatchToNetwork();
@@ -113,13 +101,11 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Update()
     {
-        // VR mode: requires holding the marker
         if (_isHeld)
         {
             DrawVR();
             NetworkUpdate();
         }
-        // Desktop mode: draw with left mouse button
         else if (_isDesktopMode && Mouse.current != null && Mouse.current.leftButton.isPressed)
         {
             DrawDesktop();
@@ -127,7 +113,6 @@ public class WhiteboardMarker : MonoBehaviour
         }
         else if (_isDesktopMode && _touchedLastFrame)
         {
-            // Mouse released - end stroke
             if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
             {
                 SendBatchToNetwork();
@@ -138,16 +123,8 @@ public class WhiteboardMarker : MonoBehaviour
 
     void DrawVR()
     {
-        // DEBUG: Log toutes les 60 frames pour voir l'état
-        if (Time.frameCount % 60 == 0)
-        {
-            Debug.Log($"[WhiteboardMarker VR] isHeld={_isHeld}, tipHeight={_tipHeight}, layer={drawingSurfaceLayer.value}, threshold={touchThreshold}");
-        }
-
-        // Raycast depuis la pointe du marker - essayer plusieurs directions
         bool hit = Physics.Raycast(tip.position, transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
 
-        // Si pas de hit avec transform.up, essayer transform.forward (selon orientation du marker)
         if (!hit)
         {
             hit = Physics.Raycast(tip.position, transform.forward, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
@@ -159,37 +136,19 @@ public class WhiteboardMarker : MonoBehaviour
 
         if (!hit)
         {
-            // DEBUG: Essayer sans layer mask pour voir si on touche quelque chose
-            if (Time.frameCount % 60 == 0)
-            {
-                RaycastHit debugHit;
-                if (Physics.Raycast(tip.position, transform.up, out debugHit, 1f))
-                {
-                    Debug.Log($"[WhiteboardMarker VR] No hit on layer, but found '{debugHit.transform.name}' layer={debugHit.transform.gameObject.layer}");
-                }
-            }
             EndStroke();
             return;
         }
 
-        // DEBUG: On a touché quelque chose
-        if (Time.frameCount % 30 == 0)
-        {
-            Debug.Log($"[WhiteboardMarker VR] HIT: {_touch.transform.name}, distance={_touch.distance:F3}, threshold={touchThreshold}");
-        }
-
-        // Vérifier la distance (plus permissif maintenant)
         if (_touch.distance > touchThreshold * 2f)
         {
             EndStroke();
             return;
         }
 
-        // Chercher WhiteboardDrawingSurface
         WhiteboardDrawingSurface surface = _touch.transform.GetComponent<WhiteboardDrawingSurface>();
         if (surface == null)
         {
-            Debug.LogWarning($"[WhiteboardMarker] Hit {_touch.transform.name} n'a pas de WhiteboardDrawingSurface!");
             EndStroke();
             return;
         }
@@ -203,51 +162,23 @@ public class WhiteboardMarker : MonoBehaviour
         {
             _mainCamera = Camera.main;
             if (_mainCamera == null)
-            {
-                Debug.LogWarning("[WhiteboardMarker] Desktop: No main camera!");
                 return;
-            }
         }
 
-        // Raycast depuis la caméra à travers la souris
         Vector2 mousePos = Mouse.current.position.ReadValue();
         Ray ray = _mainCamera.ScreenPointToRay(mousePos);
-
-        // DEBUG: Log every 30 frames
-        if (Time.frameCount % 30 == 0)
-        {
-            Debug.Log($"[WhiteboardMarker] Desktop raycast: layerMask={drawingSurfaceLayer.value}, camera={_mainCamera.name}");
-        }
 
         bool hit = Physics.Raycast(ray, out _touch, 100f, drawingSurfaceLayer);
 
         if (!hit)
         {
-            // DEBUG: Try without layer mask to see what we're hitting
-            if (Time.frameCount % 30 == 0)
-            {
-                RaycastHit debugHit;
-                if (Physics.Raycast(ray, out debugHit, 100f))
-                {
-                    Debug.Log($"[WhiteboardMarker] No hit on layer {drawingSurfaceLayer.value}, but hit '{debugHit.transform.name}' on layer {debugHit.transform.gameObject.layer}");
-                }
-                else
-                {
-                    Debug.Log("[WhiteboardMarker] Raycast misses everything");
-                }
-            }
             EndStroke();
             return;
         }
 
-        // DEBUG: We hit something!
-        Debug.Log($"[WhiteboardMarker] HIT: {_touch.transform.name} at UV({_touch.textureCoord.x:F2}, {_touch.textureCoord.y:F2})");
-
-        // Chercher WhiteboardDrawingSurface
         WhiteboardDrawingSurface surface = _touch.transform.GetComponent<WhiteboardDrawingSurface>();
         if (surface == null)
         {
-            Debug.LogWarning($"[WhiteboardMarker] Desktop: Hit {_touch.transform.name} n'a pas de WhiteboardDrawingSurface!");
             EndStroke();
             return;
         }
@@ -257,7 +188,6 @@ public class WhiteboardMarker : MonoBehaviour
 
     void ProcessDrawing(WhiteboardDrawingSurface surface, Vector2 uv)
     {
-        // Changement de surface ?
         if (_currentSurface != surface)
         {
             if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
@@ -269,8 +199,6 @@ public class WhiteboardMarker : MonoBehaviour
             _currentSurfaceId = surface.id;
             _pendingPointsFlat.Clear();
             _touchedLastFrame = false;
-
-            Debug.Log($"[WhiteboardMarker] Switched to surface '{surface.id}'");
         }
 
         Texture2D targetTexture = surface.drawingTexture;
@@ -286,10 +214,8 @@ public class WhiteboardMarker : MonoBehaviour
         int x = Mathf.Clamp((int)(uv.x * surface.textureSize.x - penSize / 2), 0, maxX);
         int y = Mathf.Clamp((int)(uv.y * surface.textureSize.y - penSize / 2), 0, maxY);
 
-        // Dessiner localement
         if (_touchedLastFrame)
         {
-            // Interpolation pour trait continu
             Vector2 start = _lastTouchPos;
             Vector2 end = new Vector2(x, y);
             float dist = Vector2.Distance(start, end);
@@ -305,13 +231,11 @@ public class WhiteboardMarker : MonoBehaviour
         }
         else
         {
-            // Premier point du trait
             targetTexture.SetPixels(x, y, penSize, penSize, _colors);
         }
 
         targetTexture.Apply();
 
-        // Ajouter au buffer réseau
         _pendingPointsFlat.Add(uv.x);
         _pendingPointsFlat.Add(uv.y);
 
@@ -321,19 +245,17 @@ public class WhiteboardMarker : MonoBehaviour
 
     void EndStroke()
     {
-        // IMPORTANT: Toujours envoyer les points restants quand on termine un trait
         if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
         {
             SendBatchToNetwork();
         }
 
-        // Reset complet pour le prochain trait
         _currentSurface = null;
         _currentSurfaceId = null;
         _touchedLastFrame = false;
         _lastTouchPos = Vector2.zero;
-        _pendingPointsFlat.Clear(); // S'assurer que le buffer est vide
-        _hasLastSentPoint = false; // Reset continuité pour nouveau trait
+        _pendingPointsFlat.Clear();
+        _hasLastSentPoint = false;
     }
 
     void NetworkUpdate()
@@ -359,20 +281,16 @@ public class WhiteboardMarker : MonoBehaviour
 
         string currentRoomId = VRRoomManager.Instance.CurrentRoomId;
 
-        // Créer liste avec continuité: inclure le dernier point envoyé au début
         List<float> pointsToSend = new List<float>();
 
-        // Ajouter le dernier point envoyé pour continuité (interpolation)
         if (_hasLastSentPoint && _pendingPointsFlat.Count >= 2)
         {
             pointsToSend.Add(_lastSentPoint.x);
             pointsToSend.Add(_lastSentPoint.y);
         }
 
-        // Ajouter les nouveaux points
         pointsToSend.AddRange(_pendingPointsFlat);
 
-        // Sauvegarder le dernier point pour le prochain batch
         if (_pendingPointsFlat.Count >= 2)
         {
             _lastSentPoint.x = _pendingPointsFlat[_pendingPointsFlat.Count - 2];
@@ -402,10 +320,6 @@ public class WhiteboardMarker : MonoBehaviour
         try
         {
             VRNetworkManager.Instance.Send("whiteboard-batch", batch);
-
-            int pointCount = _pendingPointsFlat.Count / 2;
-            _totalPointsSent += pointCount;
-            _totalBatchesSent++;
         }
         catch (System.Exception e)
         {
@@ -426,7 +340,6 @@ public class WhiteboardMarker : MonoBehaviour
         if (_renderer != null)
             _renderer.material.color = color;
 
-        // Alpha = 1 pour visibilité
         Color colorWithAlpha = new Color(color.r, color.g, color.b, 1f);
 
         int pixelCount = penSize * penSize;

@@ -147,6 +147,7 @@ public class VRGameManager : MonoBehaviour
         VRRoomManager.OnRoomLeft += OnRoomLeft;
         VRRoomManager.OnPlayerJoined += OnPlayerJoined;
         VRRoomManager.OnPlayerLeft += OnPlayerLeft;
+        VRRoomManager.OnAvatarUpdated += OnAvatarUpdated;
         VRRoomManager.OnRoomTypeChanged += OnRoomTypeChanged;
         VRNetworkManager.OnMessageReceived += HandleNetworkMessage;
     }
@@ -158,6 +159,7 @@ public class VRGameManager : MonoBehaviour
         VRRoomManager.OnRoomLeft -= OnRoomLeft;
         VRRoomManager.OnPlayerJoined -= OnPlayerJoined;
         VRRoomManager.OnPlayerLeft -= OnPlayerLeft;
+        VRRoomManager.OnAvatarUpdated -= OnAvatarUpdated;
         VRRoomManager.OnRoomTypeChanged -= OnRoomTypeChanged;
         VRNetworkManager.OnMessageReceived -= HandleNetworkMessage;
     }
@@ -209,6 +211,33 @@ public class VRGameManager : MonoBehaviour
     {
         Debug.Log($"[VRGame] Player left: {playerId}");
         DespawnRemotePlayer(playerId);
+    }
+
+    void OnAvatarUpdated(VRPlayerData playerData)
+    {
+        Debug.Log($"[VRGame] Avatar updated for: {playerData.playerId}");
+
+        if (!_remotePlayers.TryGetValue(playerData.playerId, out var remote))
+            return;
+
+        // Update name
+        remote.playerName = playerData.playerName;
+
+        // Update name tag text
+        if (remote.nameTag != null)
+        {
+            var textMesh = remote.nameTag.GetComponent<TMPro.TextMeshPro>();
+            if (textMesh != null)
+            {
+                textMesh.text = playerData.playerName;
+            }
+        }
+
+        // Update avatar color
+        Color newColor = new Color(playerData.colorR, playerData.colorG, playerData.colorB, 1f);
+        ApplyAvatarColor(remote, newColor);
+
+        Debug.Log($"[VRGame] Avatar visuals updated: {playerData.playerName}, color: {newColor}");
     }
 
     void OnRoomTypeChanged(RoomType roomType)
@@ -709,14 +738,138 @@ public class VRGameManager : MonoBehaviour
             Debug.Log($"[VRGame] Detached right hand for {playerData.playerName} (parented to container)");
         }
 
-        var nameTag = go.GetComponentInChildren<TMPro.TextMeshPro>(true);
-        if (nameTag != null) nameTag.text = playerData.playerName;
+        // Create or update name tag above head
+        remote.nameTag = CreateOrUpdateNameTag(remote, playerData.playerName);
+
+        // Apply avatar color
+        Color avatarColor = new Color(playerData.colorR, playerData.colorG, playerData.colorB, 1f);
+        ApplyAvatarColor(remote, avatarColor);
 
         _remotePlayers[playerData.playerId] = remote;
 
         Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} - " +
-                  $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}");
+                  $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}, Color: {avatarColor}");
         OnRemotePlayerSpawned?.Invoke(playerData.playerId, go);
+    }
+
+    void ApplyAvatarColor(VRRemotePlayer remote, Color color)
+    {
+        // Apply to head
+        if (remote.head != null)
+        {
+            ApplyColorToRenderers(remote.head.gameObject, color);
+        }
+
+        // Apply to left hand
+        if (remote.leftHand != null)
+        {
+            ApplyColorToRenderers(remote.leftHand.gameObject, color);
+        }
+
+        // Apply to right hand
+        if (remote.rightHand != null)
+        {
+            ApplyColorToRenderers(remote.rightHand.gameObject, color);
+        }
+
+        // Apply to body (main gameObject)
+        if (remote.gameObject != null)
+        {
+            ApplyColorToRenderers(remote.gameObject, color);
+        }
+
+        Debug.Log($"[VRGame] Applied avatar color {color} to {remote.playerName}");
+    }
+
+    void ApplyColorToRenderers(GameObject target, Color color)
+    {
+        // Apply to MeshRenderers
+        foreach (var renderer in target.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            foreach (var mat in renderer.materials)
+            {
+                // Try common color properties
+                if (mat.HasProperty("_Color"))
+                    mat.SetColor("_Color", color);
+                if (mat.HasProperty("_BaseColor"))
+                    mat.SetColor("_BaseColor", color);
+            }
+        }
+
+        // Apply to SkinnedMeshRenderers
+        foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            foreach (var mat in renderer.materials)
+            {
+                if (mat.HasProperty("_Color"))
+                    mat.SetColor("_Color", color);
+                if (mat.HasProperty("_BaseColor"))
+                    mat.SetColor("_BaseColor", color);
+            }
+        }
+    }
+
+    Transform CreateOrUpdateNameTag(VRRemotePlayer remote, string playerName)
+    {
+        // Check if nameTag already exists
+        Transform existingTag = null;
+        if (remote.head != null)
+        {
+            existingTag = remote.head.Find("NameTag");
+        }
+
+        if (existingTag != null)
+        {
+            var tmp = existingTag.GetComponent<TMPro.TextMeshPro>();
+            if (tmp != null) tmp.text = playerName;
+            return existingTag;
+        }
+
+        // Create new name tag
+        GameObject nameTagObj = new GameObject("NameTag");
+
+        // Parent to detached container (follows head in Update)
+        nameTagObj.transform.SetParent(_detachedPartsContainer);
+
+        // Add TextMeshPro
+        var textMesh = nameTagObj.AddComponent<TMPro.TextMeshPro>();
+        textMesh.text = playerName;
+        textMesh.fontSize = 1.5f;
+        textMesh.alignment = TMPro.TextAlignmentOptions.Center;
+        textMesh.color = Color.white;
+
+        // Configure RectTransform
+        var rectTransform = nameTagObj.GetComponent<RectTransform>();
+        rectTransform.sizeDelta = new Vector2(2f, 0.5f);
+
+        // Create dark background
+        GameObject bgObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        bgObj.name = "Background";
+        bgObj.transform.SetParent(nameTagObj.transform, false);
+        bgObj.transform.localPosition = new Vector3(0, 0, 0.01f); // Slightly behind text
+        bgObj.transform.localScale = new Vector3(0.8f, 0.25f, 1f);
+
+        // Remove collider from background
+        var bgCollider = bgObj.GetComponent<Collider>();
+        if (bgCollider != null) Destroy(bgCollider);
+
+        // Dark semi-transparent material
+        var bgRenderer = bgObj.GetComponent<MeshRenderer>();
+        if (bgRenderer != null)
+        {
+            Material bgMat = new Material(Shader.Find("Sprites/Default"));
+            bgMat.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
+            bgRenderer.material = bgMat;
+        }
+
+        // Position above head initially
+        if (remote.head != null)
+        {
+            nameTagObj.transform.position = remote.head.position + Vector3.up * 0.55f;
+        }
+
+        Debug.Log($"[VRGame] Created name tag for {playerName}");
+        return nameTagObj.transform;
     }
 
     void DespawnRemotePlayer(string playerId)
@@ -728,17 +881,23 @@ public class VRGameManager : MonoBehaviour
                 Destroy(remote.head.gameObject);
                 Debug.Log($"[VRGame] Destroyed detached head for {playerId}");
             }
-            
+
             if (remote.leftHand != null)
             {
                 Destroy(remote.leftHand.gameObject);
                 Debug.Log($"[VRGame] Destroyed detached left hand for {playerId}");
             }
-            
+
             if (remote.rightHand != null)
             {
                 Destroy(remote.rightHand.gameObject);
                 Debug.Log($"[VRGame] Destroyed detached right hand for {playerId}");
+            }
+
+            if (remote.nameTag != null)
+            {
+                Destroy(remote.nameTag.gameObject);
+                Debug.Log($"[VRGame] Destroyed name tag for {playerId}");
             }
             
             if (remote.gameObject != null)
@@ -1021,6 +1180,21 @@ public class VRGameManager : MonoBehaviour
                     remote.targetHeadRotation,
                     t
                 );
+
+                // Name tag : follow head + billboard
+                if (remote.nameTag != null && _localHead != null)
+                {
+                    remote.nameTag.position = remote.head.position + Vector3.up * 0.55f;
+
+                    // Billboard - each name tag faces the local player's head
+                    // TextMeshPro text faces +Z, so forward must point AWAY from viewer
+                    Vector3 dirToViewer = remote.nameTag.position - _localHead.position;
+                    dirToViewer.y = 0; // Keep upright (no tilt)
+                    if (dirToViewer.sqrMagnitude > 0.001f)
+                    {
+                        remote.nameTag.rotation = Quaternion.LookRotation(dirToViewer);
+                    }
+                }
             }
 
             // Mains : WORLD
@@ -1134,6 +1308,7 @@ public class VRRemotePlayer
     public Transform head;
     public Transform leftHand;
     public Transform rightHand;
+    public Transform nameTag;
 
     public Vector3 targetPosition;
     public Quaternion targetRotation;

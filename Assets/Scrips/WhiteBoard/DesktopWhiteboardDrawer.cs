@@ -17,9 +17,6 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
     public float sendRate = 0.05f;
     public int minPointsBeforeSend = 3;
 
-    [Header("Debug")]
-    public bool showDebugLogs = true;
-
     // State
     private Camera _camera;
     private WhiteboardDrawingSurface _currentSurface;
@@ -50,86 +47,26 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             if (layer >= 0)
             {
                 drawingSurfaceLayer = 1 << layer;
-                Log($"Auto-detected layer: Whiteboard ({layer}), mask={drawingSurfaceLayer.value}");
-            }
-            else
-            {
-                Log("WARNING: Layer 'Whiteboard' not found!");
             }
         }
 
         ApplyColor(currentColor);
-        Log($"Initialized - Camera: {_camera?.name}, LayerMask: {drawingSurfaceLayer.value}");
     }
-
-    private float _debugTimer = 0f;
-    private bool _loggedOnce = false;
-
-    private int _frameCount = 0;
 
     void Update()
     {
-        _frameCount++;
-
-        // Log absolutely FIRST thing every 60 frames
-        if (_frameCount % 60 == 0)
-        {
-            bool gameFocused = UnityEngine.Application.isFocused;
-            Debug.Log($"[DD] Update F{_frameCount} cam={_camera != null} mouse={Mouse.current != null} focused={gameFocused}");
-        }
-
         if (_camera == null)
         {
             _camera = Camera.main;
-            if (_camera == null)
-            {
-                if (_frameCount % 60 == 0) Debug.Log("[DD] No camera!");
-                return;
-            }
+            if (_camera == null) return;
         }
 
-        // Check for input - using new Input System only
-        if (Mouse.current == null)
-        {
-            if (_frameCount % 60 == 0) Debug.Log("[DD] Mouse.current is NULL!");
-            return;
-        }
+        if (Mouse.current == null) return;
 
-        // Check ALL mouse buttons - try MULTIPLE methods
         var mouse = Mouse.current;
+        bool middlePressed = mouse.middleButton.isPressed;
+        bool leftPressed = mouse.leftButton.isPressed || middlePressed;
 
-        // Method 1: isPressed (bool)
-        bool leftPressed1 = mouse.leftButton.isPressed;
-        bool rightPressed1 = mouse.rightButton.isPressed;
-
-        // Method 2: ReadValue (float)
-        float leftVal = mouse.leftButton.ReadValue();
-        float rightVal = mouse.rightButton.ReadValue();
-
-        // Method 3: wasPressedThisFrame
-        bool leftJust = mouse.leftButton.wasPressedThisFrame;
-
-        // Debug every 30 frames with ALL info
-        if (_frameCount % 30 == 0)
-        {
-            Vector2 pos = mouse.position.ReadValue();
-            Debug.Log($"[DD] F{_frameCount} isP(L={leftPressed1},R={rightPressed1}) Val(L={leftVal:F1},R={rightVal:F1}) just={leftJust} pos=({pos.x:F0},{pos.y:F0})");
-        }
-
-        // Also check middle button as UI doesn't consume it
-        bool middlePressed1 = mouse.middleButton.isPressed;
-        float middleVal = mouse.middleButton.ReadValue();
-
-        // Log when ANY detection method succeeds
-        if (leftPressed1 || rightPressed1 || middlePressed1 || leftVal > 0.5f || rightVal > 0.5f || middleVal > 0.5f || leftJust)
-        {
-            Debug.Log($"[DD] BUTTON DETECTED! L=({leftPressed1},{leftVal:F0}) R=({rightPressed1},{rightVal:F0}) M=({middlePressed1},{middleVal:F0}) just={leftJust}");
-        }
-
-        // Try MIDDLE mouse button for drawing (UI doesn't consume it)
-        bool drawButton = middlePressed1 || middleVal > 0.5f;
-        // Also accept left if it ever works
-        bool leftPressed = leftPressed1 || leftVal > 0.5f || drawButton;
         if (leftPressed)
         {
             Draw();
@@ -137,7 +74,6 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         }
         else if (_touchedLastFrame)
         {
-            // Mouse released - end stroke
             EndStroke();
         }
     }
@@ -147,30 +83,10 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         Vector2 mousePos = Mouse.current.position.ReadValue();
         Ray ray = _camera.ScreenPointToRay(mousePos);
 
-        // DEBUG: Log every click attempt
-        if (showDebugLogs && !_touchedLastFrame)
-        {
-            Log($"CLICK at screen({mousePos.x:F0},{mousePos.y:F0}) ray origin={ray.origin} dir={ray.direction}");
-        }
-
         bool hit = Physics.Raycast(ray, out _touch, 100f, drawingSurfaceLayer);
 
         if (!hit)
         {
-            // Debug: what are we hitting without layer filter?
-            if (showDebugLogs && Time.frameCount % 10 == 0)
-            {
-                RaycastHit debugHit;
-                if (Physics.Raycast(ray, out debugHit, 100f))
-                {
-                    Log($"MISS layer {drawingSurfaceLayer.value}, but hit '{debugHit.transform.name}' (layer {debugHit.transform.gameObject.layer})");
-                }
-                else
-                {
-                    Log($"MISS - raycast hit NOTHING at all");
-                }
-            }
-
             if (_touchedLastFrame)
             {
                 EndStroke();
@@ -178,17 +94,10 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             return;
         }
 
-        // DEBUG: Log successful hit
-        if (showDebugLogs && !_touchedLastFrame)
-        {
-            Log($"HIT '{_touch.transform.name}' at UV({_touch.textureCoord.x:F3},{_touch.textureCoord.y:F3})");
-        }
-
         // Get WhiteboardDrawingSurface
         WhiteboardDrawingSurface surface = _touch.transform.GetComponent<WhiteboardDrawingSurface>();
         if (surface == null)
         {
-            Log($"Hit '{_touch.transform.name}' but no WhiteboardDrawingSurface component!");
             if (_touchedLastFrame) EndStroke();
             return;
         }
@@ -205,18 +114,12 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             _currentSurfaceId = surface.id;
             _pendingPointsFlat.Clear();
             _touchedLastFrame = false;
-
-            Log($"Drawing on surface '{surface.id}'");
         }
 
         Vector2 uv = _touch.textureCoord;
         Texture2D tex = surface.drawingTexture;
 
-        if (tex == null)
-        {
-            Log($"Surface {surface.id} has no drawingTexture!");
-            return;
-        }
+        if (tex == null) return;
 
         int maxX = (int)surface.textureSize.x - penSize;
         int maxY = (int)surface.textureSize.y - penSize;
@@ -333,11 +236,5 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         _colors = new Color[count];
         for (int i = 0; i < count; i++)
             _colors[i] = c;
-    }
-
-    void Log(string msg)
-    {
-        if (showDebugLogs)
-            Debug.Log($"[DesktopDrawer] {msg}");
     }
 }

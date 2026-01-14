@@ -25,7 +25,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | **Expressive Professional Avatars** | Business-appropriate customizable avatars | Not Started |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
-| **Screen Sharing** | Share desktop/window to Whiteboard | In Progress |
+| **Screen Sharing** | Share desktop/window/VR view to Whiteboard | Implemented |
 
 ### Must Have (Non-Negotiable)
 
@@ -61,7 +61,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [ ] MariaDB integration
 
 **Phase 2 - Collaboration**
-- [~] Screen sharing (implémenté, à tester)
+- [x] Screen sharing (VR + Desktop, optimisé)
 - [~] File sharing (implémenté, à tester)
 - [ ] 3D object manipulation
 - [ ] Presentation mode
@@ -245,8 +245,19 @@ public class NetworkMessage {
 
 **Configuration texture:**
 - **Taille:** 2048x2048 (configurable)
+- **Shader:** `Sprites/Default` (100% transparent où pas de dessin)
 - **Network format:** `WhiteboardPacket` avec `pointsFlat` array (u,v pairs)
 - **Room-scoped:** Tous les messages incluent `roomId` pour filtrage
+
+**Network sync (WhiteboardMarker.cs):**
+- **Send rate:** 33ms (~30fps) pour fluidité
+- **Batch continuity:** Dernier point inclus au début de chaque batch
+- **Interpolation:** 25% de la texture max entre points (permet dessins rapides)
+
+**Réception réseau (WhiteboardDrawingSurface.cs):**
+- Mémorise le dernier point reçu entre batches (`_lastReceivedPoint`)
+- Interpole automatiquement pour éviter les coupures
+- Reset continuité si nouveau sender ou points trop éloignés
 
 **Late joiner sync:**
 - Demande état via `whiteboard-request` à `OnRoomJoined` ou `Start()`
@@ -355,19 +366,20 @@ Meet Scene (Additive)
 ### Architecture
 - **Méthode:** Capture écran → JPEG → Base64 → WebSocket → Broadcast room
 - **Affichage:** Sur le Whiteboard (mode présentation)
-- **Restriction:** Desktop uniquement (VR peut voir, pas partager)
-- **Performance:** ~5 FPS, ~50-100KB par frame
+- **Support:** Desktop (fenêtre/écran) ET VR (vue casque)
+- **Performance:** ~3 FPS, ~30-50KB par frame (optimisé)
 
 ### ScreenShareManager.cs
 Singleton avec DontDestroyOnLoad.
 
-**Settings:**
-- `captureWidth = 1280`, `captureHeight = 720`
-- `jpegQuality = 70` (0-100)
-- `captureFrameRate = 5f`
+**Settings (optimisés pour performance):**
+- `captureWidth = 854`, `captureHeight = 480`
+- `jpegQuality = 50` (0-100)
+- `captureFrameRate = 3f`
 
 **API publique:**
-- `CanShare()` → true si Desktop mode
+- `CanShare()` → true (VR et Desktop supportés)
+- `IsVRMode()` → true si en mode VR (partage vue casque)
 - `StartSharing()` → démarre capture + broadcast
 - `StopSharing()` → arrête capture + notifie room
 - `IsSharing`, `IsReceiving`, `CurrentSharerName`
@@ -422,3 +434,38 @@ Créer un Canvas World Space près du whiteboard avec:
   - Conservé uniquement `WhiteboardMarker` (VR) et `DesktopWhiteboardDrawer` (Desktop)
   - Synchronisé toutes les couleurs en bleu par défaut dans la scène et le code
 - **Result:** Un seul système de dessin actif selon le mode (VR/Desktop), couleur bleue uniforme
+
+### VR Physics Fix (XR Origin Hands prefab)
+- **Problem:** Le joueur VR flottait et traversait les murs (pas de gravité ni collisions)
+- **Solution:** Changé `m_UseGravity` de `0` à `1` dans le prefab YAML (`XR Origin Hands (XR Rig).prefab:2508`)
+- **Result:** Gravité et collisions fonctionnelles via XR Interaction Toolkit (GravityProvider + CharacterController)
+
+### VR Screen Share Support (ScreenShareManager.cs)
+- **Problem:** Screen share limité au mode Desktop uniquement
+- **Solution:**
+  - `CanShare()` retourne maintenant `true` pour VR et Desktop
+  - Ajout de `IsVRMode()` pour détecter le mode
+  - En VR, `_selectedWindow = null` → capture la vue du casque
+- **Result:** Partage d'écran fonctionnel en VR (partage vue casque) et Desktop (fenêtre/écran)
+
+### Screen Share Performance Optimization (ScreenShareManager.cs)
+- **Problem:** Le jeu ralentissait pendant le partage d'écran
+- **Solution:** Paramètres optimisés:
+  - Résolution: 1280×720 → 854×480 (~55% moins de pixels)
+  - Qualité JPEG: 70 → 50
+  - Frame rate: 5fps → 3fps
+- **Result:** ~3× moins de données/seconde, performance fluide
+
+### Whiteboard Fast Drawing Sync (WhiteboardMarker.cs + WhiteboardDrawingSurface.cs)
+- **Problem:** Dessin rapide apparaissait coupé chez l'adversaire
+- **Solution:**
+  - Send rate: 50ms → 33ms (~30fps)
+  - Ajout continuité entre batches (`_lastSentPoint` côté émetteur)
+  - Mémoire du dernier point reçu (`_lastReceivedPoint` côté récepteur)
+  - Seuil d'interpolation: 5% → 25% de la texture
+- **Result:** Dessins rapides fluides et continus pour tous les joueurs
+
+### Drawing Surface Transparency Fix (WhiteboardDrawingSurface.cs)
+- **Problem:** La surface de dessin ajoutait un effet de filtre sur le screen share
+- **Solution:** Changé le shader de URP Lit vers `Sprites/Default`
+- **Result:** Surface 100% transparente où il n'y a pas de dessin, screen share visible sans filtre

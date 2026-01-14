@@ -72,7 +72,6 @@ public class Whiteboard : MonoBehaviour
         FillWithColor(texture, defaultColor);
 
         targetRenderer.material.mainTexture = texture;
-        Debug.Log($"[Whiteboard:{id}] Fond initialisé ({textureSize.x}x{textureSize.y})");
     }
 
     void FillWithColor(Texture2D tex, Color color)
@@ -92,10 +91,7 @@ public class Whiteboard : MonoBehaviour
     public void EnterPresentationMode(string presenterName)
     {
         if (_isPresentationMode)
-        {
-            Debug.LogWarning($"[Whiteboard:{id}] Déjà en mode présentation");
             return;
-        }
 
         // Sauvegarder le fond actuel (au cas où on voudrait le restaurer)
         if (texture != null)
@@ -120,7 +116,6 @@ public class Whiteboard : MonoBehaviour
         _isPresentationMode = true;
         _presenterName = presenterName;
 
-        Debug.Log($"[Whiteboard:{id}] Mode présentation activé (presenter: {presenterName})");
         OnPresentationModeChanged?.Invoke(this, true);
     }
 
@@ -155,7 +150,6 @@ public class Whiteboard : MonoBehaviour
         _isPresentationMode = false;
         _presenterName = null;
 
-        Debug.Log($"[Whiteboard:{id}] Mode présentation désactivé");
         OnPresentationModeChanged?.Invoke(this, false);
     }
 
@@ -165,10 +159,7 @@ public class Whiteboard : MonoBehaviour
     public void UpdateScreenShare(Texture2D frameTexture)
     {
         if (!_isPresentationMode)
-        {
-            Debug.LogWarning($"[Whiteboard:{id}] UpdateScreenShare appelé hors mode présentation");
             return;
-        }
 
         if (frameTexture == null || _screenShareRT == null)
             return;

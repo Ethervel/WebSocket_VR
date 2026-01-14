@@ -33,10 +33,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     private List<WhiteboardPacket> _drawHistory = new List<WhiteboardPacket>();
     private const int MAX_HISTORY_SIZE = 100;
 
-    // Stats debug
-    private int _receivedBatches = 0;
-    private int _receivedPoints = 0;
-
     // Continuité entre batches réseau (pour éviter les coupures)
     private Vector2? _lastReceivedPoint = null;
     private string _lastSenderId = null;
@@ -79,20 +75,15 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         ClearTexture();
 
         // Utiliser Sprites/Default shader - parfait pour overlay transparent
-        // Ce shader respecte parfaitement l'alpha de la texture sans ajouter d'opacité
         Shader spriteShader = Shader.Find("Sprites/Default");
         if (spriteShader != null)
         {
             _renderer.material = new Material(spriteShader);
             _renderer.material.mainTexture = drawingTexture;
-            // Render queue élevé pour être devant le whiteboard
             _renderer.material.renderQueue = 3001;
-            Debug.Log($"[DrawingSurface:{id}] Using Sprites/Default shader (fully transparent)");
         }
         else
         {
-            // Fallback: essayer URP Unlit transparent
-            Debug.LogWarning($"[DrawingSurface:{id}] Sprites/Default not found, using fallback");
             _renderer.material.mainTexture = drawingTexture;
             if (_renderer.material.HasProperty("_BaseMap"))
             {
@@ -105,8 +96,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         }
 
         _isInitialized = true;
-
-        Debug.Log($"[DrawingSurface:{id}] Initialisé ({textureSize.x}x{textureSize.y}), shader={_renderer.material.shader.name}");
     }
 
     /// <summary>
@@ -162,14 +151,12 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void OnRoomJoined(string roomId)
     {
-        Debug.Log($"[DrawingSurface:{id}] Joined room {roomId}");
         _hasRequestedState = false;
         StartCoroutine(RequestStateDelayed());
     }
 
     void OnRoomLeft()
     {
-        Debug.Log($"[DrawingSurface:{id}] Left room, clearing");
         ClearTexture();
         _hasRequestedState = false;
     }
@@ -249,7 +236,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             // Passer le dernier point reçu pour continuité entre batches
             ApplyPacket(packet, false, _lastReceivedPoint);
             AddToHistory(packet);
-            _receivedPoints += packet.pointsFlat.Length / 2;
 
             // Sauvegarder le dernier point du batch pour le prochain
             if (packet.pointsFlat.Length >= 2)
@@ -263,13 +249,11 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         }
 
         drawingTexture.Apply();
-        _receivedBatches++;
     }
 
     /// <summary>
     /// Applique un packet de dessin sur la texture
     /// </summary>
-    /// <param name="previousBatchLastPoint">Dernier point du batch précédent pour continuité</param>
     public void ApplyPacket(WhiteboardPacket packet, bool apply = true, Vector2? previousBatchLastPoint = null)
     {
         if (!_isInitialized || drawingTexture == null) return;
@@ -283,7 +267,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
 
         // Distance max pour interpoler (25% de la texture = ~512px sur 2048)
-        // Permet des mouvements rapides tout en détectant les nouveaux traits
         float maxInterpolationDistance = textureSize.x * 0.25f;
 
         // Commencer avec le dernier point du batch précédent si disponible
@@ -310,8 +293,7 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 }
                 else
                 {
-                    // Points trop éloignés = nouveau trait, dessiner juste le point
-                    // Reset aussi la continuité entre batches
+                    // Points trop éloignés = nouveau trait
                     _lastReceivedPoint = null;
                     drawingTexture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
                 }
@@ -353,7 +335,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         if (!string.IsNullOrEmpty(clearData.roomId) && clearData.roomId != currentRoom) return;
 
         ClearTexture();
-        Debug.Log($"[DrawingSurface:{id}] Cleared by {senderId}");
     }
 
     void SendClearToNetwork()
@@ -385,7 +366,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         };
 
         VRNetworkManager.Instance.Send("whiteboard-request", request);
-        Debug.Log($"[DrawingSurface:{id}] Requesting state");
     }
 
     void HandleStateRequest(string dataJson, string requesterId)
@@ -424,7 +404,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         };
 
         VRNetworkManager.Instance.Send("whiteboard-state", state);
-        Debug.Log($"[DrawingSurface:{id}] Sent state to {targetId}");
     }
 
     void HandleStateReceived(string dataJson, string senderId)
@@ -447,7 +426,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             drawingTexture.Apply();
 
             Destroy(receivedTexture);
-            Debug.Log($"[DrawingSurface:{id}] State received from {senderId}");
         }
         catch (Exception e)
         {
