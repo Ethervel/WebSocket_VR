@@ -219,7 +219,7 @@ namespace MCPForUnity.Editor.Tools
 
                 if (saved)
                 {
-                    AssetDatabase.Refresh(); // Ensure Unity sees the new scene file
+                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport); // Ensure Unity sees the new scene file
                     return new SuccessResponse(
                         $"Scene '{Path.GetFileName(relativePath)}' created successfully at '{relativePath}'.",
                         new { path = relativePath }
@@ -362,7 +362,7 @@ namespace MCPForUnity.Editor.Tools
 
                 if (saved)
                 {
-                    AssetDatabase.Refresh();
+                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                     return new SuccessResponse(
                         $"Scene '{currentScene.name}' saved successfully to '{finalPath}'.",
                         new { path = finalPath, name = currentScene.name }
@@ -396,6 +396,7 @@ namespace MCPForUnity.Editor.Tools
                     Camera cam = Camera.main;
                     if (cam == null)
                     {
+                        // Use FindObjectsOfType for Unity 2021 compatibility
                         var cams = UnityEngine.Object.FindObjectsOfType<Camera>();
                         cam = cams.FirstOrDefault();
                     }
@@ -408,7 +409,7 @@ namespace MCPForUnity.Editor.Tools
                     result = ScreenshotUtility.CaptureFromCameraToAssetsFolder(cam, fileName, resolvedSuperSize, ensureUniqueFileName: true);
                 }
 
-                AssetDatabase.Refresh();
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
 
                 string message = $"Screenshot captured to '{result.AssetsRelativePath}' (full: {result.FullPath}).";
 
@@ -629,6 +630,24 @@ namespace MCPForUnity.Editor.Tools
             try { childCount = go.transform != null ? go.transform.childCount : 0; } catch { }
             bool childrenTruncated = childCount > 0; // We do not inline children in summary mode.
 
+            // Get component type names (lightweight - no full serialization)
+            var componentTypes = new List<string>();
+            try
+            {
+                var components = go.GetComponents<Component>();
+                if (components != null)
+                {
+                    foreach (var c in components)
+                    {
+                        if (c != null)
+                        {
+                            componentTypes.Add(c.GetType().Name);
+                        }
+                    }
+                }
+            }
+            catch { }
+
             var d = new Dictionary<string, object>
             {
                 { "name", go.name },
@@ -643,6 +662,7 @@ namespace MCPForUnity.Editor.Tools
                 { "childrenTruncated", childrenTruncated },
                 { "childrenCursor", childCount > 0 ? "0" : null },
                 { "childrenPageSizeDefault", maxChildrenPerNode },
+                { "componentTypes", componentTypes },  // NEW: Lightweight component type list
             };
 
             if (includeTransform && go.transform != null)

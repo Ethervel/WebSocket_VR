@@ -271,6 +271,7 @@ public class VRGameManager : MonoBehaviour
         {
             FindVRReferences();
             SetupTeleportation();
+            SetupVRPhysics(); // Ajouter physique VR (gravité + collisions)
         }
         SetupUIInteraction(); // ✅ FIX: Configurer l'interaction UI après le spawn
         
@@ -359,6 +360,35 @@ public class VRGameManager : MonoBehaviour
     {
         // Desktop mode specific setup
         // The DesktopPlayerController handles input, this is for any additional setup
+
+        // IMPORTANT: Disable XR Interaction Simulator in Desktop mode
+        // It captures mouse input for VR controller simulation, preventing normal mouse clicks
+        var xrSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
+        if (xrSimulator != null)
+        {
+            xrSimulator.gameObject.SetActive(false);
+            Debug.Log("[VRGame] Disabled XR Interaction Simulator for Desktop mode");
+        }
+
+        // Add PhysicsRaycaster to camera for pointer events on 3D objects (whiteboard drawing)
+        if (_localHead != null)
+        {
+            Camera cam = _localHead.GetComponent<Camera>();
+            if (cam != null && cam.GetComponent<UnityEngine.EventSystems.PhysicsRaycaster>() == null)
+            {
+                var physicsRaycaster = cam.gameObject.AddComponent<UnityEngine.EventSystems.PhysicsRaycaster>();
+                physicsRaycaster.eventMask = LayerMask.GetMask("Whiteboard"); // Only raycast to whiteboard layer
+                Debug.Log("[VRGame] Added PhysicsRaycaster to camera for whiteboard drawing");
+            }
+        }
+
+        // Add DesktopWhiteboardDrawer for drawing on whiteboards in desktop mode (fallback/legacy)
+        if (_localPlayer != null && _localPlayer.GetComponent<DesktopWhiteboardDrawer>() == null)
+        {
+            var drawer = _localPlayer.AddComponent<DesktopWhiteboardDrawer>();
+            Debug.Log("[VRGame] Added DesktopWhiteboardDrawer to local player");
+        }
+
         Debug.Log("[VRGame] Desktop input setup complete");
     }
 
@@ -426,7 +456,50 @@ public class VRGameManager : MonoBehaviour
             anchor.interactionManager = interactionManager;
         }
     }
-    
+
+    /// <summary>
+    /// Configure la physique VR (gravité + collisions) via VRPlayerController
+    /// </summary>
+    void SetupVRPhysics()
+    {
+        if (_localPlayer == null) return;
+
+        // Vérifier si VRPlayerController existe déjà
+        var vrController = _localPlayer.GetComponent<VRPlayerController>();
+        if (vrController != null)
+        {
+            Debug.Log("[VRGame] VRPlayerController déjà présent sur le prefab");
+            // S'assurer que headTransform est assigné
+            if (vrController.headTransform == null && _localHead != null)
+            {
+                vrController.headTransform = _localHead;
+                Debug.Log("[VRGame] headTransform assigné au VRPlayerController existant");
+            }
+            return;
+        }
+
+        // Vérifier qu'il y a un CharacterController (requis par VRPlayerController)
+        var charController = _localPlayer.GetComponent<CharacterController>();
+        if (charController == null)
+        {
+            Debug.LogWarning("[VRGame] Pas de CharacterController sur le player VR, physique non ajoutée");
+            return;
+        }
+
+        // Ajouter VRPlayerController dynamiquement
+        vrController = _localPlayer.AddComponent<VRPlayerController>();
+
+        // Configurer les références
+        vrController.headTransform = _localHead;
+        vrController.useGravity = true;
+        vrController.gravity = -9.81f;
+        vrController.moveSpeed = 2f;
+        vrController.useSnapTurn = true;
+        vrController.snapTurnAngle = 45f;
+
+        Debug.Log("[VRGame] VRPlayerController ajouté dynamiquement - Gravité et collisions activées");
+    }
+
     // ✅ FIX: Méthode publique pour forcer la configuration de l'interaction UI (appelée par BootstrapManager après nettoyage)
     public void RefreshUIInteraction()
     {

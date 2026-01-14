@@ -6,13 +6,13 @@ using UnityEngine.UI;
 /// - Bouton Clear
 /// - Palette de couleurs
 /// - Fonctionne en mode VR (WhiteboardMarker) et Desktop (DesktopWhiteboardDrawer)
-/// - Auto-détecte le whiteboard le plus proche si non assigné
+/// - Auto-détecte la surface de dessin la plus proche si non assigné
 /// </summary>
 public class WhiteboardUIManager : MonoBehaviour
 {
     [Header("References")]
-    [Tooltip("Laisser vide pour auto-détecter le whiteboard le plus proche")]
-    public Whiteboard targetWhiteboard;
+    [Tooltip("Laisser vide pour auto-détecter la surface de dessin la plus proche")]
+    public WhiteboardDrawingSurface targetDrawingSurface;
 
     [Tooltip("Laisser vide pour auto-détecter tous les markers")]
     public WhiteboardMarker[] markers;
@@ -38,10 +38,10 @@ public class WhiteboardUIManager : MonoBehaviour
 
     void Start()
     {
-        // Auto-détection du whiteboard le plus proche
-        if (targetWhiteboard == null)
+        // Auto-détection de la surface de dessin la plus proche
+        if (targetDrawingSurface == null)
         {
-            AutoDetectWhiteboard();
+            AutoDetectDrawingSurface();
         }
 
         // Auto-détection des markers VR
@@ -92,33 +92,33 @@ public class WhiteboardUIManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Trouve le whiteboard le plus proche de ce panel UI
+    /// Trouve la surface de dessin la plus proche de ce panel UI
     /// </summary>
-    void AutoDetectWhiteboard()
+    void AutoDetectDrawingSurface()
     {
-        Whiteboard[] allWhiteboards = FindObjectsByType<Whiteboard>(FindObjectsSortMode.None);
+        WhiteboardDrawingSurface[] allSurfaces = FindObjectsByType<WhiteboardDrawingSurface>(FindObjectsSortMode.None);
 
         float closestDist = float.MaxValue;
-        Whiteboard closest = null;
+        WhiteboardDrawingSurface closest = null;
 
-        foreach (var wb in allWhiteboards)
+        foreach (var surface in allSurfaces)
         {
-            float dist = Vector3.Distance(transform.position, wb.transform.position);
+            float dist = Vector3.Distance(transform.position, surface.transform.position);
             if (dist < closestDist && dist <= autoDetectRadius)
             {
                 closestDist = dist;
-                closest = wb;
+                closest = surface;
             }
         }
 
         if (closest != null)
         {
-            targetWhiteboard = closest;
-            Debug.Log($"[WhiteboardUI] Auto-détecté whiteboard '{closest.id}' à {closestDist:F1}m");
+            targetDrawingSurface = closest;
+            Debug.Log($"[WhiteboardUI] Auto-détecté surface de dessin '{closest.id}' à {closestDist:F1}m");
         }
         else
         {
-            Debug.LogWarning($"[WhiteboardUI] Aucun whiteboard trouvé dans un rayon de {autoDetectRadius}m");
+            Debug.LogWarning($"[WhiteboardUI] Aucune surface de dessin trouvée dans un rayon de {autoDetectRadius}m");
         }
     }
 
@@ -152,14 +152,14 @@ public class WhiteboardUIManager : MonoBehaviour
 
     void OnClearButtonPressed()
     {
-        if (targetWhiteboard == null)
+        if (targetDrawingSurface == null)
         {
-            Debug.LogWarning("[WhiteboardUI] Aucun tableau assigné!");
+            Debug.LogWarning("[WhiteboardUI] Aucune surface de dessin assignée!");
             return;
         }
 
-        Debug.Log($"[WhiteboardUI] Effacement du tableau {targetWhiteboard.id}");
-        targetWhiteboard.RequestClear();
+        Debug.Log($"[WhiteboardUI] Effacement de la surface {targetDrawingSurface.id}");
+        targetDrawingSurface.RequestClear();
     }
 
     // ========================================
