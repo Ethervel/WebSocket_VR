@@ -5,7 +5,6 @@ using Unity.XR.CoreUtils;
 /// <summary>
 /// Téléporte le joueur quand un bouton UI est cliqué.
 /// Fonctionne en mode VR (XR Origin) et Desktop (CharacterController).
-/// Attacher ce script au même GameObject que le Button, ou assigner le Button manuellement.
 /// </summary>
 public class TeleportOnButtonClick : MonoBehaviour
 {
@@ -34,12 +33,8 @@ public class TeleportOnButtonClick : MonoBehaviour
     [Tooltip("Type de room destination")]
     public RoomType targetRoomType = RoomType.Lobby;
 
-    [Header("Debug")]
-    public bool showDebugLogs = true;
-
     void Start()
     {
-        // Auto-detect button if not assigned
         if (targetButton == null)
         {
             targetButton = GetComponent<Button>();
@@ -47,16 +42,12 @@ public class TeleportOnButtonClick : MonoBehaviour
 
         if (targetButton == null)
         {
-            Debug.LogError("[TeleportOnButtonClick] Aucun Button trouvé ! Assignez-en un ou attachez ce script à un Button.");
+            Debug.LogError("[TeleportOnButtonClick] Aucun Button trouvé!");
             enabled = false;
             return;
         }
 
-        // Subscribe to button click
         targetButton.onClick.AddListener(OnButtonClicked);
-
-        if (showDebugLogs)
-            Debug.Log($"[TeleportOnButtonClick] Initialisé sur '{gameObject.name}'");
     }
 
     void OnButtonClicked()
@@ -79,7 +70,6 @@ public class TeleportOnButtonClick : MonoBehaviour
 
     void ExecuteTeleport()
     {
-        // Determine destination
         Vector3 destination;
         Transform destTransform;
 
@@ -95,11 +85,10 @@ public class TeleportOnButtonClick : MonoBehaviour
         }
         else
         {
-            Debug.LogError("[TeleportOnButtonClick] Pas de destination définie !");
+            Debug.LogError("[TeleportOnButtonClick] Pas de destination définie!");
             return;
         }
 
-        // Check if in Desktop or VR mode
         bool isDesktopMode = VRGameManager.Instance != null && VRGameManager.Instance.IsDesktopMode;
 
         if (isDesktopMode)
@@ -111,59 +100,46 @@ public class TeleportOnButtonClick : MonoBehaviour
             TeleportVRPlayer(destination, destTransform);
         }
 
-        // Change room type if configured
         if (changeRoomType && VRRoomManager.Instance != null)
         {
             VRRoomManager.Instance.TeleportToRoomType(targetRoomType);
-            if (showDebugLogs)
-                Debug.Log($"[TeleportOnButtonClick] Room changée vers {targetRoomType}");
         }
     }
 
     void TeleportDesktopPlayer(Vector3 destination, Transform destTransform)
     {
-        // Find the local Desktop player
         GameObject localPlayer = VRGameManager.Instance?.GetLocalPlayer();
         if (localPlayer == null)
         {
-            Debug.LogError("[TeleportOnButtonClick] Joueur local non trouvé !");
+            Debug.LogError("[TeleportOnButtonClick] Joueur local non trouvé!");
             return;
         }
 
         var charController = localPlayer.GetComponent<CharacterController>();
 
-        // Disable CharacterController temporarily for teleport
         if (charController != null)
         {
             charController.enabled = false;
         }
 
-        // Apply rotation
         if (applyRotation && destTransform != null)
         {
             localPlayer.transform.rotation = Quaternion.Euler(0, destTransform.eulerAngles.y, 0);
         }
 
-        // Apply position
         localPlayer.transform.position = destination;
 
-        // Re-enable CharacterController
         if (charController != null)
         {
             charController.enabled = true;
         }
-
-        if (showDebugLogs)
-            Debug.Log($"[TeleportOnButtonClick] Desktop téléporté vers {destination}");
     }
 
     void TeleportVRPlayer(Vector3 destination, Transform destTransform)
     {
-        // Find XR Origin
         var origin = FindFirstObjectByType<XROrigin>();
         if (origin == null)
         {
-            // Fallback: try to find local player via VRGameManager
             GameObject localPlayer = VRGameManager.Instance?.GetLocalPlayer();
             if (localPlayer != null)
             {
@@ -175,11 +151,10 @@ public class TeleportOnButtonClick : MonoBehaviour
 
         if (origin == null)
         {
-            Debug.LogError("[TeleportOnButtonClick] XR Origin non trouvé !");
+            Debug.LogError("[TeleportOnButtonClick] XR Origin non trouvé!");
             return;
         }
 
-        // Disable CharacterController if present
         var charController = origin.GetComponent<CharacterController>();
         if (charController != null)
         {
@@ -192,20 +167,16 @@ public class TeleportOnButtonClick : MonoBehaviour
             cam = Camera.main;
         }
 
-        // Apply rotation
         if (applyRotation && destTransform != null && cam != null)
         {
-            // Calculate camera offset from XR Origin
             float cameraYaw = cam.transform.eulerAngles.y;
             float originYaw = origin.transform.eulerAngles.y;
             float cameraOffsetYaw = cameraYaw - originYaw;
 
-            // Target rotation = destination rotation - camera offset
             float targetYaw = destTransform.eulerAngles.y - cameraOffsetYaw;
             origin.transform.rotation = Quaternion.Euler(0, targetYaw, 0);
         }
 
-        // Apply position (accounting for camera offset)
         if (cam != null)
         {
             Vector3 cameraOffset = cam.transform.position - origin.transform.position;
@@ -217,14 +188,10 @@ public class TeleportOnButtonClick : MonoBehaviour
             origin.transform.position = destination;
         }
 
-        // Re-enable CharacterController
         if (charController != null)
         {
             charController.enabled = true;
         }
-
-        if (showDebugLogs)
-            Debug.Log($"[TeleportOnButtonClick] VR téléporté vers {destination}");
     }
 
     void OnDestroy()
@@ -235,7 +202,6 @@ public class TeleportOnButtonClick : MonoBehaviour
         }
     }
 
-    // Editor helper: visualize destination in Scene view
     void OnDrawGizmosSelected()
     {
         Vector3 dest = useOwnPositionAsDestination ? transform.position :
@@ -247,7 +213,6 @@ public class TeleportOnButtonClick : MonoBehaviour
             Gizmos.DrawWireSphere(dest, 0.5f);
             Gizmos.DrawLine(transform.position, dest);
 
-            // Draw forward direction
             Transform destT = useOwnPositionAsDestination ? transform : destinationPoint;
             if (destT != null && applyRotation)
             {

@@ -33,9 +33,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     private List<WhiteboardPacket> _drawHistory = new List<WhiteboardPacket>();
     private const int MAX_HISTORY_SIZE = 100;
 
-    // Stats debug
-    private int _receivedBatches = 0;
-    private int _receivedPoints = 0;
+    // Continuité entre batches réseau (pour éviter les coupures)
+    private Vector2? _lastReceivedPoint = null;
+    private string _lastSenderId = null;
 
 
     void Start()
@@ -74,37 +74,28 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         drawingTexture = new Texture2D((int)textureSize.x, (int)textureSize.y, TextureFormat.RGBA32, false);
         ClearTexture();
 
-        // Assigner au material (doit utiliser un shader transparent)
-        // Try to load the custom transparent material first
-        Material transparentMat = Resources.Load<Material>("WhiteboardDrawingSurfaceMat");
-        if (transparentMat != null)
+        // Utiliser Sprites/Default shader - parfait pour overlay transparent
+        Shader spriteShader = Shader.Find("Sprites/Default");
+        if (spriteShader != null)
         {
-            _renderer.material = new Material(transparentMat);
-            Debug.Log($"[DrawingSurface:{id}] Loaded WhiteboardDrawingSurfaceMat from Resources");
+            _renderer.material = new Material(spriteShader);
+            _renderer.material.mainTexture = drawingTexture;
+            _renderer.material.renderQueue = 3001;
         }
         else
         {
-            Debug.LogWarning($"[DrawingSurface:{id}] WhiteboardDrawingSurfaceMat not found! Using existing material.");
-        }
-
-        // Set texture to both _MainTex (legacy/custom shaders) and _BaseMap (URP shaders)
-        _renderer.material.mainTexture = drawingTexture;
-        if (_renderer.material.HasProperty("_BaseMap"))
-        {
-            _renderer.material.SetTexture("_BaseMap", drawingTexture);
-        }
-
-        // CRITICAL: URP shaders multiply texture by _BaseColor - if alpha=0, everything is invisible!
-        // Set _BaseColor to white with full alpha so the texture alpha is used directly
-        if (_renderer.material.HasProperty("_BaseColor"))
-        {
-            _renderer.material.SetColor("_BaseColor", Color.white);
-            Debug.Log($"[DrawingSurface:{id}] Set _BaseColor to white (was causing invisible drawing)");
+            _renderer.material.mainTexture = drawingTexture;
+            if (_renderer.material.HasProperty("_BaseMap"))
+            {
+                _renderer.material.SetTexture("_BaseMap", drawingTexture);
+            }
+            if (_renderer.material.HasProperty("_BaseColor"))
+            {
+                _renderer.material.SetColor("_BaseColor", Color.white);
+            }
         }
 
         _isInitialized = true;
-
-        Debug.Log($"[DrawingSurface:{id}] Initialisé ({textureSize.x}x{textureSize.y}), shader={_renderer.material.shader.name}");
     }
 
     /// <summary>
@@ -122,6 +113,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         drawingTexture.Apply();
 
         _drawHistory.Clear();
+
+        // Reset continuité réseau
+        _lastReceivedPoint = null;
+        _lastSenderId = null;
     }
 
     /// <summary>
@@ -156,14 +151,12 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void OnRoomJoined(string roomId)
     {
-        Debug.Log($"[DrawingSurface:{id}] Joined room {roomId}");
         _hasRequestedState = false;
         StartCoroutine(RequestStateDelayed());
     }
 
     void OnRoomLeft()
     {
-        Debug.Log($"[DrawingSurface:{id}] Left room, clearing");
         ClearTexture();
         _hasRequestedState = false;
     }
@@ -229,23 +222,39 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         if (batchData.draws == null || batchData.draws.Count == 0) return;
 
+        // Reset continuité si nouveau sender
+        if (_lastSenderId != senderId)
+        {
+            _lastReceivedPoint = null;
+            _lastSenderId = senderId;
+        }
+
         foreach (var packet in batchData.draws)
         {
             if (packet.pointsFlat == null || packet.pointsFlat.Length == 0) continue;
 
-            ApplyPacket(packet, false);
+            // Passer le dernier point reçu pour continuité entre batches
+            ApplyPacket(packet, false, _lastReceivedPoint);
             AddToHistory(packet);
-            _receivedPoints += packet.pointsFlat.Length / 2;
+
+            // Sauvegarder le dernier point du batch pour le prochain
+            if (packet.pointsFlat.Length >= 2)
+            {
+                float lastU = packet.pointsFlat[packet.pointsFlat.Length - 2];
+                float lastV = packet.pointsFlat[packet.pointsFlat.Length - 1];
+                int lastX = Mathf.Clamp((int)(lastU * textureSize.x - packet.penSize / 2), 0, (int)textureSize.x - packet.penSize);
+                int lastY = Mathf.Clamp((int)(lastV * textureSize.y - packet.penSize / 2), 0, (int)textureSize.y - packet.penSize);
+                _lastReceivedPoint = new Vector2(lastX, lastY);
+            }
         }
 
         drawingTexture.Apply();
-        _receivedBatches++;
     }
 
     /// <summary>
     /// Applique un packet de dessin sur la texture
     /// </summary>
-    public void ApplyPacket(WhiteboardPacket packet, bool apply = true)
+    public void ApplyPacket(WhiteboardPacket packet, bool apply = true, Vector2? previousBatchLastPoint = null)
     {
         if (!_isInitialized || drawingTexture == null) return;
         if (packet.pointsFlat == null || packet.pointsFlat.Length < 2) return;
@@ -257,11 +266,11 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         Color[] paintPixels = new Color[pixelCount];
         for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
 
-        // Distance max pour interpoler (5% de la texture = ~100px sur 2048)
-        // Au-delà, on considère que c'est un nouveau trait
-        float maxInterpolationDistance = textureSize.x * 0.05f;
+        // Distance max pour interpoler (25% de la texture = ~512px sur 2048)
+        float maxInterpolationDistance = textureSize.x * 0.25f;
 
-        Vector2? lastPoint = null;
+        // Commencer avec le dernier point du batch précédent si disponible
+        Vector2? lastPoint = previousBatchLastPoint;
 
         for (int i = 0; i < packet.pointsFlat.Length; i += 2)
         {
@@ -284,7 +293,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 }
                 else
                 {
-                    // Points trop éloignés = nouveau trait, dessiner juste le point
+                    // Points trop éloignés = nouveau trait
+                    _lastReceivedPoint = null;
                     drawingTexture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
                 }
             }
@@ -325,7 +335,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         if (!string.IsNullOrEmpty(clearData.roomId) && clearData.roomId != currentRoom) return;
 
         ClearTexture();
-        Debug.Log($"[DrawingSurface:{id}] Cleared by {senderId}");
     }
 
     void SendClearToNetwork()
@@ -357,7 +366,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         };
 
         VRNetworkManager.Instance.Send("whiteboard-request", request);
-        Debug.Log($"[DrawingSurface:{id}] Requesting state");
     }
 
     void HandleStateRequest(string dataJson, string requesterId)
@@ -396,7 +404,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         };
 
         VRNetworkManager.Instance.Send("whiteboard-state", state);
-        Debug.Log($"[DrawingSurface:{id}] Sent state to {targetId}");
     }
 
     void HandleStateReceived(string dataJson, string senderId)
@@ -419,7 +426,6 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             drawingTexture.Apply();
 
             Destroy(receivedTexture);
-            Debug.Log($"[DrawingSurface:{id}] State received from {senderId}");
         }
         catch (Exception e)
         {

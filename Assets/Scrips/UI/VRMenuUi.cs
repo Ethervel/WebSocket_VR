@@ -8,9 +8,13 @@ using System.Collections.Generic;
 public class VRMenuUI : MonoBehaviour
 {
     [Header("Panels")]
+    public GameObject avatarPanel;
     public GameObject mainPanel;
     public GameObject createRoomPanel;
     public GameObject inRoomPanel;
+
+    [Header("Avatar Panel")]
+    public Button editAvatarButton;
     
     [Header("Main Panel - Header")]
     public Button refreshButton;
@@ -47,6 +51,7 @@ public class VRMenuUI : MonoBehaviour
     public Transform playerListContainer;
     public GameObject playerListItemPrefab;
     public Button leaveRoomButton;
+    public Button editAvatarInRoomButton;
     
     // Dynamically instantiated UI elements
     private List<GameObject> roomListItems = new List<GameObject>();
@@ -61,13 +66,17 @@ public class VRMenuUI : MonoBehaviour
             joinButton.onClick.AddListener(OnJoinWithCode);
         if (newRoomButton != null)
             newRoomButton.onClick.AddListener(OnNewRoomClicked);
-        
+
+        // Register edit avatar button
+        if (editAvatarButton != null)
+            editAvatarButton.onClick.AddListener(OnEditAvatarClicked);
+
         // Register create panel button listeners
         if (createButton != null)
             createButton.onClick.AddListener(OnCreateRoom);
         if (cancelButton != null)
             cancelButton.onClick.AddListener(OnCancelCreate);
-        
+
         // Configure max players slider
         if (maxPlayersSlider != null)
         {
@@ -77,19 +86,23 @@ public class VRMenuUI : MonoBehaviour
             maxPlayersSlider.value = 10;
             OnMaxPlayersChanged(10);
         }
-        
+
         // Register leave room button
         if (leaveRoomButton != null)
             leaveRoomButton.onClick.AddListener(OnLeaveRoom);
-        
+
+        // Register edit avatar in room button
+        if (editAvatarInRoomButton != null)
+            editAvatarInRoomButton.onClick.AddListener(OnEditAvatarClicked);
+
         // Join on Enter key press
         if (roomCodeInput != null)
             roomCodeInput.onSubmit.AddListener((_) => OnJoinWithCode());
-        
+
         // Subscribe to network events
         VRNetworkManager.OnConnected += OnConnected;
         VRNetworkManager.OnDisconnected += OnDisconnected;
-        
+
         // Subscribe to room events
         VRRoomManager.OnRoomCreated += OnRoomCreated;
         VRRoomManager.OnRoomJoined += OnRoomJoined;
@@ -98,10 +111,13 @@ public class VRMenuUI : MonoBehaviour
         VRRoomManager.OnRoomListUpdated += OnRoomListUpdated;
         VRRoomManager.OnPlayerJoined += OnPlayerChanged;
         VRRoomManager.OnPlayerLeft += OnPlayerLeftRoom;
-        
-        // Initial state
-        ShowMainPanel();
-        SetStatus("Connexion...");
+
+        // Subscribe to avatar events
+        AvatarCustomization.OnAvatarConfigured += OnAvatarConfigured;
+
+        // Always show avatar panel first at startup
+        ShowAvatarPanel();
+        SetStatus("Configurez votre avatar");
     }
     
     void OnDestroy()
@@ -110,12 +126,14 @@ public class VRMenuUI : MonoBehaviour
         if (refreshButton != null) refreshButton.onClick.RemoveAllListeners();
         if (joinButton != null) joinButton.onClick.RemoveAllListeners();
         if (newRoomButton != null) newRoomButton.onClick.RemoveAllListeners();
+        if (editAvatarButton != null) editAvatarButton.onClick.RemoveAllListeners();
         if (createButton != null) createButton.onClick.RemoveAllListeners();
         if (cancelButton != null) cancelButton.onClick.RemoveAllListeners();
         if (maxPlayersSlider != null) maxPlayersSlider.onValueChanged.RemoveAllListeners();
         if (leaveRoomButton != null) leaveRoomButton.onClick.RemoveAllListeners();
+        if (editAvatarInRoomButton != null) editAvatarInRoomButton.onClick.RemoveAllListeners();
         if (roomCodeInput != null) roomCodeInput.onSubmit.RemoveAllListeners();
-        
+
         // Unsubscribe from events
         VRNetworkManager.OnConnected -= OnConnected;
         VRNetworkManager.OnDisconnected -= OnDisconnected;
@@ -126,6 +144,7 @@ public class VRMenuUI : MonoBehaviour
         VRRoomManager.OnRoomListUpdated -= OnRoomListUpdated;
         VRRoomManager.OnPlayerJoined -= OnPlayerChanged;
         VRRoomManager.OnPlayerLeft -= OnPlayerLeftRoom;
+        AvatarCustomization.OnAvatarConfigured -= OnAvatarConfigured;
     }
     
     #region Button Actions
@@ -214,7 +233,24 @@ public class VRMenuUI : MonoBehaviour
         SetStatus("Connexion...");
         VRRoomManager.Instance?.JoinRoom(roomId);
     }
-    
+
+    void OnEditAvatarClicked()
+    {
+        ShowAvatarPanel();
+    }
+
+    void OnAvatarConfigured()
+    {
+        ShowMainPanel();
+        SetStatus("Connecté !");
+
+        // Request room list after avatar configured
+        if (VRNetworkManager.IsConnected)
+        {
+            VRRoomManager.Instance?.RequestRoomList();
+        }
+    }
+
     #endregion
     
     #region Network Events
@@ -277,32 +313,49 @@ public class VRMenuUI : MonoBehaviour
     #endregion
     
     #region UI Updates
-    
+
+    void ShowAvatarPanel()
+    {
+        if (avatarPanel != null) avatarPanel.SetActive(true);
+        if (mainPanel != null) mainPanel.SetActive(false);
+        if (createRoomPanel != null) createRoomPanel.SetActive(false);
+        if (inRoomPanel != null) inRoomPanel.SetActive(false);
+
+        // Also show via AvatarCustomization if available
+        if (AvatarCustomization.Instance != null)
+        {
+            AvatarCustomization.Instance.ShowPanel();
+        }
+    }
+
     void ShowMainPanel()
     {
+        if (avatarPanel != null) avatarPanel.SetActive(false);
         if (mainPanel != null) mainPanel.SetActive(true);
         if (createRoomPanel != null) createRoomPanel.SetActive(false);
         if (inRoomPanel != null) inRoomPanel.SetActive(false);
-        
+
         if (roomCodeInput != null) roomCodeInput.text = "";
     }
     
     void ShowCreatePanel()
     {
+        if (avatarPanel != null) avatarPanel.SetActive(false);
         if (mainPanel != null) mainPanel.SetActive(false);
         if (createRoomPanel != null) createRoomPanel.SetActive(true);
         if (inRoomPanel != null) inRoomPanel.SetActive(false);
-        
+
         if (roomNameInput != null) roomNameInput.text = "";
         if (maxPlayersSlider != null) maxPlayersSlider.value = 10;
     }
-    
+
     void ShowInRoomPanel()
     {
+        if (avatarPanel != null) avatarPanel.SetActive(false);
         if (mainPanel != null) mainPanel.SetActive(false);
         if (createRoomPanel != null) createRoomPanel.SetActive(false);
         if (inRoomPanel != null) inRoomPanel.SetActive(true);
-        
+
         UpdateInRoomPanel();
     }
     

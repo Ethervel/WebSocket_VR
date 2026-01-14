@@ -44,6 +44,7 @@ public class VRRoomManager : MonoBehaviour
     public static event Action<string> OnRoomError;
     public static event Action<VRPlayerData> OnPlayerJoined;
     public static event Action<string> OnPlayerLeft;
+    public static event Action<VRPlayerData> OnAvatarUpdated;
     public static event Action<Dictionary<string, RoomInfo>> OnRoomListUpdated;
     public static event Action<RoomType> OnRoomTypeChanged;
 
@@ -141,12 +142,16 @@ public class VRRoomManager : MonoBehaviour
 
         // Add local player to room
         _players.Clear();
+        var avatarColor = GetLocalAvatarColor();
         var localPlayer = new VRPlayerData
         {
             playerId = VRNetworkManager.LocalId,
             playerName = PlayerPrefs.GetString("PlayerName", "Player"),
             isHost = true,
-            roomType = roomType
+            roomType = roomType,
+            colorR = avatarColor.r,
+            colorG = avatarColor.g,
+            colorB = avatarColor.b
         };
         _players[VRNetworkManager.LocalId] = localPlayer;
 
@@ -208,12 +213,16 @@ public class VRRoomManager : MonoBehaviour
 
         // Add local player to room
         _players.Clear();
+        var avatarColor = GetLocalAvatarColor();
         var localPlayer = new VRPlayerData
         {
             playerId = VRNetworkManager.LocalId,
             playerName = PlayerPrefs.GetString("PlayerName", "Player"),
             isHost = false,
-            roomType = roomInfo.roomType
+            roomType = roomInfo.roomType,
+            colorR = avatarColor.r,
+            colorG = avatarColor.g,
+            colorB = avatarColor.b
         };
         _players[VRNetworkManager.LocalId] = localPlayer;
 
@@ -222,7 +231,10 @@ public class VRRoomManager : MonoBehaviour
         {
             roomId = roomId,
             playerId = VRNetworkManager.LocalId,
-            playerName = localPlayer.playerName
+            playerName = localPlayer.playerName,
+            colorR = avatarColor.r,
+            colorG = avatarColor.g,
+            colorB = avatarColor.b
         });
 
         Debug.Log($"[VRRoom] Joining room: {CurrentRoomName} ({roomId})");
@@ -265,6 +277,38 @@ public class VRRoomManager : MonoBehaviour
 
         OnRoomLeft?.Invoke();
         OnRoomTypeChanged?.Invoke(RoomType.Lobby);
+    }
+
+    // Broadcasts avatar update (name + color) to all players in the room
+    public void BroadcastAvatarUpdate()
+    {
+        if (!IsInRoom)
+            return;
+
+        string playerName = PlayerPrefs.GetString("PlayerName", "Player");
+        Color avatarColor = GetLocalAvatarColor();
+
+        // Update local player data
+        if (_players.TryGetValue(VRNetworkManager.LocalId, out var localData))
+        {
+            localData.playerName = playerName;
+            localData.colorR = avatarColor.r;
+            localData.colorG = avatarColor.g;
+            localData.colorB = avatarColor.b;
+        }
+
+        // Send update to all players
+        VRNetworkManager.Instance.Send("avatar-update", new AvatarUpdateData
+        {
+            roomId = CurrentRoomId,
+            playerId = VRNetworkManager.LocalId,
+            playerName = playerName,
+            colorR = avatarColor.r,
+            colorG = avatarColor.g,
+            colorB = avatarColor.b
+        });
+
+        Debug.Log($"[VRRoom] Avatar update broadcasted: {playerName}, color: {avatarColor}");
     }
 
     // Changes zone/area within the same room (no reconnection required)
@@ -371,6 +415,10 @@ public class VRRoomManager : MonoBehaviour
             case "player-name-update":
                 HandlePlayerNameUpdate(msg);
                 break;
+
+            case "avatar-update":
+                HandleAvatarUpdate(msg);
+                break;
         }
     }
 
@@ -426,7 +474,10 @@ public class VRRoomManager : MonoBehaviour
             playerId = request.playerId,
             playerName = request.playerName,
             isHost = false,
-            roomType = CurrentRoomType
+            roomType = CurrentRoomType,
+            colorR = request.colorR,
+            colorG = request.colorG,
+            colorB = request.colorB
         };
         _players[request.playerId] = newPlayer;
 
@@ -541,6 +592,32 @@ public class VRRoomManager : MonoBehaviour
         }
     }
 
+    void HandleAvatarUpdate(NetworkMessage msg)
+    {
+        var data = JsonUtility.FromJson<AvatarUpdateData>(msg.data);
+
+        if (!IsInRoom || data.roomId != CurrentRoomId)
+            return;
+
+        // Ignore own updates
+        if (data.playerId == VRNetworkManager.LocalId)
+            return;
+
+        // Update player data
+        if (_players.TryGetValue(data.playerId, out var playerData))
+        {
+            playerData.playerName = data.playerName;
+            playerData.colorR = data.colorR;
+            playerData.colorG = data.colorG;
+            playerData.colorB = data.colorB;
+
+            Debug.Log($"[VRRoom] Avatar update received: {data.playerId} -> {data.playerName}, color: ({data.colorR}, {data.colorG}, {data.colorB})");
+
+            // Notify listeners (VRGameManager will update visuals)
+            OnAvatarUpdated?.Invoke(playerData);
+        }
+    }
+
     // Host-only: broadcasts updated player count to server
     void UpdateRoomPlayerCount()
     {
@@ -574,6 +651,33 @@ public class VRRoomManager : MonoBehaviour
         return new string(id);
     }
 
+    // Gets the local player's avatar color from AvatarCustomization or defaults
+    Color GetLocalAvatarColor()
+    {
+        if (AvatarCustomization.Instance != null)
+        {
+            return AvatarCustomization.Instance.SelectedColor;
+        }
+
+        // Default color (blue) if AvatarCustomization not available
+        float r = PlayerPrefs.GetFloat("AvatarColorR", 0.2f);
+        float g = PlayerPrefs.GetFloat("AvatarColorG", 0.6f);
+        float b = PlayerPrefs.GetFloat("AvatarColorB", 1f);
+        return new Color(r, g, b, 1f);
+    }
+
+    /// <summary>
+    /// Gets a player's color by their ID
+    /// </summary>
+    public Color GetPlayerColor(string playerId)
+    {
+        if (_players.TryGetValue(playerId, out VRPlayerData player))
+        {
+            return new Color(player.colorR, player.colorG, player.colorB, 1f);
+        }
+        return Color.white;
+    }
+
     #endregion
 }
 
@@ -599,6 +703,9 @@ public class VRPlayerData
     public string playerName;
     public bool isHost;
     public RoomType roomType;
+
+    // Avatar color (RGB)
+    public float colorR, colorG, colorB;
 
     // Generic position and rotation
     public float posX, posY, posZ;
@@ -636,6 +743,7 @@ public class RoomJoinRequest
     public string roomId;
     public string playerId;
     public string playerName;
+    public float colorR, colorG, colorB;
 }
 
 // Payload for room leave notifications
@@ -669,6 +777,18 @@ public class RoomTeleportData
     public string roomId;
     public string playerId;
     public RoomType targetRoomType;
+}
+
+// Payload for avatar updates (name + color)
+[Serializable]
+public class AvatarUpdateData
+{
+    public string roomId;
+    public string playerId;
+    public string playerName;
+    public float colorR;
+    public float colorG;
+    public float colorB;
 }
 
 // Payload for player name changes
