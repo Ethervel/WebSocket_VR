@@ -5,24 +5,13 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
+  - enabled: 1
     path: Assets/Scenes/Bootstrap.unity
     guid: 61eacabeabba67a41a1d05cb0844415d
-  - enabled: 0
+  - enabled: 1
     path: Assets/Scenes/Meet.unity
     guid: 99c9720ab356a0642a771bea13969a05
-<<<<<<< HEAD
-  - enabled: 1
-    path: Assets/Scenes/WhiteBoard.unity
-    guid: 2c63b6e5eb2b18840a7a2e7fde81f4af
-=======
-  - enabled: 0
-    path: Assets/Scenes/Test.unity
-    guid: 3ad05f5488366c3419251714f4f64072
->>>>>>> fix
   m_configObjects:
-    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 948aaf4c5c9004645b008b41abc67874, type: 2}
-    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: e9417166a037faf45b6d28795806aea4, type: 2}
-    xr.sdk.mock-hmd.settings: {fileID: 11400000, guid: 6a97b235194fef84caf100123ffc3f57, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 99ce97ac839ff7d49bda3158984a5c0c, type: 2}
   m_UseUCBPForAssetBundles: 0

@@ -37,6 +37,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     private int _receivedBatches = 0;
     private int _receivedPoints = 0;
 
+    // Continuité entre batches réseau (pour éviter les coupures)
+    private Vector2? _lastReceivedPoint = null;
+    private string _lastSenderId = null;
+
 
     void Start()
     {
@@ -74,32 +78,30 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         drawingTexture = new Texture2D((int)textureSize.x, (int)textureSize.y, TextureFormat.RGBA32, false);
         ClearTexture();
 
-        // Assigner au material (doit utiliser un shader transparent)
-        // Try to load the custom transparent material first
-        Material transparentMat = Resources.Load<Material>("WhiteboardDrawingSurfaceMat");
-        if (transparentMat != null)
+        // Utiliser Sprites/Default shader - parfait pour overlay transparent
+        // Ce shader respecte parfaitement l'alpha de la texture sans ajouter d'opacité
+        Shader spriteShader = Shader.Find("Sprites/Default");
+        if (spriteShader != null)
         {
-            _renderer.material = new Material(transparentMat);
-            Debug.Log($"[DrawingSurface:{id}] Loaded WhiteboardDrawingSurfaceMat from Resources");
+            _renderer.material = new Material(spriteShader);
+            _renderer.material.mainTexture = drawingTexture;
+            // Render queue élevé pour être devant le whiteboard
+            _renderer.material.renderQueue = 3001;
+            Debug.Log($"[DrawingSurface:{id}] Using Sprites/Default shader (fully transparent)");
         }
         else
         {
-            Debug.LogWarning($"[DrawingSurface:{id}] WhiteboardDrawingSurfaceMat not found! Using existing material.");
-        }
-
-        // Set texture to both _MainTex (legacy/custom shaders) and _BaseMap (URP shaders)
-        _renderer.material.mainTexture = drawingTexture;
-        if (_renderer.material.HasProperty("_BaseMap"))
-        {
-            _renderer.material.SetTexture("_BaseMap", drawingTexture);
-        }
-
-        // CRITICAL: URP shaders multiply texture by _BaseColor - if alpha=0, everything is invisible!
-        // Set _BaseColor to white with full alpha so the texture alpha is used directly
-        if (_renderer.material.HasProperty("_BaseColor"))
-        {
-            _renderer.material.SetColor("_BaseColor", Color.white);
-            Debug.Log($"[DrawingSurface:{id}] Set _BaseColor to white (was causing invisible drawing)");
+            // Fallback: essayer URP Unlit transparent
+            Debug.LogWarning($"[DrawingSurface:{id}] Sprites/Default not found, using fallback");
+            _renderer.material.mainTexture = drawingTexture;
+            if (_renderer.material.HasProperty("_BaseMap"))
+            {
+                _renderer.material.SetTexture("_BaseMap", drawingTexture);
+            }
+            if (_renderer.material.HasProperty("_BaseColor"))
+            {
+                _renderer.material.SetColor("_BaseColor", Color.white);
+            }
         }
 
         _isInitialized = true;
@@ -122,6 +124,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         drawingTexture.Apply();
 
         _drawHistory.Clear();
+
+        // Reset continuité réseau
+        _lastReceivedPoint = null;
+        _lastSenderId = null;
     }
 
     /// <summary>
@@ -229,13 +235,31 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         if (batchData.draws == null || batchData.draws.Count == 0) return;
 
+        // Reset continuité si nouveau sender
+        if (_lastSenderId != senderId)
+        {
+            _lastReceivedPoint = null;
+            _lastSenderId = senderId;
+        }
+
         foreach (var packet in batchData.draws)
         {
             if (packet.pointsFlat == null || packet.pointsFlat.Length == 0) continue;
 
-            ApplyPacket(packet, false);
+            // Passer le dernier point reçu pour continuité entre batches
+            ApplyPacket(packet, false, _lastReceivedPoint);
             AddToHistory(packet);
             _receivedPoints += packet.pointsFlat.Length / 2;
+
+            // Sauvegarder le dernier point du batch pour le prochain
+            if (packet.pointsFlat.Length >= 2)
+            {
+                float lastU = packet.pointsFlat[packet.pointsFlat.Length - 2];
+                float lastV = packet.pointsFlat[packet.pointsFlat.Length - 1];
+                int lastX = Mathf.Clamp((int)(lastU * textureSize.x - packet.penSize / 2), 0, (int)textureSize.x - packet.penSize);
+                int lastY = Mathf.Clamp((int)(lastV * textureSize.y - packet.penSize / 2), 0, (int)textureSize.y - packet.penSize);
+                _lastReceivedPoint = new Vector2(lastX, lastY);
+            }
         }
 
         drawingTexture.Apply();
@@ -245,7 +269,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     /// <summary>
     /// Applique un packet de dessin sur la texture
     /// </summary>
-    public void ApplyPacket(WhiteboardPacket packet, bool apply = true)
+    /// <param name="previousBatchLastPoint">Dernier point du batch précédent pour continuité</param>
+    public void ApplyPacket(WhiteboardPacket packet, bool apply = true, Vector2? previousBatchLastPoint = null)
     {
         if (!_isInitialized || drawingTexture == null) return;
         if (packet.pointsFlat == null || packet.pointsFlat.Length < 2) return;
@@ -257,11 +282,12 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         Color[] paintPixels = new Color[pixelCount];
         for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
 
-        // Distance max pour interpoler (5% de la texture = ~100px sur 2048)
-        // Au-delà, on considère que c'est un nouveau trait
-        float maxInterpolationDistance = textureSize.x * 0.05f;
+        // Distance max pour interpoler (25% de la texture = ~512px sur 2048)
+        // Permet des mouvements rapides tout en détectant les nouveaux traits
+        float maxInterpolationDistance = textureSize.x * 0.25f;
 
-        Vector2? lastPoint = null;
+        // Commencer avec le dernier point du batch précédent si disponible
+        Vector2? lastPoint = previousBatchLastPoint;
 
         for (int i = 0; i < packet.pointsFlat.Length; i += 2)
         {
@@ -285,6 +311,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 else
                 {
                     // Points trop éloignés = nouveau trait, dessiner juste le point
+                    // Reset aussi la continuité entre batches
+                    _lastReceivedPoint = null;
                     drawingTexture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
                 }
             }

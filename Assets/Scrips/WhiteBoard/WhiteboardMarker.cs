@@ -20,8 +20,10 @@ public class WhiteboardMarker : MonoBehaviour
     public float touchThreshold = 0.15f; // 15cm - plus permissif pour VR
 
     [Header("Network Settings")]
-    public float sendRate = 0.05f;
-    public int minPointsBeforeSend = 3;
+    [Tooltip("Intervalle d'envoi réseau (plus petit = plus fluide mais plus de bande passante)")]
+    public float sendRate = 0.033f; // ~30fps pour fluidité
+    [Tooltip("Nombre minimum de points avant envoi")]
+    public int minPointsBeforeSend = 1; // Envoyer plus souvent pour éviter les coupures
 
     // Components
     private Renderer _renderer;
@@ -38,6 +40,8 @@ public class WhiteboardMarker : MonoBehaviour
     private float _networkTimer;
     private List<float> _pendingPointsFlat = new List<float>();
     private string _currentSurfaceId;
+    private Vector2 _lastSentPoint = Vector2.zero; // Pour continuité entre batches
+    private bool _hasLastSentPoint = false;
 
     // VR grab state
     private XRGrabInteractable _grabInteractable;
@@ -329,6 +333,7 @@ public class WhiteboardMarker : MonoBehaviour
         _touchedLastFrame = false;
         _lastTouchPos = Vector2.zero;
         _pendingPointsFlat.Clear(); // S'assurer que le buffer est vide
+        _hasLastSentPoint = false; // Reset continuité pour nouveau trait
     }
 
     void NetworkUpdate()
@@ -354,6 +359,27 @@ public class WhiteboardMarker : MonoBehaviour
 
         string currentRoomId = VRRoomManager.Instance.CurrentRoomId;
 
+        // Créer liste avec continuité: inclure le dernier point envoyé au début
+        List<float> pointsToSend = new List<float>();
+
+        // Ajouter le dernier point envoyé pour continuité (interpolation)
+        if (_hasLastSentPoint && _pendingPointsFlat.Count >= 2)
+        {
+            pointsToSend.Add(_lastSentPoint.x);
+            pointsToSend.Add(_lastSentPoint.y);
+        }
+
+        // Ajouter les nouveaux points
+        pointsToSend.AddRange(_pendingPointsFlat);
+
+        // Sauvegarder le dernier point pour le prochain batch
+        if (_pendingPointsFlat.Count >= 2)
+        {
+            _lastSentPoint.x = _pendingPointsFlat[_pendingPointsFlat.Count - 2];
+            _lastSentPoint.y = _pendingPointsFlat[_pendingPointsFlat.Count - 1];
+            _hasLastSentPoint = true;
+        }
+
         WhiteboardPacket packet = new WhiteboardPacket
         {
             whiteboardId = _currentSurfaceId,
@@ -363,7 +389,7 @@ public class WhiteboardMarker : MonoBehaviour
             b = currentColor.b,
             a = currentColor.a,
             penSize = penSize,
-            pointsFlat = _pendingPointsFlat.ToArray()
+            pointsFlat = pointsToSend.ToArray()
         };
 
         WhiteboardBatchData batch = new WhiteboardBatchData

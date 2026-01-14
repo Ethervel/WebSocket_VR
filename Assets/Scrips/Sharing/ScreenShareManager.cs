@@ -15,19 +15,19 @@ public class ScreenShareManager : MonoBehaviour
     public static ScreenShareManager Instance { get; private set; }
 
     [Header("Capture Settings")]
-    [Tooltip("Largeur de capture")]
-    public int captureWidth = 1280;
+    [Tooltip("Largeur de capture (plus petit = meilleure performance)")]
+    public int captureWidth = 854;  // Réduit de 1280
 
     [Tooltip("Hauteur de capture")]
-    public int captureHeight = 720;
+    public int captureHeight = 480; // Réduit de 720
 
-    [Tooltip("Qualité JPEG (0-100)")]
+    [Tooltip("Qualité JPEG (0-100, plus bas = plus rapide)")]
     [Range(0, 100)]
-    public int jpegQuality = 70;
+    public int jpegQuality = 50;    // Réduit de 70
 
-    [Tooltip("Frames par seconde")]
+    [Tooltip("Frames par seconde (plus bas = meilleure performance)")]
     [Range(1, 15)]
-    public float captureFrameRate = 5f;
+    public float captureFrameRate = 3f; // Réduit de 5
 
     [Header("Debug")]
     public bool showDebugInfo = true;
@@ -193,7 +193,7 @@ public class ScreenShareManager : MonoBehaviour
 
         if (!CanShare())
         {
-            Debug.Log("[ScreenShare] Desktop mode only - cannot share in VR");
+            Debug.Log("[ScreenShare] Cannot share right now");
             return;
         }
 
@@ -212,18 +212,38 @@ public class ScreenShareManager : MonoBehaviour
     #region Public API
 
     /// <summary>
-    /// Vérifie si on peut partager (Desktop mode uniquement)
+    /// Vérifie si on peut partager (Desktop ET VR supportés)
+    /// En VR: partage la vue du casque
+    /// En Desktop: partage une fenêtre ou le jeu Unity
     /// </summary>
     public bool CanShare()
     {
-        return VRGameManager.Instance == null || VRGameManager.Instance.IsDesktopMode;
+        // Toujours autoriser le partage (VR partage la vue casque, Desktop partage fenêtre/jeu)
+        return true;
+    }
+
+    /// <summary>
+    /// Vérifie si on est en mode VR
+    /// </summary>
+    public bool IsVRMode()
+    {
+        return VRGameManager.Instance != null && !VRGameManager.Instance.IsDesktopMode;
     }
 
     /// <summary>
     /// Obtient la liste des fenêtres disponibles pour le partage
+    /// En VR, retourne une liste vide (seule la vue casque peut être partagée)
     /// </summary>
     public List<WindowCapture.WindowInfo> GetAvailableWindows()
     {
+        // En VR, pas d'accès aux fenêtres Windows
+        if (IsVRMode())
+        {
+            var emptyList = new List<WindowCapture.WindowInfo>();
+            OnWindowListUpdated?.Invoke(emptyList);
+            return emptyList;
+        }
+
         var windows = WindowCapture.GetOpenWindows();
         OnWindowListUpdated?.Invoke(windows);
         return windows;
@@ -280,8 +300,15 @@ public class ScreenShareManager : MonoBehaviour
 
         if (!CanShare())
         {
-            Debug.LogWarning("[ScreenShare] Screen sharing only available in Desktop mode");
+            Debug.LogWarning("[ScreenShare] Screen sharing not available");
             return;
+        }
+
+        // En VR, forcer la capture de la vue casque (pas de fenêtres Windows)
+        if (IsVRMode())
+        {
+            _selectedWindow = null;
+            LogDebug("[ScreenShare] VR Mode: will share headset view");
         }
 
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
