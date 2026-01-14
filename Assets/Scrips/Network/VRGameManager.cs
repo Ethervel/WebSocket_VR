@@ -271,6 +271,7 @@ public class VRGameManager : MonoBehaviour
         {
             FindVRReferences();
             SetupTeleportation();
+            SetupVRPhysics(); // Ajouter physique VR (gravité + collisions)
         }
         SetupUIInteraction(); // ✅ FIX: Configurer l'interaction UI après le spawn
         
@@ -455,7 +456,50 @@ public class VRGameManager : MonoBehaviour
             anchor.interactionManager = interactionManager;
         }
     }
-    
+
+    /// <summary>
+    /// Configure la physique VR (gravité + collisions) via VRPlayerController
+    /// </summary>
+    void SetupVRPhysics()
+    {
+        if (_localPlayer == null) return;
+
+        // Vérifier si VRPlayerController existe déjà
+        var vrController = _localPlayer.GetComponent<VRPlayerController>();
+        if (vrController != null)
+        {
+            Debug.Log("[VRGame] VRPlayerController déjà présent sur le prefab");
+            // S'assurer que headTransform est assigné
+            if (vrController.headTransform == null && _localHead != null)
+            {
+                vrController.headTransform = _localHead;
+                Debug.Log("[VRGame] headTransform assigné au VRPlayerController existant");
+            }
+            return;
+        }
+
+        // Vérifier qu'il y a un CharacterController (requis par VRPlayerController)
+        var charController = _localPlayer.GetComponent<CharacterController>();
+        if (charController == null)
+        {
+            Debug.LogWarning("[VRGame] Pas de CharacterController sur le player VR, physique non ajoutée");
+            return;
+        }
+
+        // Ajouter VRPlayerController dynamiquement
+        vrController = _localPlayer.AddComponent<VRPlayerController>();
+
+        // Configurer les références
+        vrController.headTransform = _localHead;
+        vrController.useGravity = true;
+        vrController.gravity = -9.81f;
+        vrController.moveSpeed = 2f;
+        vrController.useSnapTurn = true;
+        vrController.snapTurnAngle = 45f;
+
+        Debug.Log("[VRGame] VRPlayerController ajouté dynamiquement - Gravité et collisions activées");
+    }
+
     // ✅ FIX: Méthode publique pour forcer la configuration de l'interaction UI (appelée par BootstrapManager après nettoyage)
     public void RefreshUIInteraction()
     {

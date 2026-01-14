@@ -17,7 +17,7 @@ public class WhiteboardMarker : MonoBehaviour
 
     [Header("Touch Detection")]
     [Tooltip("Distance maximale pour considérer que le stylo touche la surface (en mètres)")]
-    public float touchThreshold = 0.01f; // 1cm - le stylo doit être proche
+    public float touchThreshold = 0.15f; // 15cm - plus permissif pour VR
 
     [Header("Network Settings")]
     public float sendRate = 0.05f;
@@ -134,20 +134,49 @@ public class WhiteboardMarker : MonoBehaviour
 
     void DrawVR()
     {
-        // Raycast depuis la pointe du marker
-        bool hit = Physics.Raycast(tip.position, transform.up, out _touch, _tipHeight, drawingSurfaceLayer);
+        // DEBUG: Log toutes les 60 frames pour voir l'état
+        if (Time.frameCount % 60 == 0)
+        {
+            Debug.Log($"[WhiteboardMarker VR] isHeld={_isHeld}, tipHeight={_tipHeight}, layer={drawingSurfaceLayer.value}, threshold={touchThreshold}");
+        }
+
+        // Raycast depuis la pointe du marker - essayer plusieurs directions
+        bool hit = Physics.Raycast(tip.position, transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+
+        // Si pas de hit avec transform.up, essayer transform.forward (selon orientation du marker)
+        if (!hit)
+        {
+            hit = Physics.Raycast(tip.position, transform.forward, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+        }
+        if (!hit)
+        {
+            hit = Physics.Raycast(tip.position, -transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+        }
 
         if (!hit)
         {
+            // DEBUG: Essayer sans layer mask pour voir si on touche quelque chose
+            if (Time.frameCount % 60 == 0)
+            {
+                RaycastHit debugHit;
+                if (Physics.Raycast(tip.position, transform.up, out debugHit, 1f))
+                {
+                    Debug.Log($"[WhiteboardMarker VR] No hit on layer, but found '{debugHit.transform.name}' layer={debugHit.transform.gameObject.layer}");
+                }
+            }
             EndStroke();
             return;
         }
 
-        // IMPORTANT: Vérifier la DISTANCE réelle au lieu de juste "hit"
-        // Cela permet de détecter quand le stylo est vraiment posé vs juste proche
-        if (_touch.distance > touchThreshold)
+        // DEBUG: On a touché quelque chose
+        if (Time.frameCount % 30 == 0)
         {
-            // Le stylo est proche mais pas assez pour dessiner - fin du trait
+            Debug.Log($"[WhiteboardMarker VR] HIT: {_touch.transform.name}, distance={_touch.distance:F3}, threshold={touchThreshold}");
+        }
+
+        // Vérifier la distance (plus permissif maintenant)
+        if (_touch.distance > touchThreshold * 2f)
+        {
             EndStroke();
             return;
         }
