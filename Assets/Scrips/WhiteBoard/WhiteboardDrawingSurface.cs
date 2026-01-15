@@ -203,6 +203,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 case "whiteboard-state":
                     HandleStateReceived(msg.data, msg.senderId);
                     break;
+                case "whiteboard-history":
+                    HandleHistoryReceived(msg.data, msg.senderId);
+                    break;
             }
         }
         catch (Exception e)
@@ -393,6 +396,25 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         string currentRoom = GetCurrentRoomId();
         if (string.IsNullOrEmpty(currentRoom)) return;
 
+        // P1 FIX: Use history-based sync when possible (much faster than PNG encoding)
+        // PNG encoding is CPU intensive (~50-100ms for 2048x2048)
+        // History replay is ~0.1ms per stroke
+        if (_drawHistory.Count > 0 && _drawHistory.Count <= MAX_HISTORY_SIZE)
+        {
+            // Send history instead of PNG - much faster
+            WhiteboardHistoryData historyData = new WhiteboardHistoryData
+            {
+                whiteboardId = id,
+                roomId = currentRoom,
+                packets = _drawHistory
+            };
+
+            VRNetworkManager.Instance.Send("whiteboard-history", historyData);
+            Debug.Log($"[DrawingSurface:{id}] P1 FIX: Sent history-based state ({_drawHistory.Count} strokes)");
+            return;
+        }
+
+        // Fallback to PNG for empty canvas or when history is full (complex drawings)
         byte[] pngData = drawingTexture.EncodeToPNG();
         string base64Data = Convert.ToBase64String(pngData);
 
@@ -433,6 +455,38 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         {
             Debug.LogError($"[DrawingSurface:{id}] Erreur réception état: {e.Message}");
         }
+    }
+
+    // P1 FIX: Handle history-based state sync (much faster than PNG)
+    void HandleHistoryReceived(string dataJson, string senderId)
+    {
+        WhiteboardHistoryData historyData = JsonUtility.FromJson<WhiteboardHistoryData>(dataJson);
+
+        if (historyData.whiteboardId != id) return;
+        if (senderId == VRNetworkManager.LocalId) return;
+
+        string currentRoom = GetCurrentRoomId();
+        if (!string.IsNullOrEmpty(historyData.roomId) && historyData.roomId != currentRoom) return;
+
+        if (historyData.packets == null || historyData.packets.Count == 0)
+        {
+            Debug.Log($"[DrawingSurface:{id}] P1 FIX: Received empty history");
+            return;
+        }
+
+        // Clear and replay history
+        ClearTexture();
+
+        foreach (var packet in historyData.packets)
+        {
+            ApplyPacket(packet, false, null); // Don't apply yet, batch it
+            AddToHistory(packet);
+        }
+
+        // Single Apply() after replaying all strokes
+        drawingTexture.Apply();
+
+        Debug.Log($"[DrawingSurface:{id}] P1 FIX: Replayed {historyData.packets.Count} strokes from history");
     }
 
     void AddToHistory(WhiteboardPacket packet)

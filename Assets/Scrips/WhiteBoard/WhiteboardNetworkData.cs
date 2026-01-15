@@ -90,10 +90,12 @@ public class WhiteboardStateData
 
 /// <summary>
 /// Historique incrémental (alternative à la texture complète)
+/// P1 FIX: Utilisé pour sync rapide des late joiners au lieu de PNG
 /// </summary>
 [Serializable]
 public class WhiteboardHistoryData
 {
     public string whiteboardId;
+    public string roomId; // P1 FIX: ID de la room pour filtrer
     public List<WhiteboardPacket> packets;
 }

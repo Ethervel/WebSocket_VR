@@ -88,6 +88,13 @@ public class VRGameManager : MonoBehaviour
     // Cache XRInteractionManager pour éviter FindFirstObjectByType répété et fuites mémoire
     private XRInteractionManager _cachedInteractionManager;
 
+    // P1 FIX: Cache FindObjectsByType results to avoid O(n) scene searches
+    private UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationArea[] _cachedTeleportAreas;
+    private UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationAnchor[] _cachedTeleportAnchors;
+    private Canvas[] _cachedWorldSpaceCanvases;
+    private bool _teleportCacheValid = false;
+    private bool _canvasCacheValid = false;
+
     // Container for detached remote player parts (head/hands) to avoid memory leaks
     // Using a parent container instead of individual DontDestroyOnLoad calls
     private Transform _detachedPartsContainer;
@@ -150,6 +157,9 @@ public class VRGameManager : MonoBehaviour
         VRRoomManager.OnAvatarUpdated += OnAvatarUpdated;
         VRRoomManager.OnRoomTypeChanged += OnRoomTypeChanged;
         VRNetworkManager.OnMessageReceived += HandleNetworkMessage;
+
+        // P1 FIX: Subscribe to scene loaded event to invalidate caches
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
     void OnDisable()
@@ -162,6 +172,17 @@ public class VRGameManager : MonoBehaviour
         VRRoomManager.OnAvatarUpdated -= OnAvatarUpdated;
         VRRoomManager.OnRoomTypeChanged -= OnRoomTypeChanged;
         VRNetworkManager.OnMessageReceived -= HandleNetworkMessage;
+
+        // P1 FIX: Unsubscribe from scene loaded event
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    // P1 FIX: Invalidate caches when a new scene is loaded
+    void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        _teleportCacheValid = false;
+        _canvasCacheValid = false;
+        Debug.Log($"[VRGame] P1 FIX: Invalidated caches after scene load: {scene.name}");
     }
 
     void Update()
@@ -483,16 +504,25 @@ public class VRGameManager : MonoBehaviour
             return;
         }
 
-        var areas = FindObjectsByType<UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationArea>(FindObjectsSortMode.None);
-        foreach (var area in areas)
+        // P1 FIX: Use cached teleport areas/anchors to avoid O(n) scene searches
+        if (!_teleportCacheValid)
         {
+            _cachedTeleportAreas = FindObjectsByType<UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationArea>(FindObjectsSortMode.None);
+            _cachedTeleportAnchors = FindObjectsByType<UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationAnchor>(FindObjectsSortMode.None);
+            _teleportCacheValid = true;
+            Debug.Log($"[VRGame] P1 FIX: Cached {_cachedTeleportAreas.Length} teleport areas and {_cachedTeleportAnchors.Length} anchors");
+        }
+
+        foreach (var area in _cachedTeleportAreas)
+        {
+            if (area == null) continue;
             area.teleportationProvider = teleportProvider;
             area.interactionManager = interactionManager;
         }
 
-        var anchors = FindObjectsByType<UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation.TeleportationAnchor>(FindObjectsSortMode.None);
-        foreach (var anchor in anchors)
+        foreach (var anchor in _cachedTeleportAnchors)
         {
+            if (anchor == null) continue;
             anchor.teleportationProvider = teleportProvider;
             anchor.interactionManager = interactionManager;
         }
@@ -581,36 +611,48 @@ public class VRGameManager : MonoBehaviour
     /// </summary>
     void SetupWorldSpaceCanvases(Camera playerCamera)
     {
-        var allCanvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
-        int worldSpaceCount = 0;
-
-        foreach (var canvas in allCanvases)
+        // P1 FIX: Use cached canvas array to avoid O(n) scene searches
+        if (!_canvasCacheValid)
         {
-            // RenderMode.WorldSpace = 2
-            if (canvas.renderMode == RenderMode.WorldSpace)
+            var allCanvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            // Filter to only WorldSpace canvases
+            var worldSpaceList = new System.Collections.Generic.List<Canvas>();
+            foreach (var canvas in allCanvases)
             {
-                canvas.worldCamera = playerCamera;
-                worldSpaceCount++;
-
-                // Désactiver TrackedDeviceGraphicRaycaster en mode Desktop (interfère avec souris)
-                var trackedRaycaster = canvas.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>();
-                if (trackedRaycaster != null)
-                {
-                    trackedRaycaster.enabled = false;
-                    Debug.Log($"[VRGame] TrackedDeviceGraphicRaycaster désactivé sur '{canvas.name}'");
-                }
-
-                // S'assurer qu'il y a un GraphicRaycaster standard pour la souris
-                var graphicRaycaster = canvas.GetComponent<UnityEngine.UI.GraphicRaycaster>();
-                if (graphicRaycaster == null)
-                {
-                    graphicRaycaster = canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-                    Debug.Log($"[VRGame] GraphicRaycaster ajouté sur '{canvas.name}'");
-                }
-                graphicRaycaster.enabled = true;
-
-                Debug.Log($"[VRGame] ✅ Canvas WorldSpace '{canvas.name}' → Camera: '{playerCamera.name}'");
+                if (canvas.renderMode == RenderMode.WorldSpace)
+                    worldSpaceList.Add(canvas);
             }
+            _cachedWorldSpaceCanvases = worldSpaceList.ToArray();
+            _canvasCacheValid = true;
+            Debug.Log($"[VRGame] P1 FIX: Cached {_cachedWorldSpaceCanvases.Length} WorldSpace canvases");
+        }
+
+        int worldSpaceCount = 0;
+        foreach (var canvas in _cachedWorldSpaceCanvases)
+        {
+            if (canvas == null) continue;
+
+            canvas.worldCamera = playerCamera;
+            worldSpaceCount++;
+
+            // Désactiver TrackedDeviceGraphicRaycaster en mode Desktop (interfère avec souris)
+            var trackedRaycaster = canvas.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>();
+            if (trackedRaycaster != null)
+            {
+                trackedRaycaster.enabled = false;
+                Debug.Log($"[VRGame] TrackedDeviceGraphicRaycaster désactivé sur '{canvas.name}'");
+            }
+
+            // S'assurer qu'il y a un GraphicRaycaster standard pour la souris
+            var graphicRaycaster = canvas.GetComponent<UnityEngine.UI.GraphicRaycaster>();
+            if (graphicRaycaster == null)
+            {
+                graphicRaycaster = canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                Debug.Log($"[VRGame] GraphicRaycaster ajouté sur '{canvas.name}'");
+            }
+            graphicRaycaster.enabled = true;
+
+            Debug.Log($"[VRGame] ✅ Canvas WorldSpace '{canvas.name}' → Camera: '{playerCamera.name}'");
         }
 
         if (worldSpaceCount > 0)

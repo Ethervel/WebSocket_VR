@@ -241,16 +241,20 @@ public class VRPlayerController : MonoBehaviour
         _characterController.Move(_velocity * Time.deltaTime);
     }
     
-    // Debug UI overlay
-    void OnGUI()
+    // P1 FIX: OnGUI() removed - it caused GC allocations every frame even when showDebugInfo was false
+    // Use Debug.Log() or TextMeshPro for runtime debugging instead
+#if UNITY_EDITOR
+    void OnDrawGizmos()
     {
-        if (!showDebugInfo) return;
-        
-        GUILayout.BeginArea(new Rect(10, 10, 300, 200));
-        GUILayout.Label($"Move Input: {_moveInput}");
-        GUILayout.Label($"Turn Input: {_turnInput}");
-        GUILayout.Label($"Grounded: {_characterController.isGrounded}");
-        GUILayout.Label($"Velocity: {_velocity}");
-        GUILayout.EndArea();
+        if (!showDebugInfo || !Application.isPlaying) return;
+
+        // Draw movement direction gizmo in editor
+        if (headTransform != null)
+        {
+            UnityEditor.Handles.color = Color.green;
+            UnityEditor.Handles.Label(transform.position + Vector3.up * 2f,
+                $"Move: {_moveInput}\nTurn: {_turnInput}\nGrounded: {_characterController?.isGrounded}");
+        }
     }
+#endif
 }
