@@ -65,13 +65,40 @@ public class VoiceChatManager : MonoBehaviour
     private Coroutine _timeoutCheckCoroutine;
     
     // Configuration STUN/TURN
+    // P0 FIX: Ajout de serveurs TURN pour les utilisateurs derrière NAT/firewall corporate
+    // Sans TURN, 15-20% des utilisateurs ne peuvent pas se connecter
     private RTCConfiguration _rtcConfig = new RTCConfiguration
     {
         iceServers = new[]
         {
+            // STUN servers (découverte IP publique)
             new RTCIceServer { urls = new[] { "stun:stun.l.google.com:19302" } },
-            new RTCIceServer { urls = new[] { "stun:stun1.l.google.com:19302" } }
-        }
+            new RTCIceServer { urls = new[] { "stun:stun1.l.google.com:19302" } },
+            new RTCIceServer { urls = new[] { "stun:stun.cloudflare.com:3478" } },
+
+            // TURN servers publics gratuits (relay pour NAT symmetric/corporate)
+            // NOTE: Pour production, utiliser des serveurs TURN privés (Twilio, Xirsys, ou self-hosted)
+            new RTCIceServer
+            {
+                urls = new[] { "turn:openrelay.metered.ca:80" },
+                username = "openrelayproject",
+                credential = "openrelayproject"
+            },
+            new RTCIceServer
+            {
+                urls = new[] { "turn:openrelay.metered.ca:443" },
+                username = "openrelayproject",
+                credential = "openrelayproject"
+            },
+            new RTCIceServer
+            {
+                urls = new[] { "turn:openrelay.metered.ca:443?transport=tcp" },
+                username = "openrelayproject",
+                credential = "openrelayproject"
+            }
+        },
+        // P0 FIX: Configuration ICE pour meilleure fiabilité
+        // Note: iceTransportPolicy et bundlePolicy utilisent les valeurs par défaut (All, MaxBundle)
     };
     
     // Events

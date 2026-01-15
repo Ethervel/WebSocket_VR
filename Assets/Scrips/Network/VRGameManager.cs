@@ -250,17 +250,27 @@ public class VRGameManager : MonoBehaviour
 
     #region Local Player
 
+    // P0 FIX: Lock object for thread-safe spawn checking
+    private readonly object _spawnLock = new object();
+
     void SpawnLocalPlayer(RoomType roomType)
     {
-        if (_isSpawning)
+        // P0 FIX: Atomic check-and-set to prevent race condition
+        // The flag must be set BEFORE any checks, then reset if returning early
+        lock (_spawnLock)
         {
-            Debug.LogWarning("[VRGame] Spawn already in progress, ignoring...");
-            return;
+            if (_isSpawning)
+            {
+                Debug.LogWarning("[VRGame] Spawn already in progress, ignoring...");
+                return;
+            }
+            _isSpawning = true; // P0 FIX: Set flag IMMEDIATELY inside lock
         }
 
         if (_localPlayer != null)
         {
             Debug.Log("[VRGame] Local player already exists");
+            _isSpawning = false; // P0 FIX: Reset flag on early return
             return;
         }
 
@@ -270,10 +280,11 @@ public class VRGameManager : MonoBehaviour
         if (prefabToSpawn == null)
         {
             Debug.LogError($"[VRGame] {(_isDesktopMode ? "desktopPlayerPrefab" : "localPlayerPrefab")} not assigned!");
+            _isSpawning = false; // P0 FIX: Reset flag on early return
             return;
         }
 
-        _isSpawning = true;
+        // _isSpawning already set above
 
         GetSpawnPoint(roomType, true, out var position, out var rotation);
 

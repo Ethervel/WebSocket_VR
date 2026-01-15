@@ -23,12 +23,24 @@ public class VRNetworkManager : MonoBehaviour
     [Tooltip("Timeout in seconds waiting for 'welcome' message after connection")]
     public float welcomeTimeout = 5f;
 
+    [Header("Exponential Backoff (P0 Fix)")]
+    [Tooltip("Initial reconnect delay in seconds")]
+    public float initialReconnectDelay = 1f;
+    [Tooltip("Maximum reconnect delay in seconds")]
+    public float maxReconnectDelay = 30f;
+    [Tooltip("Multiplier for each retry")]
+    public float backoffMultiplier = 2f;
+
     public static string LocalId { get; private set; }
     public static bool IsConnected { get; private set; }
 
     private WebSocket _websocket;
     private bool _isReconnecting;
     private float _reconnectTimer;
+
+    // P0 FIX: Exponential backoff tracking
+    private float _currentReconnectDelay;
+    private int _reconnectAttempts;
 
     // P0 FIX: Track welcome message timeout
     private float _welcomeTimeoutTimer;
@@ -62,9 +74,27 @@ public class VRNetworkManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    async void Start()
+    // P0 FIX: Ne plus utiliser async void Start() qui swallow les exceptions
+    void Start()
     {
-        await Connect();
+        _currentReconnectDelay = initialReconnectDelay;
+        _reconnectAttempts = 0;
+        ConnectAsync();
+    }
+
+    // P0 FIX: Wrapper qui gère correctement les exceptions async
+    private async void ConnectAsync()
+    {
+        try
+        {
+            await Connect();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[VRNet] P0 FIX: Connection failed with exception: {e.Message}");
+            OnConnectionError?.Invoke(e.Message);
+            HandleDisconnection();
+        }
     }
 
     void Update()
@@ -85,19 +115,44 @@ public class VRNetworkManager : MonoBehaviour
             }
         }
 
+        // P0 FIX: Exponential backoff reconnection
         if (_isReconnecting && autoReconnect)
         {
             _reconnectTimer -= Time.deltaTime;
             if (_reconnectTimer <= 0f)
             {
                 _isReconnecting = false;
-                _ = Connect();
+                _reconnectAttempts++;
+                Debug.Log($"[VRNet] P0 FIX: Reconnect attempt #{_reconnectAttempts} (delay was {_currentReconnectDelay:F1}s)");
+                ConnectAsync();
             }
         }
     }
 
-    async void OnDestroy() => await Disconnect();
-    async void OnApplicationQuit() => await Disconnect();
+    // P0 FIX: Proper async void with try-catch for Unity lifecycle methods
+    async void OnDestroy()
+    {
+        try
+        {
+            await Disconnect();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[VRNet] P0 FIX: Error during OnDestroy: {e.Message}");
+        }
+    }
+
+    async void OnApplicationQuit()
+    {
+        try
+        {
+            await Disconnect();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[VRNet] P0 FIX: Error during OnApplicationQuit: {e.Message}");
+        }
+    }
 
     // ============================
     // CONNECTION
@@ -177,13 +232,23 @@ public class VRNetworkManager : MonoBehaviour
         LocalId = null;
 
         if (wasConnected)
+        {
             OnDisconnected?.Invoke();
+            // P0 FIX: Reset backoff on clean disconnect (was connected before)
+            _currentReconnectDelay = initialReconnectDelay;
+            _reconnectAttempts = 0;
+        }
 
         if (autoReconnect && !_isReconnecting)
         {
             _isReconnecting = true;
-            _reconnectTimer = reconnectDelay;
-            Debug.Log($"[VRNet] Reconnecting in {reconnectDelay}s");
+
+            // P0 FIX: Exponential backoff - increase delay each attempt
+            _reconnectTimer = _currentReconnectDelay;
+            Debug.Log($"[VRNet] P0 FIX: Reconnecting in {_currentReconnectDelay:F1}s (attempt #{_reconnectAttempts + 1})");
+
+            // Calculate next delay with exponential backoff, capped at max
+            _currentReconnectDelay = Mathf.Min(_currentReconnectDelay * backoffMultiplier, maxReconnectDelay);
         }
     }
 
@@ -201,6 +266,10 @@ public class VRNetworkManager : MonoBehaviour
             {
                 // P0 FIX: Welcome received, cancel timeout
                 _waitingForWelcome = false;
+
+                // P0 FIX: Reset exponential backoff on successful connection
+                _currentReconnectDelay = initialReconnectDelay;
+                _reconnectAttempts = 0;
 
                 LocalId = msg.senderId;
                 IsConnected = true;
@@ -249,17 +318,27 @@ public class VRNetworkManager : MonoBehaviour
         SendInternal(type, dataJson);
     }
 
+    // P0 FIX: async void with proper exception handling
     private async void SendInternal(string type, string dataJson)
     {
         if (_websocket == null || _websocket.State != WebSocketState.Open)
             return;
 
-        // Réutiliser le message caché pour éviter les allocations GC
-        _cachedOutgoingMessage.type = type;
-        _cachedOutgoingMessage.senderId = LocalId;
-        _cachedOutgoingMessage.data = dataJson;
+        try
+        {
+            // Réutiliser le message caché pour éviter les allocations GC
+            _cachedOutgoingMessage.type = type;
+            _cachedOutgoingMessage.senderId = LocalId;
+            _cachedOutgoingMessage.data = dataJson;
 
-        await _websocket.SendText(JsonUtility.ToJson(_cachedOutgoingMessage));
+            await _websocket.SendText(JsonUtility.ToJson(_cachedOutgoingMessage));
+        }
+        catch (Exception e)
+        {
+            // P0 FIX: Don't let send errors go unnoticed
+            Debug.LogError($"[VRNet] P0 FIX: Send failed for '{type}': {e.Message}");
+            // Don't trigger reconnection on send failure - let the socket state handle it
+        }
     }
 
     // ============================
