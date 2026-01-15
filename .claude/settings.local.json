@@ -34,7 +34,9 @@
       "mcp__UnityMCP__manage_material",
       "mcp__UnityMCP__execute_menu_item",
       "mcp__UnityMCP__find_gameobjects",
-      "mcp__UnityMCP__manage_components"
+      "mcp__UnityMCP__manage_components",
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__list_allowed_directories"
     ]
   }
 }

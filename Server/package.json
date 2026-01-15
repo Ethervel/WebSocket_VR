@@ -1,0 +1,26 @@
+{
+  "name": "vr-meeting-rooms-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for VR Meeting Rooms application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "jest --runInBand --forceExit"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "db": "^6.0.3",
+    "maria": "^0.0.1-a",
+    "mariadb": "^3.4.5",
+    "mysql2": "^3.16.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  }
+}
