@@ -21,7 +21,11 @@ public class WhiteboardPacket
     public string roomId; // NOUVEAU: ID de la room
     public float r, g, b, a;
     public int penSize;
-    
+
+    // Indique si c'est un nouveau trait (stylo levé puis reposé)
+    // Si true, ne pas interpoler depuis le dernier point du batch précédent
+    public bool isNewStroke;
+
     // NOUVEAU FORMAT: Liste plate de floats [u1, v1, u2, v2, u3, v3, ...]
     public float[] pointsFlat;
     

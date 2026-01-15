@@ -28,6 +28,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
     private float _networkTimer;
     private List<float> _pendingPointsFlat = new List<float>();
     private string _currentSurfaceId;
+    private bool _isNewStroke = true; // Premier trait après levée du clic
 
     // Drawing colors
     private Color[] _colors;
@@ -167,6 +168,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         }
         _currentSurface = null;
         _touchedLastFrame = false;
+        _isNewStroke = true; // Prochain dessin sera un nouveau trait
     }
 
     void NetworkUpdate()
@@ -201,8 +203,12 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             b = currentColor.b,
             a = currentColor.a,
             penSize = penSize,
+            isNewStroke = _isNewStroke, // Indique si c'est un nouveau trait
             pointsFlat = _pendingPointsFlat.ToArray()
         };
+
+        // Après le premier envoi, ce n'est plus un nouveau trait
+        _isNewStroke = false;
 
         WhiteboardBatchData batch = new WhiteboardBatchData
         {

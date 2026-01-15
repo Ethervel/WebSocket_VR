@@ -42,6 +42,7 @@ public class WhiteboardMarker : MonoBehaviour
     private string _currentSurfaceId;
     private Vector2 _lastSentPoint = Vector2.zero;
     private bool _hasLastSentPoint = false;
+    private bool _isNewStroke = true; // Premier trait après levée du stylo
 
     // VR grab state
     private XRGrabInteractable _grabInteractable;
@@ -256,6 +257,7 @@ public class WhiteboardMarker : MonoBehaviour
         _lastTouchPos = Vector2.zero;
         _pendingPointsFlat.Clear();
         _hasLastSentPoint = false;
+        _isNewStroke = true; // Prochain dessin sera un nouveau trait
     }
 
     void NetworkUpdate()
@@ -283,7 +285,8 @@ public class WhiteboardMarker : MonoBehaviour
 
         List<float> pointsToSend = new List<float>();
 
-        if (_hasLastSentPoint && _pendingPointsFlat.Count >= 2)
+        // Ne pas inclure le dernier point si c'est un nouveau trait (stylo levé)
+        if (_hasLastSentPoint && _pendingPointsFlat.Count >= 2 && !_isNewStroke)
         {
             pointsToSend.Add(_lastSentPoint.x);
             pointsToSend.Add(_lastSentPoint.y);
@@ -307,8 +310,12 @@ public class WhiteboardMarker : MonoBehaviour
             b = currentColor.b,
             a = currentColor.a,
             penSize = penSize,
+            isNewStroke = _isNewStroke, // Indique si c'est un nouveau trait
             pointsFlat = pointsToSend.ToArray()
         };
+
+        // Après le premier envoi, ce n'est plus un nouveau trait
+        _isNewStroke = false;
 
         WhiteboardBatchData batch = new WhiteboardBatchData
         {

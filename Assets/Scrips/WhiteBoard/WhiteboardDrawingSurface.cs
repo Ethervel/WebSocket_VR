@@ -233,11 +233,13 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         {
             if (packet.pointsFlat == null || packet.pointsFlat.Length == 0) continue;
 
-            // Passer le dernier point reçu pour continuité entre batches
-            ApplyPacket(packet, false, _lastReceivedPoint);
+            // Si c'est un nouveau trait, ne pas interpoler depuis le dernier point
+            Vector2? previousPoint = packet.isNewStroke ? null : _lastReceivedPoint;
+
+            ApplyPacket(packet, false, previousPoint);
             AddToHistory(packet);
 
-            // Sauvegarder le dernier point du batch pour le prochain
+            // Sauvegarder le dernier point du batch pour le prochain (sauf si nouveau trait)
             if (packet.pointsFlat.Length >= 2)
             {
                 float lastU = packet.pointsFlat[packet.pointsFlat.Length - 2];
