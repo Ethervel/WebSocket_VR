@@ -53,6 +53,10 @@ public class ScreenShareManager : MonoBehaviour
     private Coroutine _captureCoroutine;
     private int _frameIndex = 0;
 
+    // P2 FIX: Track pending coroutines and window texture for proper cleanup
+    private Coroutine _pendingRequestCoroutine;
+    private Texture2D _windowTexture;
+
     // Events
     public static event Action<string, string, string> OnScreenShareStarted;
     public static event Action<string, string> OnScreenShareStopped;
@@ -317,12 +321,22 @@ public class ScreenShareManager : MonoBehaviour
             Destroy(_flippedTexture);
             _flippedTexture = null;
         }
+
+        // P2 FIX: Also cleanup window texture to prevent leaks on early termination
+        if (_windowTexture != null)
+        {
+            Destroy(_windowTexture);
+            _windowTexture = null;
+        }
     }
 
     IEnumerator CaptureLoop()
     {
         WaitForSeconds frameDelay = new WaitForSeconds(1f / captureFrameRate);
-        Texture2D windowTexture = new Texture2D(16, 16, TextureFormat.RGB24, false);
+
+        // P2 FIX: Use class-level texture for proper cleanup on early termination
+        if (_windowTexture == null)
+            _windowTexture = new Texture2D(16, 16, TextureFormat.RGB24, false);
 
         while (_isSharing && _sharingToWhiteboard != null)
         {
@@ -332,11 +346,11 @@ public class ScreenShareManager : MonoBehaviour
 
             if (_selectedWindow != null)
             {
-                bool success = WindowCapture.CaptureWindow(_selectedWindow, windowTexture);
+                bool success = WindowCapture.CaptureWindow(_selectedWindow, _windowTexture);
                 if (success)
                 {
-                    FlipTextureHorizontal(windowTexture);
-                    textureToSend = windowTexture;
+                    FlipTextureHorizontal(_windowTexture);
+                    textureToSend = _windowTexture;
                 }
                 else
                 {
@@ -377,10 +391,8 @@ public class ScreenShareManager : MonoBehaviour
             yield return frameDelay;
         }
 
-        if (windowTexture != null)
-        {
-            Destroy(windowTexture);
-        }
+        // P2 FIX: Cleanup is now handled in CleanupCaptureResources() instead of here
+        // This ensures cleanup happens even on early StopCoroutine()
     }
 
     void FlipTexture(Texture2D source, Texture2D destination)
@@ -583,7 +595,10 @@ public class ScreenShareManager : MonoBehaviour
 
     void OnRoomJoined(string roomId)
     {
-        StartCoroutine(RequestShareStateDelayed());
+        // P2 FIX: Cancel any pending request coroutine before starting a new one
+        if (_pendingRequestCoroutine != null)
+            StopCoroutine(_pendingRequestCoroutine);
+        _pendingRequestCoroutine = StartCoroutine(RequestShareStateDelayed());
     }
 
     IEnumerator RequestShareStateDelayed()
@@ -599,10 +614,20 @@ public class ScreenShareManager : MonoBehaviour
                 requesterId = VRNetworkManager.LocalId
             });
         }
+
+        // P2 FIX: Clear coroutine reference when complete
+        _pendingRequestCoroutine = null;
     }
 
     void OnRoomLeft()
     {
+        // P2 FIX: Cancel any pending request coroutine on room leave
+        if (_pendingRequestCoroutine != null)
+        {
+            StopCoroutine(_pendingRequestCoroutine);
+            _pendingRequestCoroutine = null;
+        }
+
         if (_isSharing)
         {
             StopSharing();

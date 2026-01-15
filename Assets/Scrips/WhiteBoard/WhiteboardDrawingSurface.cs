@@ -37,6 +37,12 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     private Vector2? _lastReceivedPoint = null;
     private string _lastSenderId = null;
 
+    // P2 FIX: Cache clearPixels array to avoid 16MB allocation per ClearTexture() call
+    private Color[] _cachedClearPixels;
+
+    // P2 FIX: Track pending state request coroutine to prevent duplicates
+    private Coroutine _pendingStateRequestCoroutine;
+
 
     void Start()
     {
@@ -47,7 +53,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom)
         {
             _hasRequestedState = false;
-            StartCoroutine(RequestStateDelayed());
+            // P2 FIX: Cancel any pending coroutine before starting a new one
+            if (_pendingStateRequestCoroutine != null)
+                StopCoroutine(_pendingStateRequestCoroutine);
+            _pendingStateRequestCoroutine = StartCoroutine(RequestStateDelayed());
         }
     }
 
@@ -105,11 +114,18 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     {
         if (drawingTexture == null) return;
 
-        Color[] clearPixels = new Color[(int)(textureSize.x * textureSize.y)];
-        for (int i = 0; i < clearPixels.Length; i++)
-            clearPixels[i] = new Color(0, 0, 0, 0); // Transparent
+        // P2 FIX: Reuse cached array instead of allocating 16MB every clear
+        int pixelCount = (int)(textureSize.x * textureSize.y);
+        if (_cachedClearPixels == null || _cachedClearPixels.Length != pixelCount)
+        {
+            _cachedClearPixels = new Color[pixelCount];
+            // Initialize once with transparent color
+            Color transparent = new Color(0, 0, 0, 0);
+            for (int i = 0; i < pixelCount; i++)
+                _cachedClearPixels[i] = transparent;
+        }
 
-        drawingTexture.SetPixels(clearPixels);
+        drawingTexture.SetPixels(_cachedClearPixels);
         drawingTexture.Apply();
 
         _drawHistory.Clear();
@@ -152,11 +168,20 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     void OnRoomJoined(string roomId)
     {
         _hasRequestedState = false;
-        StartCoroutine(RequestStateDelayed());
+        // P2 FIX: Cancel any pending coroutine before starting a new one
+        if (_pendingStateRequestCoroutine != null)
+            StopCoroutine(_pendingStateRequestCoroutine);
+        _pendingStateRequestCoroutine = StartCoroutine(RequestStateDelayed());
     }
 
     void OnRoomLeft()
     {
+        // P2 FIX: Cancel any pending state request on room leave
+        if (_pendingStateRequestCoroutine != null)
+        {
+            StopCoroutine(_pendingStateRequestCoroutine);
+            _pendingStateRequestCoroutine = null;
+        }
         ClearTexture();
         _hasRequestedState = false;
     }
@@ -173,6 +198,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 _hasRequestedState = true;
             }
         }
+
+        // P2 FIX: Clear coroutine reference when complete
+        _pendingStateRequestCoroutine = null;
     }
 
     string GetCurrentRoomId()

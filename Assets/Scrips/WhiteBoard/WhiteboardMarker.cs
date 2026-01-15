@@ -69,8 +69,8 @@ public class WhiteboardMarker : MonoBehaviour
 
         if (_grabInteractable != null)
         {
-            _grabInteractable.selectEntered.AddListener(_ => OnGrabbed());
-            _grabInteractable.selectExited.AddListener(_ => OnReleased());
+            // P2 FIX: Use named methods for events to allow proper unsubscription
+            SubscribeToGrabEvents();
         }
         else
         {
@@ -82,6 +82,40 @@ public class WhiteboardMarker : MonoBehaviour
 
         _isDesktopMode = VRGameManager.Instance == null || VRGameManager.Instance.IsDesktopMode;
         _mainCamera = Camera.main;
+    }
+
+    // P2 FIX: Track subscription state to prevent duplicate listeners
+    private bool _isSubscribedToGrab = false;
+
+    void SubscribeToGrabEvents()
+    {
+        if (_grabInteractable == null || _isSubscribedToGrab) return;
+        _grabInteractable.selectEntered.AddListener(OnGrabSelectEntered);
+        _grabInteractable.selectExited.AddListener(OnGrabSelectExited);
+        _isSubscribedToGrab = true;
+    }
+
+    void UnsubscribeFromGrabEvents()
+    {
+        if (_grabInteractable == null || !_isSubscribedToGrab) return;
+        _grabInteractable.selectEntered.RemoveListener(OnGrabSelectEntered);
+        _grabInteractable.selectExited.RemoveListener(OnGrabSelectExited);
+        _isSubscribedToGrab = false;
+    }
+
+    // P2 FIX: Named event handlers for proper subscription management
+    void OnGrabSelectEntered(UnityEngine.XR.Interaction.Toolkit.SelectEnterEventArgs args) => OnGrabbed();
+    void OnGrabSelectExited(UnityEngine.XR.Interaction.Toolkit.SelectExitEventArgs args) => OnReleased();
+
+    void OnEnable()
+    {
+        if (_grabInteractable != null)
+            SubscribeToGrabEvents();
+    }
+
+    void OnDisable()
+    {
+        UnsubscribeFromGrabEvents();
     }
 
     void OnGrabbed()
@@ -358,6 +392,9 @@ public class WhiteboardMarker : MonoBehaviour
         ApplyColor(newColor);
     }
 
+    // P2 FIX: Cache last penSize to avoid reallocation if only color changes
+    private int _lastPenSize = -1;
+
     void ApplyColor(Color color)
     {
         if (_renderer != null)
@@ -366,17 +403,23 @@ public class WhiteboardMarker : MonoBehaviour
         Color colorWithAlpha = new Color(color.r, color.g, color.b, 1f);
 
         int pixelCount = penSize * penSize;
-        _colors = new Color[pixelCount];
+
+        // P2 FIX: Only reallocate array if penSize changed
+        if (_colors == null || _lastPenSize != penSize)
+        {
+            _colors = new Color[pixelCount];
+            _lastPenSize = penSize;
+        }
+
+        // Fill with new color (always needed even if array reused)
         for (int i = 0; i < pixelCount; i++)
             _colors[i] = colorWithAlpha;
     }
 
     void OnDestroy()
     {
-        if (_grabInteractable != null)
-        {
-            _grabInteractable.selectEntered.RemoveAllListeners();
-            _grabInteractable.selectExited.RemoveAllListeners();
-        }
+        // P2 FIX: Use proper unsubscription instead of RemoveAllListeners
+        // (RemoveAllListeners removes ALL listeners, not just ours)
+        UnsubscribeFromGrabEvents();
     }
 }
