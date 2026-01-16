@@ -25,6 +25,11 @@ public class FileSharingUI : MonoBehaviour
     public TextMeshProUGUI emptyListText;
     public TextMeshProUGUI statusText;
 
+    [Header("Download Path")]
+    public TMP_InputField downloadPathInput;
+    public Button browsePathButton;
+    public Button openFolderButton;
+
     [Header("Preview Panel")]
     public GameObject previewPanel;
     public TextMeshProUGUI previewFileName;
@@ -65,6 +70,16 @@ public class FileSharingUI : MonoBehaviour
         if (previewCancelButton != null)
             previewCancelButton.onClick.AddListener(CancelPreview);
 
+        // Download path buttons
+        if (browsePathButton != null)
+            browsePathButton.onClick.AddListener(BrowseDownloadPath);
+
+        if (openFolderButton != null)
+            openFolderButton.onClick.AddListener(OpenDownloadFolder);
+
+        if (downloadPathInput != null)
+            downloadPathInput.onEndEdit.AddListener(OnDownloadPathChanged);
+
         // Subscribe to events
         FileShareManager.OnFileShared += OnFileShared;
         FileShareManager.OnFileRemoved += OnFileRemoved;
@@ -76,6 +91,9 @@ public class FileSharingUI : MonoBehaviour
         // Initial state
         if (mainPanel != null) mainPanel.SetActive(false);
         if (previewPanel != null) previewPanel.SetActive(false);
+
+        // Initialize download path display
+        UpdateDownloadPathDisplay();
     }
 
     void OnDestroy()
@@ -86,6 +104,9 @@ public class FileSharingUI : MonoBehaviour
         if (shareButton != null) shareButton.onClick.RemoveAllListeners();
         if (previewShareButton != null) previewShareButton.onClick.RemoveAllListeners();
         if (previewCancelButton != null) previewCancelButton.onClick.RemoveAllListeners();
+        if (browsePathButton != null) browsePathButton.onClick.RemoveAllListeners();
+        if (openFolderButton != null) openFolderButton.onClick.RemoveAllListeners();
+        if (downloadPathInput != null) downloadPathInput.onEndEdit.RemoveAllListeners();
 
         // Unsubscribe
         FileShareManager.OnFileShared -= OnFileShared;
@@ -295,6 +316,83 @@ public class FileSharingUI : MonoBehaviour
 
     #endregion
 
+    #region Download Path
+
+    void UpdateDownloadPathDisplay()
+    {
+        if (downloadPathInput != null && FileShareManager.Instance != null)
+        {
+            downloadPathInput.text = FileShareManager.Instance.DownloadPath;
+        }
+    }
+
+    void OnDownloadPathChanged(string newPath)
+    {
+        if (string.IsNullOrWhiteSpace(newPath))
+        {
+            // Reset to default
+            newPath = FileShareManager.GetDefaultDownloadPath();
+        }
+
+        if (FileShareManager.Instance != null)
+        {
+            // Validate path
+            try
+            {
+                if (!Directory.Exists(newPath))
+                {
+                    Directory.CreateDirectory(newPath);
+                }
+                FileShareManager.Instance.DownloadPath = newPath;
+                SetStatus("Download path updated");
+            }
+            catch (Exception e)
+            {
+                SetStatus($"Invalid path: {e.Message}");
+                UpdateDownloadPathDisplay(); // Revert display
+            }
+        }
+    }
+
+    void BrowseDownloadPath()
+    {
+#if UNITY_EDITOR
+        string path = UnityEditor.EditorUtility.OpenFolderPanel(
+            "Select Download Folder",
+            FileShareManager.Instance?.DownloadPath ?? "",
+            "");
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            if (FileShareManager.Instance != null)
+                FileShareManager.Instance.DownloadPath = path;
+            UpdateDownloadPathDisplay();
+            SetStatus("Download path updated");
+        }
+#elif UNITY_STANDALONE_WIN
+        string path = WindowsFileBrowser.OpenFolderDialog(
+            "Select Download Folder",
+            FileShareManager.Instance?.DownloadPath ?? "");
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            if (FileShareManager.Instance != null)
+                FileShareManager.Instance.DownloadPath = path;
+            UpdateDownloadPathDisplay();
+            SetStatus("Download path updated");
+        }
+#else
+        SetStatus("Folder browser not available");
+#endif
+    }
+
+    void OpenDownloadFolder()
+    {
+        FileShareManager.Instance?.OpenDownloadFolder();
+    }
+
+    #endregion
+
     #region File List Management
 
     void RefreshFileList()
@@ -323,6 +421,7 @@ public class FileSharingUI : MonoBehaviour
             return;
 
         GameObject item = Instantiate(fileListItemPrefab, fileListContainer);
+        item.SetActive(true);
         _fileListItems[file.fileId] = item;
 
         // Find and configure UI elements
@@ -346,19 +445,84 @@ public class FileSharingUI : MonoBehaviour
             texts[2].text = FileShareManager.FormatFileSize(file.fileSize);
         }
 
-        // Set file icon based on type (if Image component exists)
-        var images = item.GetComponentsInChildren<Image>(true);
-        // Could set icon sprite based on file.fileExtension
+        // Add click handler for download on the main button
+        var mainButton = item.GetComponent<Button>();
+        if (mainButton == null)
+            mainButton = item.AddComponent<Button>();
 
-        // Add click handler for download
-        var button = item.GetComponent<Button>();
-        if (button == null)
-            button = item.AddComponent<Button>();
-
-        // Capture fileId in closure
         string fileId = file.fileId;
-        button.onClick.RemoveAllListeners();
-        button.onClick.AddListener(() => OnFileItemClicked(fileId));
+        mainButton.onClick.RemoveAllListeners();
+        mainButton.onClick.AddListener(() => OnFileItemClicked(fileId));
+
+        // Find or create delete button (only for files shared by local player)
+        bool canDelete = FileShareManager.Instance != null && FileShareManager.Instance.CanRemoveFile(file.fileId);
+
+        Transform deleteButtonTransform = item.transform.Find("DeleteButton");
+        if (deleteButtonTransform != null)
+        {
+            // Show/hide existing delete button
+            deleteButtonTransform.gameObject.SetActive(canDelete);
+
+            if (canDelete)
+            {
+                Button deleteBtn = deleteButtonTransform.GetComponent<Button>();
+                if (deleteBtn != null)
+                {
+                    deleteBtn.onClick.RemoveAllListeners();
+                    deleteBtn.onClick.AddListener(() => OnDeleteFileClicked(fileId));
+                }
+            }
+        }
+        else if (canDelete)
+        {
+            // Create delete button dynamically if it doesn't exist
+            CreateDeleteButton(item, fileId);
+        }
+    }
+
+    void CreateDeleteButton(GameObject parent, string fileId)
+    {
+        GameObject deleteBtn = new GameObject("DeleteButton");
+        deleteBtn.transform.SetParent(parent.transform, false);
+
+        RectTransform rt = deleteBtn.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1, 0.5f);
+        rt.anchorMax = new Vector2(1, 0.5f);
+        rt.pivot = new Vector2(1, 0.5f);
+        rt.anchoredPosition = new Vector2(-5, 0);
+        rt.sizeDelta = new Vector2(30, 30);
+
+        Image img = deleteBtn.AddComponent<Image>();
+        img.color = new Color(0.8f, 0.2f, 0.2f, 1f);
+
+        Button btn = deleteBtn.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(() => OnDeleteFileClicked(fileId));
+
+        // Add X text
+        GameObject textObj = new GameObject("Text");
+        textObj.transform.SetParent(deleteBtn.transform, false);
+
+        RectTransform textRt = textObj.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI text = textObj.AddComponent<TextMeshProUGUI>();
+        text.text = "X";
+        text.fontSize = 16;
+        text.fontStyle = FontStyles.Bold;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.Center;
+    }
+
+    void OnDeleteFileClicked(string fileId)
+    {
+        if (FileShareManager.Instance == null)
+            return;
+
+        FileShareManager.Instance.RemoveSharedFile(fileId);
     }
 
     void OnFileItemClicked(string fileId)
@@ -502,13 +666,40 @@ public class FileSharingUI : MonoBehaviour
 
 #if UNITY_STANDALONE_WIN
 /// <summary>
-/// Native Windows file browser using P/Invoke (comdlg32.dll).
+/// Native Windows file browser using P/Invoke (comdlg32.dll and shell32.dll).
 /// Works in Unity standalone builds without requiring Windows Forms.
 /// </summary>
 public static class WindowsFileBrowser
 {
+    // File dialog
     [DllImport("comdlg32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern bool GetOpenFileName(ref OpenFileName ofn);
+
+    // Folder dialog
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SHBrowseForFolder(ref BrowseInfo bi);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    private static extern bool SHGetPathFromIDList(IntPtr pidl, IntPtr pszPath);
+
+    [DllImport("ole32.dll")]
+    private static extern void CoTaskMemFree(IntPtr ptr);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct BrowseInfo
+    {
+        public IntPtr hwndOwner;
+        public IntPtr pidlRoot;
+        public IntPtr pszDisplayName;
+        public string lpszTitle;
+        public uint ulFlags;
+        public IntPtr lpfn;
+        public IntPtr lParam;
+        public int iImage;
+    }
+
+    private const uint BIF_RETURNONLYFSDIRS = 0x0001;
+    private const uint BIF_NEWDIALOGSTYLE = 0x0040;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct OpenFileName
@@ -566,6 +757,61 @@ public static class WindowsFileBrowser
         if (GetOpenFileName(ref ofn))
         {
             return ofn.lpstrFile;
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Opens a native Windows folder browser dialog.
+    /// </summary>
+    /// <param name="title">Dialog title</param>
+    /// <param name="initialDir">Initial directory (not used in this implementation)</param>
+    /// <returns>Selected folder path, or empty string if cancelled</returns>
+    public static string OpenFolderDialog(string title, string initialDir)
+    {
+        IntPtr bufferPtr = Marshal.AllocHGlobal(260 * 2); // MAX_PATH * sizeof(wchar_t)
+
+        try
+        {
+            BrowseInfo bi = new BrowseInfo();
+            bi.hwndOwner = IntPtr.Zero;
+            bi.pidlRoot = IntPtr.Zero;
+            bi.pszDisplayName = bufferPtr;
+            bi.lpszTitle = title;
+            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+            bi.lpfn = IntPtr.Zero;
+            bi.lParam = IntPtr.Zero;
+            bi.iImage = 0;
+
+            IntPtr pidl = SHBrowseForFolder(ref bi);
+
+            if (pidl != IntPtr.Zero)
+            {
+                try
+                {
+                    IntPtr pathPtr = Marshal.AllocHGlobal(260 * 2);
+                    try
+                    {
+                        if (SHGetPathFromIDList(pidl, pathPtr))
+                        {
+                            return Marshal.PtrToStringAuto(pathPtr);
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(pathPtr);
+                    }
+                }
+                finally
+                {
+                    CoTaskMemFree(pidl);
+                }
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(bufferPtr);
         }
 
         return string.Empty;

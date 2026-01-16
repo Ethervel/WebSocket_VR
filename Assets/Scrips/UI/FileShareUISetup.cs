@@ -148,13 +148,41 @@ public class FileShareUISetup : MonoBehaviour
         closeBtnRt.pivot = new Vector2(1, 0.5f);
         closeBtnRt.anchoredPosition = new Vector2(-10, 0);
 
-        // File List Container (ScrollView area)
-        GameObject listArea = CreateUIElement("FileListContainer", panel.transform);
+        // ScrollView for file list
+        GameObject scrollView = CreateUIElement("FileListScrollView", panel.transform);
+        RectTransform scrollViewRt = scrollView.GetComponent<RectTransform>();
+        scrollViewRt.anchorMin = new Vector2(0, 0.25f);
+        scrollViewRt.anchorMax = new Vector2(1, 0.88f);
+        scrollViewRt.offsetMin = new Vector2(10, 0);
+        scrollViewRt.offsetMax = new Vector2(-10, 0);
+
+        ScrollRect scrollRect = scrollView.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 30f;
+
+        // Add mask image for clipping
+        Image scrollBg = scrollView.AddComponent<Image>();
+        scrollBg.color = new Color(0.08f, 0.08f, 0.08f, 0.5f);
+        scrollView.AddComponent<Mask>().showMaskGraphic = true;
+
+        // Viewport (same size as scroll view)
+        GameObject viewport = CreateUIElement("Viewport", scrollView.transform);
+        RectTransform viewportRt = viewport.GetComponent<RectTransform>();
+        viewportRt.anchorMin = Vector2.zero;
+        viewportRt.anchorMax = Vector2.one;
+        viewportRt.offsetMin = Vector2.zero;
+        viewportRt.offsetMax = Vector2.zero;
+
+        // Content container (this is what FileSharingUI.fileListContainer should reference)
+        GameObject listArea = CreateUIElement("FileListContainer", viewport.transform);
         RectTransform listAreaRt = listArea.GetComponent<RectTransform>();
-        listAreaRt.anchorMin = new Vector2(0, 0.15f);
-        listAreaRt.anchorMax = new Vector2(1, 0.88f);
-        listAreaRt.offsetMin = new Vector2(10, 0);
-        listAreaRt.offsetMax = new Vector2(-10, 0);
+        listAreaRt.anchorMin = new Vector2(0, 1);
+        listAreaRt.anchorMax = new Vector2(1, 1);
+        listAreaRt.pivot = new Vector2(0.5f, 1);
+        listAreaRt.offsetMin = Vector2.zero;
+        listAreaRt.offsetMax = Vector2.zero;
 
         // Add VerticalLayoutGroup for file items
         VerticalLayoutGroup vlg = listArea.AddComponent<VerticalLayoutGroup>();
@@ -166,9 +194,14 @@ public class FileShareUISetup : MonoBehaviour
         vlg.spacing = 5;
         vlg.padding = new RectOffset(5, 5, 5, 5);
 
-        // Content size fitter
+        // Content size fitter - makes content grow with items
         ContentSizeFitter csf = listArea.AddComponent<ContentSizeFitter>();
+        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        // Wire scroll rect
+        scrollRect.viewport = viewportRt;
+        scrollRect.content = listAreaRt;
 
         // Empty list text
         GameObject emptyText = CreateUIElement("EmptyListText", panel.transform);
@@ -184,29 +217,111 @@ public class FileShareUISetup : MonoBehaviour
         emptyRt.offsetMin = Vector2.zero;
         emptyRt.offsetMax = Vector2.zero;
 
-        // Bottom area - Share button and status
+        // Bottom area - Download path, Share button and status
         GameObject bottomArea = CreateUIElement("BottomArea", panel.transform);
         RectTransform bottomRt = bottomArea.GetComponent<RectTransform>();
         bottomRt.anchorMin = new Vector2(0, 0);
-        bottomRt.anchorMax = new Vector2(1, 0.15f);
+        bottomRt.anchorMax = new Vector2(1, 0.25f);
         bottomRt.offsetMin = new Vector2(10, 10);
         bottomRt.offsetMax = new Vector2(-10, 0);
 
+        // Download path label
+        GameObject pathLabel = CreateUIElement("DownloadPathLabel", bottomArea.transform);
+        TextMeshProUGUI pathLabelText = pathLabel.AddComponent<TextMeshProUGUI>();
+        pathLabelText.text = "Download to:";
+        pathLabelText.fontSize = 12;
+        pathLabelText.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+        pathLabelText.alignment = TextAlignmentOptions.Left;
+
+        RectTransform pathLabelRt = pathLabel.GetComponent<RectTransform>();
+        pathLabelRt.anchorMin = new Vector2(0, 0.6f);
+        pathLabelRt.anchorMax = new Vector2(1, 0.85f);
+        pathLabelRt.offsetMin = Vector2.zero;
+        pathLabelRt.offsetMax = Vector2.zero;
+
+        // Download path input row
+        GameObject pathRow = CreateUIElement("DownloadPathRow", bottomArea.transform);
+        RectTransform pathRowRt = pathRow.GetComponent<RectTransform>();
+        pathRowRt.anchorMin = new Vector2(0, 0.25f);
+        pathRowRt.anchorMax = new Vector2(1, 0.6f);
+        pathRowRt.offsetMin = Vector2.zero;
+        pathRowRt.offsetMax = Vector2.zero;
+
+        // Download path input field
+        GameObject pathInputObj = CreateUIElement("DownloadPathInput", pathRow.transform);
+        RectTransform pathInputRt = pathInputObj.GetComponent<RectTransform>();
+        pathInputRt.anchorMin = new Vector2(0, 0);
+        pathInputRt.anchorMax = new Vector2(0.7f, 1);
+        pathInputRt.offsetMin = Vector2.zero;
+        pathInputRt.offsetMax = new Vector2(-5, 0);
+
+        Image pathInputBg = pathInputObj.AddComponent<Image>();
+        pathInputBg.color = new Color(0.15f, 0.15f, 0.2f, 1f);
+
+        // Text area for input
+        GameObject pathTextArea = CreateUIElement("Text Area", pathInputObj.transform);
+        RectTransform pathTextAreaRt = pathTextArea.GetComponent<RectTransform>();
+        pathTextAreaRt.anchorMin = Vector2.zero;
+        pathTextAreaRt.anchorMax = Vector2.one;
+        pathTextAreaRt.offsetMin = new Vector2(5, 0);
+        pathTextAreaRt.offsetMax = new Vector2(-5, 0);
+
+        GameObject pathTextObj = CreateUIElement("Text", pathTextArea.transform);
+        RectTransform pathTextObjRt = pathTextObj.GetComponent<RectTransform>();
+        pathTextObjRt.anchorMin = Vector2.zero;
+        pathTextObjRt.anchorMax = Vector2.one;
+        pathTextObjRt.offsetMin = Vector2.zero;
+        pathTextObjRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI pathText = pathTextObj.AddComponent<TextMeshProUGUI>();
+        pathText.fontSize = 11;
+        pathText.color = Color.white;
+        pathText.alignment = TextAlignmentOptions.Left;
+        pathText.overflowMode = TextOverflowModes.Ellipsis;
+
+        TMP_InputField pathInput = pathInputObj.AddComponent<TMP_InputField>();
+        pathInput.textViewport = pathTextAreaRt;
+        pathInput.textComponent = pathText;
+
+        // Browse button
+        GameObject browseBtn = CreateButton("BrowsePathButton", pathRow.transform, "...", 35, 0);
+        RectTransform browseBtnRt = browseBtn.GetComponent<RectTransform>();
+        browseBtnRt.anchorMin = new Vector2(0.72f, 0);
+        browseBtnRt.anchorMax = new Vector2(0.85f, 1);
+        browseBtnRt.offsetMin = Vector2.zero;
+        browseBtnRt.offsetMax = Vector2.zero;
+
+        // Open folder button
+        GameObject openBtn = CreateButton("OpenFolderButton", pathRow.transform, "Open", 50, 0);
+        RectTransform openBtnRt = openBtn.GetComponent<RectTransform>();
+        openBtnRt.anchorMin = new Vector2(0.87f, 0);
+        openBtnRt.anchorMax = new Vector2(1, 1);
+        openBtnRt.offsetMin = Vector2.zero;
+        openBtnRt.offsetMax = Vector2.zero;
+
+        // Share button row
+        GameObject shareRow = CreateUIElement("ShareRow", bottomArea.transform);
+        RectTransform shareRowRt = shareRow.GetComponent<RectTransform>();
+        shareRowRt.anchorMin = new Vector2(0, 0);
+        shareRowRt.anchorMax = new Vector2(1, 0.25f);
+        shareRowRt.offsetMin = Vector2.zero;
+        shareRowRt.offsetMax = Vector2.zero;
+
         // Share Button
-        GameObject shareBtn = CreateButton("ShareButton", bottomArea.transform, "Share File", 120, 40);
+        GameObject shareBtn = CreateButton("ShareButton", shareRow.transform, "Share File", 120, 0);
         RectTransform shareBtnRt = shareBtn.GetComponent<RectTransform>();
-        shareBtnRt.anchorMin = new Vector2(0, 0.5f);
-        shareBtnRt.anchorMax = new Vector2(0, 0.5f);
-        shareBtnRt.pivot = new Vector2(0, 0.5f);
-        shareBtnRt.anchoredPosition = Vector2.zero;
+        shareBtnRt.anchorMin = new Vector2(0, 0);
+        shareBtnRt.anchorMax = new Vector2(0.35f, 1);
+        shareBtnRt.offsetMin = Vector2.zero;
+        shareBtnRt.offsetMax = Vector2.zero;
 
         // Status Text
-        GameObject statusObj = CreateUIElement("StatusText", bottomArea.transform);
+        GameObject statusObj = CreateUIElement("StatusText", shareRow.transform);
         TextMeshProUGUI status = statusObj.AddComponent<TextMeshProUGUI>();
         status.text = "";
         status.alignment = TextAlignmentOptions.Right;
         status.color = new Color(0.7f, 0.7f, 0.7f, 1f);
-        status.fontSize = 12;
+        status.fontSize = 11;
 
         RectTransform statusRt = statusObj.GetComponent<RectTransform>();
         statusRt.anchorMin = new Vector2(0.4f, 0);
@@ -360,7 +475,7 @@ public class FileShareUISetup : MonoBehaviour
         byRt.offsetMin = new Vector2(10, 5);
         byRt.offsetMax = new Vector2(0, -5);
 
-        // File size
+        // File size (positioned to leave room for delete button on the right)
         GameObject sizeObj = CreateUIElement("FileSize", item.transform);
         TextMeshProUGUI sizeText = sizeObj.AddComponent<TextMeshProUGUI>();
         sizeText.text = "0 KB";
@@ -369,10 +484,13 @@ public class FileShareUISetup : MonoBehaviour
         sizeText.fontSize = 12;
 
         RectTransform sizeRt = sizeObj.GetComponent<RectTransform>();
-        sizeRt.anchorMin = new Vector2(0.7f, 0);
-        sizeRt.anchorMax = new Vector2(1, 1);
+        sizeRt.anchorMin = new Vector2(0.55f, 0);
+        sizeRt.anchorMax = new Vector2(0.85f, 1);
         sizeRt.offsetMin = new Vector2(0, 5);
-        sizeRt.offsetMax = new Vector2(-10, -5);
+        sizeRt.offsetMax = new Vector2(0, -5);
+
+        // Placeholder for delete button (created dynamically in FileSharingUI)
+        // Space reserved: anchor 0.85 to 1.0 (right 15%)
 
         item.SetActive(false); // Template should be inactive
     }
@@ -389,12 +507,24 @@ public class FileShareUISetup : MonoBehaviour
             Transform header = ui.mainPanel.transform.Find("Header");
             ui.closeButton = header?.Find("CloseButton")?.GetComponent<Button>();
 
-            ui.fileListContainer = ui.mainPanel.transform.Find("FileListContainer");
+            // FileListContainer is now inside ScrollView/Viewport
+            Transform scrollView = ui.mainPanel.transform.Find("FileListScrollView");
+            Transform viewport = scrollView?.Find("Viewport");
+            ui.fileListContainer = viewport?.Find("FileListContainer");
             ui.emptyListText = ui.mainPanel.transform.Find("EmptyListText")?.GetComponent<TextMeshProUGUI>();
 
             Transform bottomArea = ui.mainPanel.transform.Find("BottomArea");
-            ui.shareButton = bottomArea?.Find("ShareButton")?.GetComponent<Button>();
-            ui.statusText = bottomArea?.Find("StatusText")?.GetComponent<TextMeshProUGUI>();
+            Transform pathRow = bottomArea?.Find("DownloadPathRow");
+            Transform shareRow = bottomArea?.Find("ShareRow");
+
+            // Download path UI elements
+            ui.downloadPathInput = pathRow?.Find("DownloadPathInput")?.GetComponent<TMP_InputField>();
+            ui.browsePathButton = pathRow?.Find("BrowsePathButton")?.GetComponent<Button>();
+            ui.openFolderButton = pathRow?.Find("OpenFolderButton")?.GetComponent<Button>();
+
+            // Share button and status
+            ui.shareButton = shareRow?.Find("ShareButton")?.GetComponent<Button>();
+            ui.statusText = shareRow?.Find("StatusText")?.GetComponent<TextMeshProUGUI>();
         }
 
         if (ui.previewPanel != null)

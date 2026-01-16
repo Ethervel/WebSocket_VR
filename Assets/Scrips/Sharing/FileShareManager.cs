@@ -21,11 +21,45 @@ public class FileShareManager : MonoBehaviour
     [Tooltip("Supported file extensions")]
     public string[] supportedExtensions = { "pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg", "gif" };
 
+    // Download path
+    private const string PREF_DOWNLOAD_PATH = "FileShare_DownloadPath";
+    private string _downloadPath;
+
     // State
     private Dictionary<string, FileMetadata> _sharedFiles = new Dictionary<string, FileMetadata>();
     private Dictionary<string, byte[]> _fileContents = new Dictionary<string, byte[]>();
     private Coroutine _pendingRequestCoroutine;
     private bool _hasRequestedList = false;
+
+    /// <summary>
+    /// Gets or sets the download path. Saved to PlayerPrefs.
+    /// </summary>
+    public string DownloadPath
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_downloadPath))
+            {
+                _downloadPath = PlayerPrefs.GetString(PREF_DOWNLOAD_PATH, GetDefaultDownloadPath());
+            }
+            return _downloadPath;
+        }
+        set
+        {
+            _downloadPath = value;
+            PlayerPrefs.SetString(PREF_DOWNLOAD_PATH, value);
+            PlayerPrefs.Save();
+            Debug.Log($"[FileShare] Download path set to: {value}");
+        }
+    }
+
+    /// <summary>
+    /// Gets the default download path.
+    /// </summary>
+    public static string GetDefaultDownloadPath()
+    {
+        return Path.Combine(Application.persistentDataPath, "Downloads");
+    }
 
     // Events
     public static event Action<FileMetadata> OnFileShared;
@@ -237,6 +271,75 @@ public class FileShareManager : MonoBehaviour
         return metadata;
     }
 
+    /// <summary>
+    /// Checks if the local player can remove a file (only the sharer can remove).
+    /// </summary>
+    public bool CanRemoveFile(string fileId)
+    {
+        if (!_sharedFiles.TryGetValue(fileId, out var metadata))
+            return false;
+
+        return metadata.sharerId == VRNetworkManager.LocalId;
+    }
+
+    /// <summary>
+    /// Removes a shared file (only works if you are the sharer).
+    /// </summary>
+    public void RemoveSharedFile(string fileId)
+    {
+        if (!CanRemoveFile(fileId))
+        {
+            OnFileShareError?.Invoke(fileId, "You can only remove files you shared");
+            return;
+        }
+
+        if (!_sharedFiles.TryGetValue(fileId, out var metadata))
+            return;
+
+        // Remove locally
+        _sharedFiles.Remove(fileId);
+        _fileContents.Remove(fileId);
+
+        // Broadcast removal to room
+        VRNetworkManager.Instance.Send("file-removed", new FileRemovedData
+        {
+            roomId = VRRoomManager.Instance.CurrentRoomId,
+            fileId = fileId,
+            removerId = VRNetworkManager.LocalId
+        });
+
+        OnFileRemoved?.Invoke(fileId);
+        OnFileListUpdated?.Invoke(GetSharedFilesList());
+
+        Debug.Log($"[FileShare] Removed file: {metadata.fileName}");
+    }
+
+    /// <summary>
+    /// Opens the download folder in file explorer.
+    /// </summary>
+    public void OpenDownloadFolder()
+    {
+        string path = DownloadPath;
+
+        try
+        {
+            if (!Directory.Exists(path))
+                Directory.CreateDirectory(path);
+
+#if UNITY_STANDALONE_WIN
+            System.Diagnostics.Process.Start("explorer.exe", path);
+#elif UNITY_STANDALONE_OSX
+            System.Diagnostics.Process.Start("open", path);
+#elif UNITY_STANDALONE_LINUX
+            System.Diagnostics.Process.Start("xdg-open", path);
+#endif
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[FileShare] Could not open folder: {e.Message}");
+        }
+    }
+
     #endregion
 
     #region Network Message Handling
@@ -263,6 +366,32 @@ public class FileShareManager : MonoBehaviour
             case "file-download-response":
                 HandleDownloadResponse(msg);
                 break;
+            case "file-removed":
+                HandleFileRemoved(msg);
+                break;
+        }
+    }
+
+    void HandleFileRemoved(NetworkMessage msg)
+    {
+        var data = JsonUtility.FromJson<FileRemovedData>(msg.data);
+
+        // Room filtering
+        if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
+
+        // Ignore our own removal (already handled locally)
+        if (data.removerId == VRNetworkManager.LocalId) return;
+
+        // Remove from local state
+        if (_sharedFiles.ContainsKey(data.fileId))
+        {
+            _sharedFiles.Remove(data.fileId);
+            _fileContents.Remove(data.fileId);
+
+            OnFileRemoved?.Invoke(data.fileId);
+            OnFileListUpdated?.Invoke(GetSharedFilesList());
+
+            Debug.Log($"[FileShare] File removed by sharer: {data.fileId}");
         }
     }
 
@@ -507,7 +636,7 @@ public class FileShareManager : MonoBehaviour
 
     void SaveFileLocally(string fileId, string fileName, byte[] data)
     {
-        string downloadPath = Path.Combine(Application.persistentDataPath, "Downloads");
+        string downloadPath = DownloadPath;
 
         try
         {
