@@ -13,7 +13,7 @@ public class CreateAvatarPanel : EditorWindow
     public static void CreatePanel()
     {
         // Trouver VRMenuUI
-        VRMenuUI menuUI = Object.FindObjectOfType<VRMenuUI>();
+        VRMenuUI menuUI = Object.FindFirstObjectByType<VRMenuUI>();
         if (menuUI == null)
         {
             Debug.LogError("[CreateAvatarPanel] VRMenuUI non trouvé!");
