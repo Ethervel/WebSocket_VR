@@ -21,7 +21,11 @@ public class WhiteboardPacket
     public string roomId; // NOUVEAU: ID de la room
     public float r, g, b, a;
     public int penSize;
-    
+
+    // Indique si c'est un nouveau trait (stylo levé puis reposé)
+    // Si true, ne pas interpoler depuis le dernier point du batch précédent
+    public bool isNewStroke;
+
     // NOUVEAU FORMAT: Liste plate de floats [u1, v1, u2, v2, u3, v3, ...]
     public float[] pointsFlat;
     
@@ -86,10 +90,12 @@ public class WhiteboardStateData
 
 /// <summary>
 /// Historique incrémental (alternative à la texture complète)
+/// P1 FIX: Utilisé pour sync rapide des late joiners au lieu de PNG
 /// </summary>
 [Serializable]
 public class WhiteboardHistoryData
 {
     public string whiteboardId;
+    public string roomId; // P1 FIX: ID de la room pour filtrer
     public List<WhiteboardPacket> packets;
 }
