@@ -44,26 +44,30 @@ public class FileShareUISetup : MonoBehaviour
         if (GetComponent<GraphicRaycaster>() == null)
             gameObject.AddComponent<GraphicRaycaster>();
 
-        // Add TrackedDeviceGraphicRaycaster for VR if available
-#if UNITY_XR_INTERACTION_TOOLKIT
-        if (GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>() == null)
-            gameObject.AddComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>();
-#endif
+        // Add TrackedDeviceGraphicRaycaster for VR interaction
+        AddTrackedDeviceRaycaster();
 
         // Create UI structure
         CreateFileButton();
         CreateMainPanel();
         CreatePreviewPanel();
         CreateFileListItemPrefab();
+        CreateVRFileBrowserPanel();
 
         // Add FileSharingUI component and wire references
         FileSharingUI ui = GetComponent<FileSharingUI>();
         if (ui == null)
             ui = gameObject.AddComponent<FileSharingUI>();
 
-        WireReferences(ui);
+        // Add VRFileBrowser component
+        VRFileBrowser vrBrowser = GetComponent<VRFileBrowser>();
+        if (vrBrowser == null)
+            vrBrowser = gameObject.AddComponent<VRFileBrowser>();
 
-        Debug.Log("[FileShareUISetup] UI structure created. Check child objects and wire any missing references.");
+        WireReferences(ui);
+        WireVRBrowserReferences(vrBrowser);
+
+        Debug.Log("[FileShareUISetup] UI structure created with VR File Browser.");
 
 #if UNITY_EDITOR
         EditorUtility.SetDirty(gameObject);
@@ -502,6 +506,9 @@ public class FileShareUISetup : MonoBehaviour
         ui.mainPanel = transform.Find("MainPanel")?.gameObject;
         ui.previewPanel = transform.Find("PreviewPanel")?.gameObject;
 
+        // Wire VR File Browser
+        ui.vrFileBrowser = GetComponent<VRFileBrowser>();
+
         if (ui.mainPanel != null)
         {
             Transform header = ui.mainPanel.transform.Find("Header");
@@ -545,6 +552,230 @@ public class FileShareUISetup : MonoBehaviour
         ui.fileListItemPrefab = transform.Find("FileListItemTemplate")?.gameObject;
     }
 
+    void CreateVRFileBrowserPanel()
+    {
+        // VR File Browser Panel
+        GameObject panel = CreateUIElement("VRFileBrowserPanel", transform);
+        RectTransform rt = panel.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(450, 550);
+
+        Image bg = panel.AddComponent<Image>();
+        bg.color = panelBackgroundColor;
+
+        // Header
+        GameObject header = CreateUIElement("Header", panel.transform);
+        RectTransform headerRt = header.GetComponent<RectTransform>();
+        headerRt.anchorMin = new Vector2(0, 0.9f);
+        headerRt.anchorMax = new Vector2(1, 1);
+        headerRt.offsetMin = new Vector2(10, 0);
+        headerRt.offsetMax = new Vector2(-10, -5);
+
+        // Title
+        GameObject titleObj = CreateUIElement("Title", header.transform);
+        TextMeshProUGUI title = titleObj.AddComponent<TextMeshProUGUI>();
+        title.text = "Select File";
+        title.alignment = TextAlignmentOptions.Left;
+        title.color = Color.white;
+        title.fontSize = 20;
+        title.fontStyle = FontStyles.Bold;
+
+        RectTransform titleRt = titleObj.GetComponent<RectTransform>();
+        titleRt.anchorMin = new Vector2(0, 0);
+        titleRt.anchorMax = new Vector2(0.8f, 1);
+        titleRt.offsetMin = new Vector2(5, 0);
+        titleRt.offsetMax = Vector2.zero;
+
+        // Close Button
+        GameObject closeBtn = CreateButton("CloseButton", header.transform, "X", 35, 35);
+        RectTransform closeBtnRt = closeBtn.GetComponent<RectTransform>();
+        closeBtnRt.anchorMin = new Vector2(1, 0.5f);
+        closeBtnRt.anchorMax = new Vector2(1, 0.5f);
+        closeBtnRt.pivot = new Vector2(1, 0.5f);
+        closeBtnRt.anchoredPosition = Vector2.zero;
+
+        // Navigation Row
+        GameObject navRow = CreateUIElement("NavigationRow", panel.transform);
+        RectTransform navRowRt = navRow.GetComponent<RectTransform>();
+        navRowRt.anchorMin = new Vector2(0, 0.82f);
+        navRowRt.anchorMax = new Vector2(1, 0.9f);
+        navRowRt.offsetMin = new Vector2(10, 0);
+        navRowRt.offsetMax = new Vector2(-10, 0);
+
+        // Parent Folder Button
+        GameObject parentBtn = CreateButton("ParentFolderButton", navRow.transform, "Parent", 70, 0);
+        RectTransform parentBtnRt = parentBtn.GetComponent<RectTransform>();
+        parentBtnRt.anchorMin = new Vector2(0, 0);
+        parentBtnRt.anchorMax = new Vector2(0.18f, 1);
+        parentBtnRt.offsetMin = Vector2.zero;
+        parentBtnRt.offsetMax = Vector2.zero;
+
+        // Refresh Button
+        GameObject refreshBtn = CreateButton("RefreshButton", navRow.transform, "Refresh", 70, 0);
+        RectTransform refreshBtnRt = refreshBtn.GetComponent<RectTransform>();
+        refreshBtnRt.anchorMin = new Vector2(0.2f, 0);
+        refreshBtnRt.anchorMax = new Vector2(0.38f, 1);
+        refreshBtnRt.offsetMin = Vector2.zero;
+        refreshBtnRt.offsetMax = Vector2.zero;
+
+        // Current Path Text
+        GameObject pathObj = CreateUIElement("CurrentPathText", navRow.transform);
+        TextMeshProUGUI pathText = pathObj.AddComponent<TextMeshProUGUI>();
+        pathText.text = "C:\\";
+        pathText.alignment = TextAlignmentOptions.Left;
+        pathText.color = new Color(0.8f, 0.8f, 0.8f, 1f);
+        pathText.fontSize = 12;
+        pathText.overflowMode = TextOverflowModes.Ellipsis;
+
+        RectTransform pathRt = pathObj.GetComponent<RectTransform>();
+        pathRt.anchorMin = new Vector2(0.4f, 0);
+        pathRt.anchorMax = new Vector2(1, 1);
+        pathRt.offsetMin = new Vector2(5, 0);
+        pathRt.offsetMax = Vector2.zero;
+
+        // Drive Buttons Container
+        GameObject drivesRow = CreateUIElement("DriveButtonsContainer", panel.transform);
+        RectTransform drivesRowRt = drivesRow.GetComponent<RectTransform>();
+        drivesRowRt.anchorMin = new Vector2(0, 0.75f);
+        drivesRowRt.anchorMax = new Vector2(1, 0.82f);
+        drivesRowRt.offsetMin = new Vector2(10, 0);
+        drivesRowRt.offsetMax = new Vector2(-10, 0);
+
+        HorizontalLayoutGroup hlg = drivesRow.AddComponent<HorizontalLayoutGroup>();
+        hlg.childAlignment = TextAnchor.MiddleLeft;
+        hlg.spacing = 5;
+        hlg.childControlWidth = false;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = false;
+        hlg.childForceExpandHeight = true;
+
+        // File List ScrollView
+        GameObject scrollView = CreateUIElement("FileListScrollView", panel.transform);
+        RectTransform scrollViewRt = scrollView.GetComponent<RectTransform>();
+        scrollViewRt.anchorMin = new Vector2(0, 0.12f);
+        scrollViewRt.anchorMax = new Vector2(1, 0.75f);
+        scrollViewRt.offsetMin = new Vector2(10, 0);
+        scrollViewRt.offsetMax = new Vector2(-10, -5);
+
+        ScrollRect scrollRect = scrollView.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 30f;
+
+        Image scrollBg = scrollView.AddComponent<Image>();
+        scrollBg.color = new Color(0.08f, 0.08f, 0.08f, 0.5f);
+        scrollView.AddComponent<Mask>().showMaskGraphic = true;
+
+        // Viewport
+        GameObject viewport = CreateUIElement("Viewport", scrollView.transform);
+        RectTransform viewportRt = viewport.GetComponent<RectTransform>();
+        viewportRt.anchorMin = Vector2.zero;
+        viewportRt.anchorMax = Vector2.one;
+        viewportRt.offsetMin = Vector2.zero;
+        viewportRt.offsetMax = Vector2.zero;
+
+        // File List Container
+        GameObject fileList = CreateUIElement("FileListContainer", viewport.transform);
+        RectTransform fileListRt = fileList.GetComponent<RectTransform>();
+        fileListRt.anchorMin = new Vector2(0, 1);
+        fileListRt.anchorMax = new Vector2(1, 1);
+        fileListRt.pivot = new Vector2(0.5f, 1);
+        fileListRt.offsetMin = Vector2.zero;
+        fileListRt.offsetMax = Vector2.zero;
+
+        VerticalLayoutGroup vlg = fileList.AddComponent<VerticalLayoutGroup>();
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = false;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        vlg.spacing = 3;
+        vlg.padding = new RectOffset(5, 5, 5, 5);
+
+        ContentSizeFitter csf = fileList.AddComponent<ContentSizeFitter>();
+        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        scrollRect.viewport = viewportRt;
+        scrollRect.content = fileListRt;
+
+        // Footer
+        GameObject footer = CreateUIElement("Footer", panel.transform);
+        RectTransform footerRt = footer.GetComponent<RectTransform>();
+        footerRt.anchorMin = new Vector2(0, 0);
+        footerRt.anchorMax = new Vector2(1, 0.12f);
+        footerRt.offsetMin = new Vector2(10, 5);
+        footerRt.offsetMax = new Vector2(-10, 0);
+
+        // Filter Info
+        GameObject filterObj = CreateUIElement("FilterInfoText", footer.transform);
+        TextMeshProUGUI filterText = filterObj.AddComponent<TextMeshProUGUI>();
+        filterText.text = "Types: .pdf, .doc, .png...";
+        filterText.alignment = TextAlignmentOptions.Left;
+        filterText.color = new Color(0.6f, 0.6f, 0.6f, 1f);
+        filterText.fontSize = 11;
+
+        RectTransform filterRt = filterObj.GetComponent<RectTransform>();
+        filterRt.anchorMin = new Vector2(0, 0);
+        filterRt.anchorMax = new Vector2(0.6f, 1);
+        filterRt.offsetMin = Vector2.zero;
+        filterRt.offsetMax = Vector2.zero;
+
+        // Select Folder Button (hidden by default, shown in folder selection mode)
+        GameObject selectBtn = CreateButton("SelectFolderButton", footer.transform, "Select", 80, 0);
+        selectBtn.GetComponent<Image>().color = new Color(0.2f, 0.6f, 0.3f, 1f); // Green
+        RectTransform selectBtnRt = selectBtn.GetComponent<RectTransform>();
+        selectBtnRt.anchorMin = new Vector2(0.52f, 0.1f);
+        selectBtnRt.anchorMax = new Vector2(0.72f, 0.9f);
+        selectBtnRt.offsetMin = Vector2.zero;
+        selectBtnRt.offsetMax = Vector2.zero;
+        selectBtn.SetActive(false); // Hidden by default
+
+        // Cancel Button
+        GameObject cancelBtn = CreateButton("CancelButton", footer.transform, "Cancel", 80, 0);
+        cancelBtn.GetComponent<Image>().color = new Color(0.4f, 0.4f, 0.4f, 1f);
+        RectTransform cancelBtnRt = cancelBtn.GetComponent<RectTransform>();
+        cancelBtnRt.anchorMin = new Vector2(0.76f, 0.1f);
+        cancelBtnRt.anchorMax = new Vector2(1, 0.9f);
+        cancelBtnRt.offsetMin = Vector2.zero;
+        cancelBtnRt.offsetMax = Vector2.zero;
+
+        panel.SetActive(false);
+    }
+
+    void WireVRBrowserReferences(VRFileBrowser browser)
+    {
+        Transform browserPanel = transform.Find("VRFileBrowserPanel");
+        if (browserPanel == null)
+            return;
+
+        browser.browserPanel = browserPanel.gameObject;
+
+        Transform header = browserPanel.Find("Header");
+        browser.titleText = header?.Find("Title")?.GetComponent<TextMeshProUGUI>();
+        browser.closeButton = header?.Find("CloseButton")?.GetComponent<Button>();
+
+        Transform navRow = browserPanel.Find("NavigationRow");
+        browser.parentFolderButton = navRow?.Find("ParentFolderButton")?.GetComponent<Button>();
+        browser.refreshButton = navRow?.Find("RefreshButton")?.GetComponent<Button>();
+        browser.currentPathText = navRow?.Find("CurrentPathText")?.GetComponent<TextMeshProUGUI>();
+
+        browser.driveButtonsContainer = browserPanel.Find("DriveButtonsContainer");
+
+        Transform scrollView = browserPanel.Find("FileListScrollView");
+        Transform viewport = scrollView?.Find("Viewport");
+        browser.fileListContainer = viewport?.Find("FileListContainer");
+
+        Transform footer = browserPanel.Find("Footer");
+        browser.filterInfoText = footer?.Find("FilterInfoText")?.GetComponent<TextMeshProUGUI>();
+        browser.selectFolderButton = footer?.Find("SelectFolderButton")?.GetComponent<Button>();
+        browser.cancelButton = footer?.Find("CancelButton")?.GetComponent<Button>();
+    }
+
     #region UI Creation Helpers
 
     GameObject CreateUIElement(string name, Transform parent)
@@ -581,6 +812,28 @@ public class FileShareUISetup : MonoBehaviour
         tmpText.fontSize = 14;
 
         return btn;
+    }
+
+    void AddTrackedDeviceRaycaster()
+    {
+        // Try to add TrackedDeviceGraphicRaycaster using reflection
+        // This avoids compile errors if XR Interaction Toolkit is not installed
+        string typeName = "UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster, Unity.XR.Interaction.Toolkit";
+        System.Type raycasterType = System.Type.GetType(typeName);
+
+        if (raycasterType != null)
+        {
+            // Check if component already exists
+            if (GetComponent(raycasterType) == null)
+            {
+                gameObject.AddComponent(raycasterType);
+                Debug.Log("[FileShareUISetup] Added TrackedDeviceGraphicRaycaster for VR interaction");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[FileShareUISetup] TrackedDeviceGraphicRaycaster not found. Make sure XR Interaction Toolkit is installed for VR UI interaction.");
+        }
     }
 
     #endregion

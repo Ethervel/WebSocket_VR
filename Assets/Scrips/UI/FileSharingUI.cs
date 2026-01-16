@@ -40,6 +40,10 @@ public class FileSharingUI : MonoBehaviour
     public Button previewShareButton;
     public Button previewCancelButton;
 
+    [Header("VR File Browser")]
+    [Tooltip("VR File Browser component for in-VR file selection")]
+    public VRFileBrowser vrFileBrowser;
+
     [Header("Settings")]
     [Tooltip("Maximum length for displayed file names")]
     public int maxFileNameLength = 20;
@@ -88,6 +92,14 @@ public class FileSharingUI : MonoBehaviour
         FileShareManager.OnFileDownloadComplete += OnDownloadComplete;
         FileShareManager.OnFileShareError += OnError;
 
+        // VR File Browser events
+        if (vrFileBrowser != null)
+        {
+            vrFileBrowser.OnFileSelected += OnVRFileSelected;
+            vrFileBrowser.OnFolderSelected += OnVRFolderSelected;
+            vrFileBrowser.OnBrowserClosed += OnVRBrowserClosed;
+        }
+
         // Initial state
         if (mainPanel != null) mainPanel.SetActive(false);
         if (previewPanel != null) previewPanel.SetActive(false);
@@ -107,6 +119,14 @@ public class FileSharingUI : MonoBehaviour
         if (browsePathButton != null) browsePathButton.onClick.RemoveAllListeners();
         if (openFolderButton != null) openFolderButton.onClick.RemoveAllListeners();
         if (downloadPathInput != null) downloadPathInput.onEndEdit.RemoveAllListeners();
+
+        // Unsubscribe VR browser
+        if (vrFileBrowser != null)
+        {
+            vrFileBrowser.OnFileSelected -= OnVRFileSelected;
+            vrFileBrowser.OnFolderSelected -= OnVRFolderSelected;
+            vrFileBrowser.OnBrowserClosed -= OnVRBrowserClosed;
+        }
 
         // Unsubscribe
         FileShareManager.OnFileShared -= OnFileShared;
@@ -156,6 +176,10 @@ public class FileSharingUI : MonoBehaviour
 
         if (shareButton != null)
             shareButton.interactable = inRoom;
+
+        // Hide "Open" folder button in VR mode (can't see Windows Explorer in VR)
+        if (openFolderButton != null)
+            openFolderButton.gameObject.SetActive(!IsInVRMode());
     }
 
     public void ClosePanel()
@@ -221,6 +245,14 @@ public class FileSharingUI : MonoBehaviour
             return;
         }
 
+        // Check if we're in VR mode
+        if (IsInVRMode() && vrFileBrowser != null)
+        {
+            // Use VR file browser
+            OpenVRFileBrowser();
+            return;
+        }
+
 #if UNITY_EDITOR
         string path = UnityEditor.EditorUtility.OpenFilePanel(
             "Select File to Share",
@@ -234,6 +266,58 @@ public class FileSharingUI : MonoBehaviour
         // Alternative: ouvrir le dossier Downloads
         OpenFileBrowserRuntime();
 #endif
+    }
+
+    bool IsInVRMode()
+    {
+        // Check if XR is active
+        var xrDisplaySubsystems = new List<UnityEngine.XR.XRDisplaySubsystem>();
+        SubsystemManager.GetSubsystems(xrDisplaySubsystems);
+
+        foreach (var xrDisplay in xrDisplaySubsystems)
+        {
+            if (xrDisplay.running)
+                return true;
+        }
+
+        return false;
+    }
+
+    void OpenVRFileBrowser()
+    {
+        if (vrFileBrowser == null)
+            return;
+
+        // Hide main panel while browsing
+        if (mainPanel != null)
+            mainPanel.SetActive(false);
+
+        // Open VR browser at default or last used path
+        string startPath = FileShareManager.Instance?.DownloadPath;
+        vrFileBrowser.Open(startPath);
+
+        SetStatus("Select a file...");
+    }
+
+    void OnVRFileSelected(string filePath)
+    {
+        Debug.Log($"[FileSharingUI] VR file selected: {filePath}");
+
+        // Show main panel again
+        if (mainPanel != null)
+            mainPanel.SetActive(true);
+
+        // Process the selected file
+        OnFileSelected(filePath);
+    }
+
+    void OnVRBrowserClosed()
+    {
+        // Show main panel again
+        if (mainPanel != null && _isOpen)
+            mainPanel.SetActive(true);
+
+        SetStatus("");
     }
 
     void OpenFileBrowserRuntime()
@@ -356,6 +440,13 @@ public class FileSharingUI : MonoBehaviour
 
     void BrowseDownloadPath()
     {
+        // Check if we're in VR mode
+        if (IsInVRMode() && vrFileBrowser != null)
+        {
+            OpenVRFolderBrowser();
+            return;
+        }
+
 #if UNITY_EDITOR
         string path = UnityEditor.EditorUtility.OpenFolderPanel(
             "Select Download Folder",
@@ -384,6 +475,40 @@ public class FileSharingUI : MonoBehaviour
 #else
         SetStatus("Folder browser not available");
 #endif
+    }
+
+    void OpenVRFolderBrowser()
+    {
+        if (vrFileBrowser == null)
+            return;
+
+        // Hide main panel while browsing
+        if (mainPanel != null)
+            mainPanel.SetActive(false);
+
+        // Open VR browser in folder selection mode
+        string startPath = FileShareManager.Instance?.DownloadPath;
+        vrFileBrowser.OpenFolderBrowser(startPath);
+
+        SetStatus("Select download folder...");
+    }
+
+    void OnVRFolderSelected(string folderPath)
+    {
+        Debug.Log($"[FileSharingUI] VR folder selected: {folderPath}");
+
+        // Update download path
+        if (FileShareManager.Instance != null)
+        {
+            FileShareManager.Instance.DownloadPath = folderPath;
+        }
+
+        UpdateDownloadPathDisplay();
+        SetStatus("Download path updated");
+
+        // Show main panel again
+        if (mainPanel != null && _isOpen)
+            mainPanel.SetActive(true);
     }
 
     void OpenDownloadFolder()
