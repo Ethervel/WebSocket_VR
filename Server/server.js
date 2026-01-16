@@ -345,7 +345,7 @@ function handleRoomLeave(clientId, dataStr) {
             client.roomId = null;
         }
         
-        console.log(`[SERVER] 🚪 Player ${clientId} left room ${data.roomId}`);
+        console.log(`[SERVER]  Player ${clientId} left room ${data.roomId}`);
         
         broadcastToRoom(clientId, {
             type: 'room-leave',
@@ -417,7 +417,7 @@ function handleDisconnect(clientId) {
     
     broadcastRoomList();
     
-    console.log(`[SERVER] ❌ Client disconnected: ${clientId}`);
+    console.log(`[SERVER]  Client disconnected: ${clientId}`);
 }
 
 // ========================================
@@ -758,7 +758,7 @@ function broadcast(message, exceptClientId = null) {
 }
 
 /**
- * 🔥 FONCTION CRITIQUE: Broadcast SEULEMENT aux clients de la même room
+ *  FONCTION CRITIQUE: Broadcast SEULEMENT aux clients de la même room
  */
 function broadcastToRoom(senderId, message) {
     const sender = clients.get(senderId);
@@ -864,5 +864,5 @@ setInterval(() => {
     const roomDetails = Array.from(rooms.values())
         .map(r => `${r.roomId}(${r.playerCount})`)
         .join(', ');
-    console.log(`[SERVER] 📊 ${clients.size} clients | Rooms: ${roomDetails || 'none'}`);
+    console.log(`[SERVER]  ${clients.size} clients | Rooms: ${roomDetails || 'none'}`);
 }, 60000);
