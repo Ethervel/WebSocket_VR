@@ -22,7 +22,9 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | **Presentation Tools** | Screen sharing, slides, media playback | In Progress |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
 | **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
-| **Expressive Professional Avatars** | Business-appropriate customizable avatars | Not Started |
+| **Avatar Customization** | Name + color selection, synced across network | Implemented |
+| **File Sharing** | Upload/download files with VR browser | Implemented (Testing) |
+| **Desktop Mode** | Non-VR FPS-style controls (WASD + mouse) | Implemented |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
 | **Screen Sharing** | Share desktop/window/VR view to Whiteboard | Implemented |
@@ -51,20 +53,21 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 ### Feature Roadmap Priority
 
-**Phase 1 - Foundation (Current)**
-- [x] WebSocket networking
-- [x] WebRTC voice chat (mesh topology)
+**Phase 1 - Foundation (Complete)**
+- [x] WebSocket networking (auto-reconnect, exponential backoff)
+- [x] WebRTC voice chat (mesh topology + TURN servers)
 - [x] Spatial audio (3D positioned on head)
-- [x] Basic avatar sync
-- [x] Whiteboard
-- [ ] Desktop mode (non-VR)
+- [x] Avatar sync (30Hz, head + hands)
+- [x] Avatar customization (name + color)
+- [x] Whiteboard (collaborative drawing)
+- [x] Desktop mode (FPS-style: WASD + mouse look)
 - [ ] MariaDB integration
 
-**Phase 2 - Collaboration**
-- [x] Screen sharing (VR + Desktop, optimisé)
-- [~] File sharing (implémenté, à tester)
-- [ ] 3D object manipulation
-- [ ] Presentation mode
+**Phase 2 - Collaboration (In Progress)**
+- [x] Screen sharing (VR + Desktop, optimized 854x480 @ 3fps)
+- [~] File sharing (implemented, requires testing)
+- [ ] 3D object manipulation (basic networked interactable exists)
+- [ ] Presentation mode (slide navigation, laser pointer)
 - [ ] Note-taking system
 
 **Phase 3 - Enterprise**
@@ -86,7 +89,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 **Testing Multiplayer Locally:** Use ParrelSync to clone the project and run multiple Unity instances.
 
-**Quick Test Tools:** Press F1 in-game to toggle QuickRoomJoiner debug UI, F2 to create room, F3 to leave.
+**Quick Test Tools:** ParrelSync for multi-instance testing.
 
 ## Project Structure
 
@@ -95,30 +98,40 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── Network/
 │   ├── VRNetworkManager.cs       # WebSocket hub, message routing, auto-reconnect
 │   ├── VRRoomManager.cs          # Room lifecycle, player roster, zone tracking
-│   └── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
+│   ├── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
+│   └── AuthManager.cs            # Registration, login, profile updates
 ├── VR/
 │   ├── BootstrapManager.cs       # Additive scene loading, persistent EventSystem setup
 │   ├── VRPlayerController.cs     # Locomotion, snap/smooth turn, gravity
-│   └── TeleportOnGrab.cs         # VR teleportation mechanics
+│   ├── DesktopPlayerController.cs # FPS-style controls (WASD + mouse look)
+│   ├── TeleportOnGrab.cs         # VR teleportation mechanics
+│   └── TeleportOnButtonClick.cs  # Button-triggered teleportation
 ├── WebRTC/
-│   └── VoiceChatManager.cs       # WebRTC peers, spatial audio, push-to-talk
+│   └── VoiceChatManager.cs       # WebRTC peers, spatial audio, push-to-talk, TURN servers
 ├── WhiteBoard/
 │   ├── Whiteboard.cs             # Fond blanc + mode présentation (screen share)
 │   ├── WhiteboardDrawingSurface.cs # Surface transparente, reçoit dessins réseau
 │   ├── WhiteboardMarker.cs       # Dessin VR (stylo)
 │   ├── DesktopWhiteboardDrawer.cs # Dessin Desktop (souris)
 │   ├── WhiteboardNetworkData.cs  # Classes sérialisables réseau
-│   └── WhiteboardUIManager.cs    # UI (couleurs, clear)
+│   ├── WhiteboardUIManager.cs    # UI (couleurs, clear)
+│   └── WhiteboardUISetup.cs      # Editor tool for UI configuration
 ├── Sharing/
 │   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
-│   └── ScreenShareData.cs        # Classes sérialisables pour messages réseau
+│   ├── ScreenShareData.cs        # Classes sérialisables pour messages réseau
+│   ├── FileShareManager.cs       # Upload/download files, validation, network sync
+│   ├── FileShareData.cs          # FileMetadata, upload/download serialization
+│   ├── FileSharingUI.cs          # File list, download path, preview panel
+│   ├── VRFileBrowser.cs          # In-VR file navigation, folder browsing
+│   └── WindowCapture.cs          # Desktop window enumeration (Windows native)
+├── Avatar/
+│   └── AvatarCustomization.cs    # Color selection, username input, PlayerPrefs
 ├── UI/
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
 │   └── VRMenuUi.cs
 └── Testing/
-    ├── QuickRoomJoiner.cs        # Debug room management (F1/F2/F3)
-    └── VRNetworkedInteractable.cs
+    └── VRNetworkedInteractable.cs # Shared object sync, grab ownership
 
 Assets/Scenes/
 ├── Bootstrap.unity               # Persistent managers (loads first)
@@ -128,10 +141,23 @@ Assets/Scenes/
 Assets/Prefabs/Unity/
 ├── LocalPlayer.prefab            # Local VR rig (XROrigin + CharacterController)
 ├── RemoteVRPlayer.prefab         # Remote avatar (head/hands detached for world-space sync)
+├── DesktopPlayer.prefab          # Non-VR player (FPS controls)
 ├── Playername.prefab             # Floating name tag
 ├── Playeritem.prefab / RoomItem.prefab  # UI list items
-└── XR Origin*.prefab             # XR rig templates
+├── WhiteboardComplete.prefab     # Full whiteboard setup
+└── XR Origin Hands (XR Rig).prefab # VR control rig with gravity
 ```
+
+## Code Metrics
+
+| Metric | Value |
+|--------|-------|
+| **Total Scripts** | 34 |
+| **Total Lines of Code** | ~14,000 |
+| **Commits** | 103+ |
+| **Scenes** | 2 (Bootstrap + Meet) |
+| **Prefabs** | 8 |
+| **Network Message Types** | 20+ |
 
 ## Architecture
 
@@ -195,6 +221,8 @@ public class NetworkMessage {
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
 | Screen Share | `screen-share-start`, `screen-share-stop`, `screen-share-frame`, `screen-share-request`, `screen-share-state` |
+| File Share | `file-share-upload`, `file-share-download`, `file-share-list`, `file-share-request`, `file-share-delete` |
+| Auth | `auth-register`, `auth-login`, `auth-profile-update`, `auth-response` |
 
 ### Room System
 
@@ -218,7 +246,9 @@ public class NetworkMessage {
 
 ### Voice Chat (`VoiceChatManager.cs`)
 
-- **STUN servers:** Google public (`stun:stun.l.google.com:19302`)
+- **STUN/TURN servers:** Google public STUN + TURN servers for NAT traversal
+  - STUN: `stun:stun.l.google.com:19302`, CloudFlare
+  - TURN: Configured for corporate firewall traversal (use private TURN in production)
 - **Mesh topology:** All clients connected to each other (not just to host)
   - Deterministic rule: player with smaller ID (lexicographically) initiates connection
   - Ensures no duplicate connections and full mesh with 3+ clients
@@ -228,6 +258,7 @@ public class NetworkMessage {
   - AudioListener on local player's Main Camera
 - **Push-to-talk:** V key (desktop), VR button (configurable)
 - **Auto-start:** Microphone starts automatically on initialization
+- **Connection timeout:** 15s default, with proper cleanup on failure
 
 ### Whiteboard System (`Assets/Scrips/WhiteBoard/`)
 
@@ -410,6 +441,70 @@ Créer un Canvas World Space près du whiteboard avec:
 - Button "Stop" → `ScreenShareManager.Instance.StopSharing()`
 - Connecter aux events pour update UI
 
+## File Sharing (`Assets/Scrips/Sharing/`)
+
+### Architecture
+- **FileShareManager.cs** - Singleton handling upload/download, validation, network sync
+- **FileShareData.cs** - Serializable classes for metadata and transfer
+- **FileSharingUI.cs** - Desktop UI with file list, download path selector
+- **VRFileBrowser.cs** - In-VR file navigation and folder browsing
+
+### Constraints
+- **Max file size:** 10 MB
+- **Allowed extensions:** pdf, doc, docx, xls, xlsx, png, jpg, jpeg, gif
+- **Storage:** Files stored per-room with late-joiner sync
+
+### API publique
+```csharp
+FileShareManager.Instance.UploadFile(filePath)    // Upload file to room
+FileShareManager.Instance.DownloadFile(fileId)   // Download shared file
+FileShareManager.Instance.GetFileList()          // Get room's file list
+FileShareManager.Instance.DeleteFile(fileId)     // Remove shared file (host only)
+```
+
+### Network Flow
+1. Uploader sends `file-share-upload` with Base64 content + metadata
+2. Server broadcasts to room, receivers store locally
+3. Late joiner sends `file-share-request`, receives `file-share-list`
+4. Download via `file-share-download` request
+
+### VR File Browser
+- In-headset folder navigation
+- Filter by allowed extensions
+- Select file for upload directly in VR
+- Recent commit fixes: `aa2d325` (fix vr file sharing)
+
+## Avatar Customization (`Assets/Scrips/Avatar/`)
+
+### AvatarCustomization.cs
+- **Color options:** 8 colors (blue, red, green, yellow, purple, orange, cyan, pink)
+- **Username:** Text input with validation
+- **Persistence:** PlayerPrefs (`PlayerColor`, `PlayerName`)
+- **Network sync:** Color and name synced to all players in room
+- **Name tag:** Floating TextMeshPro above remote player heads
+
+### API
+```csharp
+AvatarCustomization.Instance.SetColor(colorIndex) // 0-7
+AvatarCustomization.Instance.SetPlayerName(name)
+AvatarCustomization.GetLocalColor()
+AvatarCustomization.GetLocalName()
+```
+
+## Desktop Mode (`Assets/Scrips/VR/DesktopPlayerController.cs`)
+
+### Controls
+- **Movement:** WASD keys
+- **Look:** Right-click + mouse drag
+- **Sprint:** Hold Shift (2x speed multiplier)
+- **Whiteboard:** Left-click to draw (via DesktopWhiteboardDrawer)
+
+### Implementation
+- Uses Unity Input System
+- Head Transform auto-detected from child "Head" or Main Camera
+- Smooth movement with configurable speed
+- FPS-style camera with mouse sensitivity settings
+
 ## Recent Fixes & Changes
 
 ### WebRTC Mesh Topology (VoiceChatManager.cs:367-381)
@@ -469,3 +564,53 @@ Créer un Canvas World Space près du whiteboard avec:
 - **Problem:** La surface de dessin ajoutait un effet de filtre sur le screen share
 - **Solution:** Changé le shader de URP Lit vers `Sprites/Default`
 - **Result:** Surface 100% transparente où il n'y a pas de dessin, screen share visible sans filtre
+
+### P0 Critical Stability Fixes (Recent)
+
+#### TURN Servers for NAT Traversal (VoiceChatManager.cs)
+- **Problem:** Voice chat failed behind corporate firewalls/NAT
+- **Solution:** Added TURN servers alongside STUN (use private TURN in production)
+- **Result:** WebRTC works through NAT/firewalls
+
+#### Async Void Exception Handling (VRNetworkManager.cs)
+- **Problem:** `async void Start()` exceptions were swallowed silently
+- **Solution:** Wrapper `ConnectAsync()` with try-catch, proper error propagation
+- **Result:** Connection errors properly logged and handled
+
+#### Exponential Backoff Reconnection (VRNetworkManager.cs)
+- **Problem:** Aggressive reconnection could flood server
+- **Solution:** Exponential backoff (1s → 2s → 4s → ... → 30s max)
+- **Result:** Graceful reconnection without server overload
+
+#### Race Condition in Player Spawning (VRGameManager.cs)
+- **Problem:** Rapid join/leave could spawn duplicate players
+- **Solution:** `_isSpawning` flag with lock to prevent concurrent spawns
+- **Result:** Clean single spawn per player
+
+#### JSON Validation Helper (VRRoomManager.cs)
+- **Problem:** Malformed JSON from server could crash client
+- **Solution:** `TryDeserialize<T>()` helper with null checks
+- **Result:** Graceful handling of invalid messages
+
+### P1 Performance Fixes (Recent)
+
+#### Whiteboard Texture Batching
+- **Problem:** Individual `SetPixels()` calls caused 30ms frame spikes
+- **Solution:** Batch all pixels, single `Apply()` per frame
+- **Result:** ~1ms per frame, smooth drawing
+
+#### Memory Leak in FindObjects
+- **Problem:** Repeated `FindObjectsOfType()` in Update() causing GC spikes
+- **Solution:** Cache XRInteractionManager, teleport areas, canvases at Start()
+- **Result:** Zero GC allocations in hot path
+
+#### Clear Texture Memory Allocation
+- **Problem:** 16MB allocation on every whiteboard clear
+- **Solution:** `_cachedClearPixels` array reused across clears
+- **Result:** No GC during whiteboard operations
+
+### File Sharing Feature (Recent - Commits f6d7757, 706c066, aa2d325)
+- **Feature:** Upload/download files within VR meeting rooms
+- **VR Browser:** In-headset file navigation and selection
+- **Constraints:** 10MB max, allowed document/image extensions
+- **Status:** Implemented, requires thorough testing

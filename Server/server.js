@@ -14,6 +14,15 @@ const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { registerUser, loginUser, updateUserProfile } = require('./auth');
 
+// File Presentation module (optional - for PDF conversion)
+let filePresentation = null;
+try {
+    filePresentation = require('./filePresentation');
+    console.log(`[SERVER] File presentation module loaded (pdf-poppler: ${filePresentation.pdfPoppler ? 'available' : 'not installed'})`);
+} catch (e) {
+    console.log('[SERVER] File presentation module not loaded');
+}
+
 const PORT = process.env.PORT || 8080;
 const HEARTBEAT_INTERVAL = 30000;
 
@@ -199,6 +208,29 @@ function handleMessage(clientId, message) {
 
         case 'file-list-response':
             handleFileListResponse(clientId, data);
+            break;
+
+        // === FILE PRESENTATION (PAR ROOM) ===
+        case 'file-present-start':
+        case 'file-present-page':
+        case 'file-present-navigate':
+        case 'file-present-stop':
+        case 'file-present-request':
+            console.log(`[FilePresent] ${type} from ${clientId}`);
+            broadcastToRoom(clientId, message);
+            break;
+
+        case 'file-present-state':
+            handleFilePresentState(clientId, data);
+            break;
+
+        // === PDF CONVERSION (POINT-TO-POINT avec serveur) ===
+        case 'pdf-convert-request':
+            handlePdfConvertRequest(clientId, data);
+            break;
+
+        case 'pdf-page-request':
+            handlePdfPageRequest(clientId, data);
             break;
 
         // === AUTHENTICATION ===
@@ -622,6 +654,159 @@ function handleFileListResponse(senderId, dataStr) {
         console.error(`[FileShare] handleFileListResponse error: ${e.message}`);
     }
 }
+
+// ========================================
+// FILE PRESENTATION HANDLERS
+// ========================================
+
+function handleFilePresentState(clientId, dataStr) {
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+
+        // Si targetId est spécifié, envoyer seulement à ce client
+        if (data.targetId) {
+            const targetClient = clients.get(data.targetId);
+            if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
+                sendToClient(targetClient.ws, {
+                    type: 'file-present-state',
+                    senderId: clientId,
+                    data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
+                });
+
+                console.log(`[FilePresent] State sent ${clientId} → ${data.targetId}`);
+            }
+        } else {
+            // Sinon, broadcast à toute la room
+            broadcastToRoom(clientId, {
+                type: 'file-present-state',
+                senderId: clientId,
+                data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
+            });
+        }
+
+    } catch (e) {
+        console.error(`[FilePresent] handleFilePresentState error: ${e.message}`);
+    }
+}
+
+// ========================================
+// PDF CONVERSION HANDLERS
+// ========================================
+
+// Cache pour les PDFs convertis: fileId -> { pages: [base64...], totalPages, timestamp }
+const pdfCache = new Map();
+const PDF_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+async function handlePdfConvertRequest(clientId, dataStr) {
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const { roomId, fileId, fileDataBase64, requesterId } = data;
+
+        console.log(`[PDFConvert] Request from ${requesterId} for file ${fileId}`);
+
+        // Utiliser le module filePresentation si disponible
+        if (filePresentation && filePresentation.pdfPoppler) {
+            await filePresentation.handlePdfConvertRequest(clientId, data, clients, sendToClient);
+            return;
+        }
+
+        // Vérifier le cache local (fallback)
+        if (pdfCache.has(fileId)) {
+            const cached = pdfCache.get(fileId);
+            sendPdfConvertResponse(requesterId, fileId, roomId, {
+                success: true,
+                totalPages: cached.totalPages
+            });
+            console.log(`[PDFConvert] Cache hit for ${fileId}`);
+            return;
+        }
+
+        // pdf-poppler non disponible
+        sendPdfConvertResponse(requesterId, fileId, roomId, {
+            success: false,
+            error: 'PDF conversion not available. Install pdf-poppler: npm install pdf-poppler'
+        });
+
+    } catch (e) {
+        console.error(`[PDFConvert] Error: ${e.message}`);
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        sendPdfConvertResponse(data.requesterId, data.fileId, data.roomId, {
+            success: false,
+            error: e.message
+        });
+    }
+}
+
+function handlePdfPageRequest(clientId, dataStr) {
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const { roomId, fileId, pageNumber, requesterId } = data;
+
+        // Utiliser le module filePresentation si disponible
+        if (filePresentation && filePresentation.pdfPoppler) {
+            filePresentation.handlePdfPageRequest(clientId, data, clients, sendToClient);
+            return;
+        }
+
+        // Fallback vers le cache local
+        const cached = pdfCache.get(fileId);
+        if (!cached || pageNumber >= cached.pages.length) {
+            console.log(`[PDFPage] Page ${pageNumber} not found for ${fileId}`);
+            return;
+        }
+
+        const targetClient = clients.get(requesterId);
+        if (!targetClient) return;
+
+        sendToClient(targetClient.ws, {
+            type: 'pdf-page-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                roomId,
+                fileId,
+                targetId: requesterId,
+                pageNumber,
+                imageDataBase64: cached.pages[pageNumber],
+                width: 1920,
+                height: 1080
+            })
+        });
+
+        console.log(`[PDFPage] Sent page ${pageNumber} of ${fileId} to ${requesterId}`);
+
+    } catch (e) {
+        console.error(`[PDFPage] Error: ${e.message}`);
+    }
+}
+
+function sendPdfConvertResponse(targetId, fileId, roomId, result) {
+    const targetClient = clients.get(targetId);
+    if (!targetClient) return;
+
+    sendToClient(targetClient.ws, {
+        type: 'pdf-convert-response',
+        senderId: 'server',
+        data: JSON.stringify({
+            roomId,
+            fileId,
+            targetId,
+            totalPages: result.totalPages || 0,
+            success: result.success,
+            error: result.error || null
+        })
+    });
+}
+
+// Nettoyage du cache PDF
+setInterval(() => {
+    const now = Date.now();
+    for (const [fileId, entry] of pdfCache) {
+        if (now - entry.timestamp > PDF_CACHE_TTL) {
+            pdfCache.delete(fileId);
+            console.log(`[PDFCache] Expired: ${fileId}`);
+        }
+    }
+}, 5 * 60 * 1000); // Vérifier toutes les 5 minutes
 
 // ========================================
 // AUTHENTICATION HANDLERS

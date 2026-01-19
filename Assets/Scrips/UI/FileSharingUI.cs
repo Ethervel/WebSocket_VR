@@ -40,6 +40,16 @@ public class FileSharingUI : MonoBehaviour
     public Button previewShareButton;
     public Button previewCancelButton;
 
+    [Header("VR File Browser")]
+    [Tooltip("VR File Browser component for in-VR file selection")]
+    public VRFileBrowser vrFileBrowser;
+
+    [Header("Presentation Controls")]
+    [Tooltip("Button to stop ongoing presentation")]
+    public Button stopPresentationButton;
+    [Tooltip("Text showing current presentation status")]
+    public TextMeshProUGUI presentationStatusText;
+
     [Header("Settings")]
     [Tooltip("Maximum length for displayed file names")]
     public int maxFileNameLength = 20;
@@ -49,6 +59,7 @@ public class FileSharingUI : MonoBehaviour
     private Dictionary<string, GameObject> _fileListItems = new Dictionary<string, GameObject>();
     private bool _isOpen = false;
     private Texture2D _previewTexture;
+    private bool _isPresentationActive = false;
 
     #region Lifecycle
 
@@ -88,6 +99,27 @@ public class FileSharingUI : MonoBehaviour
         FileShareManager.OnFileDownloadComplete += OnDownloadComplete;
         FileShareManager.OnFileShareError += OnError;
 
+        // Subscribe to presentation events
+        FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
+
+        // Stop presentation button
+        if (stopPresentationButton != null)
+        {
+            stopPresentationButton.onClick.AddListener(OnStopPresentationClicked);
+            stopPresentationButton.gameObject.SetActive(false);
+        }
+        if (presentationStatusText != null)
+            presentationStatusText.gameObject.SetActive(false);
+
+        // VR File Browser events
+        if (vrFileBrowser != null)
+        {
+            vrFileBrowser.OnFileSelected += OnVRFileSelected;
+            vrFileBrowser.OnFolderSelected += OnVRFolderSelected;
+            vrFileBrowser.OnBrowserClosed += OnVRBrowserClosed;
+        }
+
         // Initial state
         if (mainPanel != null) mainPanel.SetActive(false);
         if (previewPanel != null) previewPanel.SetActive(false);
@@ -108,6 +140,14 @@ public class FileSharingUI : MonoBehaviour
         if (openFolderButton != null) openFolderButton.onClick.RemoveAllListeners();
         if (downloadPathInput != null) downloadPathInput.onEndEdit.RemoveAllListeners();
 
+        // Unsubscribe VR browser
+        if (vrFileBrowser != null)
+        {
+            vrFileBrowser.OnFileSelected -= OnVRFileSelected;
+            vrFileBrowser.OnFolderSelected -= OnVRFolderSelected;
+            vrFileBrowser.OnBrowserClosed -= OnVRBrowserClosed;
+        }
+
         // Unsubscribe
         FileShareManager.OnFileShared -= OnFileShared;
         FileShareManager.OnFileRemoved -= OnFileRemoved;
@@ -115,6 +155,12 @@ public class FileSharingUI : MonoBehaviour
         FileShareManager.OnFileDownloadStarted -= OnDownloadStarted;
         FileShareManager.OnFileDownloadComplete -= OnDownloadComplete;
         FileShareManager.OnFileShareError -= OnError;
+
+        // Unsubscribe presentation events
+        FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
+        if (stopPresentationButton != null)
+            stopPresentationButton.onClick.RemoveAllListeners();
 
         // Destroy list items
         foreach (var item in _fileListItems.Values)
@@ -156,6 +202,10 @@ public class FileSharingUI : MonoBehaviour
 
         if (shareButton != null)
             shareButton.interactable = inRoom;
+
+        // Hide "Open" folder button in VR mode (can't see Windows Explorer in VR)
+        if (openFolderButton != null)
+            openFolderButton.gameObject.SetActive(!IsInVRMode());
     }
 
     public void ClosePanel()
@@ -221,6 +271,14 @@ public class FileSharingUI : MonoBehaviour
             return;
         }
 
+        // Check if we're in VR mode
+        if (IsInVRMode() && vrFileBrowser != null)
+        {
+            // Use VR file browser
+            OpenVRFileBrowser();
+            return;
+        }
+
 #if UNITY_EDITOR
         string path = UnityEditor.EditorUtility.OpenFilePanel(
             "Select File to Share",
@@ -234,6 +292,58 @@ public class FileSharingUI : MonoBehaviour
         // Alternative: ouvrir le dossier Downloads
         OpenFileBrowserRuntime();
 #endif
+    }
+
+    bool IsInVRMode()
+    {
+        // Check if XR is active
+        var xrDisplaySubsystems = new List<UnityEngine.XR.XRDisplaySubsystem>();
+        SubsystemManager.GetSubsystems(xrDisplaySubsystems);
+
+        foreach (var xrDisplay in xrDisplaySubsystems)
+        {
+            if (xrDisplay.running)
+                return true;
+        }
+
+        return false;
+    }
+
+    void OpenVRFileBrowser()
+    {
+        if (vrFileBrowser == null)
+            return;
+
+        // Hide main panel while browsing
+        if (mainPanel != null)
+            mainPanel.SetActive(false);
+
+        // Open VR browser at default or last used path
+        string startPath = FileShareManager.Instance?.DownloadPath;
+        vrFileBrowser.Open(startPath);
+
+        SetStatus("Select a file...");
+    }
+
+    void OnVRFileSelected(string filePath)
+    {
+        Debug.Log($"[FileSharingUI] VR file selected: {filePath}");
+
+        // Show main panel again
+        if (mainPanel != null)
+            mainPanel.SetActive(true);
+
+        // Process the selected file
+        OnFileSelected(filePath);
+    }
+
+    void OnVRBrowserClosed()
+    {
+        // Show main panel again
+        if (mainPanel != null && _isOpen)
+            mainPanel.SetActive(true);
+
+        SetStatus("");
     }
 
     void OpenFileBrowserRuntime()
@@ -356,6 +466,13 @@ public class FileSharingUI : MonoBehaviour
 
     void BrowseDownloadPath()
     {
+        // Check if we're in VR mode
+        if (IsInVRMode() && vrFileBrowser != null)
+        {
+            OpenVRFolderBrowser();
+            return;
+        }
+
 #if UNITY_EDITOR
         string path = UnityEditor.EditorUtility.OpenFolderPanel(
             "Select Download Folder",
@@ -384,6 +501,40 @@ public class FileSharingUI : MonoBehaviour
 #else
         SetStatus("Folder browser not available");
 #endif
+    }
+
+    void OpenVRFolderBrowser()
+    {
+        if (vrFileBrowser == null)
+            return;
+
+        // Hide main panel while browsing
+        if (mainPanel != null)
+            mainPanel.SetActive(false);
+
+        // Open VR browser in folder selection mode
+        string startPath = FileShareManager.Instance?.DownloadPath;
+        vrFileBrowser.OpenFolderBrowser(startPath);
+
+        SetStatus("Select download folder...");
+    }
+
+    void OnVRFolderSelected(string folderPath)
+    {
+        Debug.Log($"[FileSharingUI] VR folder selected: {folderPath}");
+
+        // Update download path
+        if (FileShareManager.Instance != null)
+        {
+            FileShareManager.Instance.DownloadPath = folderPath;
+        }
+
+        UpdateDownloadPathDisplay();
+        SetStatus("Download path updated");
+
+        // Show main panel again
+        if (mainPanel != null && _isOpen)
+            mainPanel.SetActive(true);
     }
 
     void OpenDownloadFolder()
@@ -477,6 +628,88 @@ public class FileSharingUI : MonoBehaviour
         {
             // Create delete button dynamically if it doesn't exist
             CreateDeleteButton(item, fileId);
+        }
+
+        // Add present button for presentable files (images and PDFs)
+        // Hide during active presentation
+        bool canPresent = FilePresentationManager.Instance != null &&
+                          FilePresentationManager.Instance.CanPresentFile(file.fileId) &&
+                          !_isPresentationActive;
+        bool inRoom = VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom;
+
+        Transform presentButtonTransform = item.transform.Find("PresentButton");
+        if (presentButtonTransform != null)
+        {
+            presentButtonTransform.gameObject.SetActive(canPresent && inRoom);
+
+            if (canPresent && inRoom)
+            {
+                Button presentBtn = presentButtonTransform.GetComponent<Button>();
+                if (presentBtn != null)
+                {
+                    presentBtn.onClick.RemoveAllListeners();
+                    presentBtn.onClick.AddListener(() => OnPresentFileClicked(fileId));
+                }
+            }
+        }
+        else if (canPresent && inRoom)
+        {
+            // Create present button dynamically if it doesn't exist
+            CreatePresentButton(item, fileId);
+        }
+    }
+
+    void CreatePresentButton(GameObject parent, string fileId)
+    {
+        GameObject presentBtn = new GameObject("PresentButton");
+        presentBtn.transform.SetParent(parent.transform, false);
+
+        RectTransform rt = presentBtn.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1, 0.5f);
+        rt.anchorMax = new Vector2(1, 0.5f);
+        rt.pivot = new Vector2(1, 0.5f);
+        rt.anchoredPosition = new Vector2(-40, 0);  // Left of delete button
+        rt.sizeDelta = new Vector2(60, 25);
+
+        Image img = presentBtn.AddComponent<Image>();
+        img.color = new Color(0.2f, 0.6f, 0.9f, 1f);  // Blue color
+
+        Button btn = presentBtn.AddComponent<Button>();
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(() => OnPresentFileClicked(fileId));
+
+        // Add text
+        GameObject textObj = new GameObject("Text");
+        textObj.transform.SetParent(presentBtn.transform, false);
+
+        RectTransform textRt = textObj.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI text = textObj.AddComponent<TextMeshProUGUI>();
+        text.text = "Present";
+        text.fontSize = 12;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.Center;
+    }
+
+    void OnPresentFileClicked(string fileId)
+    {
+        if (FilePresentationManager.Instance == null)
+            return;
+
+        // Find the whiteboard to present on
+        Whiteboard targetWhiteboard = FindAnyObjectByType<Whiteboard>();
+        if (targetWhiteboard != null)
+        {
+            FilePresentationManager.Instance.StartPresentation(fileId, targetWhiteboard);
+            Debug.Log($"[FileSharingUI] Starting presentation of {fileId}");
+        }
+        else
+        {
+            Debug.LogWarning("[FileSharingUI] No whiteboard found for presentation");
         }
     }
 
@@ -600,6 +833,98 @@ public class FileSharingUI : MonoBehaviour
     {
         SetStatus($"Error: {errorMessage}");
         Debug.LogWarning($"[FileSharingUI] Error ({context}): {errorMessage}");
+    }
+
+    #endregion
+
+    #region Presentation Event Handlers
+
+    void OnPresentationStarted(string whiteboardId, string fileId, string presenterId, string presenterName)
+    {
+        _isPresentationActive = true;
+
+        // Show stop button only if we are the presenter
+        bool isLocalPresenter = (presenterId == VRNetworkManager.LocalId);
+
+        // Create stop button dynamically if not configured
+        if (stopPresentationButton == null && isLocalPresenter && mainPanel != null)
+        {
+            CreateDynamicStopButton();
+        }
+
+        if (stopPresentationButton != null)
+            stopPresentationButton.gameObject.SetActive(isLocalPresenter);
+
+        if (presentationStatusText != null)
+        {
+            presentationStatusText.gameObject.SetActive(true);
+            if (isLocalPresenter)
+                presentationStatusText.text = "You are presenting";
+            else
+                presentationStatusText.text = $"{presenterName} is presenting";
+        }
+
+        // Refresh list to hide present buttons during presentation
+        if (_isOpen)
+            RefreshFileList();
+    }
+
+    void CreateDynamicStopButton()
+    {
+        if (mainPanel == null) return;
+
+        GameObject stopBtn = new GameObject("StopPresentationButton");
+        stopBtn.transform.SetParent(mainPanel.transform, false);
+
+        RectTransform rt = stopBtn.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 1);
+        rt.anchorMax = new Vector2(0.5f, 1);
+        rt.pivot = new Vector2(0.5f, 1);
+        rt.anchoredPosition = new Vector2(0, -10);
+        rt.sizeDelta = new Vector2(150, 40);
+
+        Image img = stopBtn.AddComponent<Image>();
+        img.color = new Color(0.9f, 0.2f, 0.2f, 1f);  // Red color
+
+        stopPresentationButton = stopBtn.AddComponent<Button>();
+        stopPresentationButton.targetGraphic = img;
+        stopPresentationButton.onClick.AddListener(OnStopPresentationClicked);
+
+        // Add text
+        GameObject textObj = new GameObject("Text");
+        textObj.transform.SetParent(stopBtn.transform, false);
+
+        RectTransform textRt = textObj.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI text = textObj.AddComponent<TextMeshProUGUI>();
+        text.text = "Stop Presentation";
+        text.fontSize = 14;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.Center;
+    }
+
+    void OnPresentationStopped(string whiteboardId, string presenterId)
+    {
+        _isPresentationActive = false;
+
+        if (stopPresentationButton != null)
+            stopPresentationButton.gameObject.SetActive(false);
+
+        if (presentationStatusText != null)
+            presentationStatusText.gameObject.SetActive(false);
+
+        // Refresh list to show present buttons again
+        if (_isOpen)
+            RefreshFileList();
+    }
+
+    void OnStopPresentationClicked()
+    {
+        FilePresentationManager.Instance?.StopPresentation();
     }
 
     #endregion

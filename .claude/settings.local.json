@@ -36,7 +36,14 @@
       "mcp__UnityMCP__find_gameobjects",
       "mcp__UnityMCP__manage_components",
       "mcp__filesystem__list_directory",
-      "mcp__filesystem__list_allowed_directories"
+      "mcp__filesystem__list_allowed_directories",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__read_text_file",
+      "Bash(find:*)",
+      "mcp__memory__read_graph",
+      "mcp__memory__add_observations",
+      "mcp__memory__create_entities",
+      "mcp__memory__create_relations"
     ]
   }
 }
