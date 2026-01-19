@@ -37,8 +37,6 @@ public class VRNetworkManager : MonoBehaviour
     private WebSocket _websocket;
     private bool _isReconnecting;
     private float _reconnectTimer;
-
-    // P0 FIX: Exponential backoff tracking
     private float _currentReconnectDelay;
     private int _reconnectAttempts;
 

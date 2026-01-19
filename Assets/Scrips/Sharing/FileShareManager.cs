@@ -272,6 +272,17 @@ public class FileShareManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Gets the raw content of a shared file.
+    /// Used by FilePresentationManager to display files on whiteboard.
+    /// </summary>
+    public byte[] GetFileContent(string fileId)
+    {
+        if (_fileContents.TryGetValue(fileId, out var content))
+            return content;
+        return null;
+    }
+
+    /// <summary>
     /// Checks if the local player can remove a file (only the sharer can remove).
     /// </summary>
     public bool CanRemoveFile(string fileId)
