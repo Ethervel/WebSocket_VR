@@ -48,6 +48,22 @@ public class VoiceChatManager : MonoBehaviour
     [Tooltip("Timeout in seconds for peer connections that don't complete")]
     public float peerConnectionTimeout = 15f;
 
+    [Header("TURN Server Configuration (SECURITY)")]
+    [Tooltip("SECURITY: Use your own private TURN server in production. Public servers are for development only!")]
+    public bool useCustomTurnServer = false;
+
+    [Tooltip("Your private TURN server URL (e.g., turn:your-server.com:3478)")]
+    public string customTurnUrl = "";
+
+    [Tooltip("TURN server username")]
+    public string customTurnUsername = "";
+
+    [Tooltip("TURN server credential/password")]
+    public string customTurnCredential = "";
+
+    [Tooltip("Enable TURN over TCP (helps with restrictive firewalls)")]
+    public bool enableTurnTcp = true;
+
     // État
     private bool _isInitialized = false;
     private bool _isMicrophoneActive = false;
@@ -55,51 +71,107 @@ public class VoiceChatManager : MonoBehaviour
     private string _selectedMicrophone;
 
     // WebRTC
-    private Dictionary<string, RTCPeerConnection> _peerConnections = new Dictionary<string, RTCPeerConnection>();
-    private Dictionary<string, AudioSource> _remoteAudioSources = new Dictionary<string, AudioSource>();
+    // MINOR FIX: Added readonly to collections that are only assigned once
+    private readonly Dictionary<string, RTCPeerConnection> _peerConnections = new Dictionary<string, RTCPeerConnection>();
+    private readonly Dictionary<string, AudioSource> _remoteAudioSources = new Dictionary<string, AudioSource>();
     private MediaStream _localStream;
     private AudioStreamTrack _localAudioTrack;
 
     // P0 FIX: Track pending connections with their creation time for timeout handling
-    private Dictionary<string, float> _pendingConnectionStartTimes = new Dictionary<string, float>();
+    // MINOR FIX: Added readonly
+    private readonly Dictionary<string, float> _pendingConnectionStartTimes = new Dictionary<string, float>();
     private Coroutine _timeoutCheckCoroutine;
     
-    // Configuration STUN/TURN
-    // P0 FIX: Ajout de serveurs TURN pour les utilisateurs derrière NAT/firewall corporate
-    // Sans TURN, 15-20% des utilisateurs ne peuvent pas se connecter
-    private RTCConfiguration _rtcConfig = new RTCConfiguration
-    {
-        iceServers = new[]
-        {
-            // STUN servers (découverte IP publique)
-            new RTCIceServer { urls = new[] { "stun:stun.l.google.com:19302" } },
-            new RTCIceServer { urls = new[] { "stun:stun1.l.google.com:19302" } },
-            new RTCIceServer { urls = new[] { "stun:stun.cloudflare.com:3478" } },
+    // Configuration STUN/TURN - built dynamically based on settings
+    private RTCConfiguration _rtcConfig;
 
-            // TURN servers publics gratuits (relay pour NAT symmetric/corporate)
-            // NOTE: Pour production, utiliser des serveurs TURN privés (Twilio, Xirsys, ou self-hosted)
-            new RTCIceServer
+    // MINOR FIX: Constants for STUN/TURN server URLs
+    private const string STUN_GOOGLE_1 = "stun:stun.l.google.com:19302";
+    private const string STUN_GOOGLE_2 = "stun:stun1.l.google.com:19302";
+    private const string STUN_CLOUDFLARE = "stun:stun.cloudflare.com:3478";
+    private const string TURN_PUBLIC_URL = "turn:openrelay.metered.ca";
+    private const string TURN_PUBLIC_USERNAME = "openrelayproject";
+    private const string TURN_PUBLIC_CREDENTIAL = "openrelayproject";
+
+    /// <summary>
+    /// SECURITY FIX: Builds RTCConfiguration dynamically based on settings.
+    /// Uses custom TURN server if configured, otherwise falls back to public servers with warnings.
+    /// </summary>
+    private RTCConfiguration BuildRTCConfiguration()
+    {
+        var iceServers = new System.Collections.Generic.List<RTCIceServer>();
+
+        // STUN servers (always included - these are public and safe)
+        // MINOR FIX: Use constants instead of hardcoded URLs
+        iceServers.Add(new RTCIceServer { urls = new[] { STUN_GOOGLE_1 } });
+        iceServers.Add(new RTCIceServer { urls = new[] { STUN_GOOGLE_2 } });
+        iceServers.Add(new RTCIceServer { urls = new[] { STUN_CLOUDFLARE } });
+
+        // TURN servers - use custom if configured, otherwise public fallback
+        if (useCustomTurnServer && !string.IsNullOrEmpty(customTurnUrl))
+        {
+            // Use custom private TURN server
+            Debug.Log("[VoiceChat] SECURITY: Using custom TURN server");
+
+            iceServers.Add(new RTCIceServer
             {
-                urls = new[] { "turn:openrelay.metered.ca:80" },
-                username = "openrelayproject",
-                credential = "openrelayproject"
-            },
-            new RTCIceServer
+                urls = new[] { customTurnUrl },
+                username = customTurnUsername,
+                credential = customTurnCredential
+            });
+
+            // Add TCP variant if enabled
+            if (enableTurnTcp && !customTurnUrl.Contains("transport="))
             {
-                urls = new[] { "turn:openrelay.metered.ca:443" },
-                username = "openrelayproject",
-                credential = "openrelayproject"
-            },
-            new RTCIceServer
-            {
-                urls = new[] { "turn:openrelay.metered.ca:443?transport=tcp" },
-                username = "openrelayproject",
-                credential = "openrelayproject"
+                string tcpUrl = customTurnUrl.Contains("?")
+                    ? customTurnUrl + "&transport=tcp"
+                    : customTurnUrl + "?transport=tcp";
+                iceServers.Add(new RTCIceServer
+                {
+                    urls = new[] { tcpUrl },
+                    username = customTurnUsername,
+                    credential = customTurnCredential
+                });
             }
-        },
-        // P0 FIX: Configuration ICE pour meilleure fiabilité
-        // Note: iceTransportPolicy et bundlePolicy utilisent les valeurs par défaut (All, MaxBundle)
-    };
+        }
+        else
+        {
+            // SECURITY WARNING: Using public TURN servers
+#if !UNITY_EDITOR
+            Debug.LogWarning("[VoiceChat] SECURITY WARNING: Using public TURN servers with shared credentials. " +
+                           "This is acceptable for development but NOT recommended for production. " +
+                           "Configure useCustomTurnServer with your own TURN server (Twilio, Xirsys, or self-hosted).");
+#else
+            Debug.Log("[VoiceChat] Note: Using public TURN servers. Configure custom TURN server for production.");
+#endif
+
+            // Public TURN servers as fallback (development only)
+            // MINOR FIX: Use constants instead of hardcoded URLs
+            iceServers.Add(new RTCIceServer
+            {
+                urls = new[] { $"{TURN_PUBLIC_URL}:80" },
+                username = TURN_PUBLIC_USERNAME,
+                credential = TURN_PUBLIC_CREDENTIAL
+            });
+            iceServers.Add(new RTCIceServer
+            {
+                urls = new[] { $"{TURN_PUBLIC_URL}:443" },
+                username = TURN_PUBLIC_USERNAME,
+                credential = TURN_PUBLIC_CREDENTIAL
+            });
+            iceServers.Add(new RTCIceServer
+            {
+                urls = new[] { $"{TURN_PUBLIC_URL}:443?transport=tcp" },
+                username = TURN_PUBLIC_USERNAME,
+                credential = TURN_PUBLIC_CREDENTIAL
+            });
+        }
+
+        return new RTCConfiguration
+        {
+            iceServers = iceServers.ToArray()
+        };
+    }
     
     // Events
     public static event Action OnVoiceChatReady;
@@ -116,6 +188,9 @@ public class VoiceChatManager : MonoBehaviour
         }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        // SECURITY FIX: Build RTCConfiguration with appropriate TURN servers
+        _rtcConfig = BuildRTCConfiguration();
     }
     
     void Start()
@@ -355,11 +430,35 @@ public class VoiceChatManager : MonoBehaviour
     
     public void SetMicrophone(string deviceName)
     {
+        // MINOR FIX: Validate device name parameter
+        if (string.IsNullOrEmpty(deviceName))
+        {
+            Debug.LogWarning("[VoiceChat] SetMicrophone called with null or empty device name");
+            return;
+        }
+
+        // MINOR FIX: Validate that the device exists
+        bool deviceExists = false;
+        foreach (string device in Microphone.devices)
+        {
+            if (device == deviceName)
+            {
+                deviceExists = true;
+                break;
+            }
+        }
+
+        if (!deviceExists)
+        {
+            Debug.LogWarning($"[VoiceChat] Microphone device not found: {deviceName}");
+            return;
+        }
+
         if (_isMicrophoneActive)
         {
             StopMicrophone();
         }
-        
+
         _selectedMicrophone = deviceName;
         LogDebug($"[VoiceChat] Microphone changed to: {deviceName}");
     }
@@ -915,21 +1014,23 @@ public class VoiceChatManager : MonoBehaviour
             Debug.Log(message);
     }
     
+    // MINOR FIX: Wrap debug GUI in preprocessor directives to avoid runtime overhead in production builds
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
     void OnGUI()
     {
         if (!showDebugInfo) return;
-        
+
         GUILayout.BeginArea(new Rect(Screen.width - 310, 10, 300, 400));
         GUILayout.BeginVertical("box");
-        
+
         GUILayout.Label("=== Voice Chat Debug ===");
         GUILayout.Label($"Initialized: {_isInitialized}");
         GUILayout.Label($"Microphone: {(_isMicrophoneActive ? "ON 🎤" : "OFF 🔇")}");
         GUILayout.Label($"Selected Mic: {_selectedMicrophone}");
         GUILayout.Label($"Connections: {_peerConnections.Count}");
-        
+
         GUILayout.Space(10);
-        
+
         foreach (var kvp in _peerConnections)
         {
             var state = kvp.Value.IceConnectionState;
@@ -937,18 +1038,19 @@ public class VoiceChatManager : MonoBehaviour
             string shortId = kvp.Key.Length >= 8 ? kvp.Key.Substring(0, 8) : kvp.Key;
             GUILayout.Label($"{stateIcon} {shortId}: {state}");
         }
-        
+
         GUILayout.Space(10);
-        
+
         if (GUILayout.Button(_isMicrophoneActive ? "Stop Mic 🔇" : "Start Mic 🎤"))
         {
             ToggleMicrophone();
         }
-        
+
         GUILayout.EndVertical();
         GUILayout.EndArea();
     }
-    
+#endif
+
     #endregion
 }
 

@@ -15,7 +15,12 @@ public class VRNetworkManager : MonoBehaviour
     public static VRNetworkManager Instance { get; private set; }
 
     [Header("Server Configuration")]
+    [Tooltip("WebSocket server URL. SECURITY: Use wss:// (TLS) in production, ws:// only for local development")]
     public string serverUrl = "ws://localhost:8080";
+
+    [Tooltip("Enable this in production builds to enforce secure connections (wss://)")]
+    public bool enforceSecureConnection = false;
+
     public bool autoReconnect = true;
     public float reconnectDelay = 3f;
 
@@ -47,6 +52,18 @@ public class VRNetworkManager : MonoBehaviour
     // Cache pour réduire les allocations GC lors de l'envoi fréquent (30Hz)
     private readonly NetworkMessage _cachedOutgoingMessage = new NetworkMessage();
 
+    [Header("Rate Limiting (IMPORTANT FIX)")]
+    [Tooltip("Maximum messages per second (0 = unlimited)")]
+    public int maxMessagesPerSecond = 60;
+
+    [Tooltip("Burst allowance (messages allowed in quick succession)")]
+    public int burstAllowance = 10;
+
+    // IMPORTANT FIX: Rate limiting state
+    private float _rateLimitTokens;
+    private float _lastRateLimitRefill;
+    private int _messagesDropped;
+
     // ============================
     // EVENTS
     // ============================
@@ -75,9 +92,52 @@ public class VRNetworkManager : MonoBehaviour
     // P0 FIX: Ne plus utiliser async void Start() qui swallow les exceptions
     void Start()
     {
+        // SECURITY FIX: Validate secure connection requirements
+        ValidateConnectionSecurity();
+
         _currentReconnectDelay = initialReconnectDelay;
         _reconnectAttempts = 0;
+
+        // IMPORTANT FIX: Initialize rate limiting tokens
+        _rateLimitTokens = burstAllowance;
+        _lastRateLimitRefill = Time.unscaledTime;
+        _messagesDropped = 0;
+
         ConnectAsync();
+    }
+
+    /// <summary>
+    /// SECURITY FIX: Validates that the connection meets security requirements.
+    /// Warns or blocks insecure connections based on configuration.
+    /// </summary>
+    private void ValidateConnectionSecurity()
+    {
+        bool isSecure = serverUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase);
+        bool isLocalhost = serverUrl.Contains("localhost") || serverUrl.Contains("127.0.0.1");
+
+#if !UNITY_EDITOR
+        // In builds, always warn about insecure connections
+        if (!isSecure && !isLocalhost)
+        {
+            Debug.LogWarning("[VRNet] SECURITY WARNING: Using unencrypted WebSocket (ws://) connection to remote server. " +
+                           "This exposes all data to interception. Use wss:// in production!");
+        }
+
+        // Block if enforceSecureConnection is enabled
+        if (enforceSecureConnection && !isSecure)
+        {
+            Debug.LogError("[VRNet] SECURITY ERROR: enforceSecureConnection is enabled but serverUrl uses ws://. " +
+                          "Change to wss:// or disable enforceSecureConnection for local testing.");
+            enabled = false;
+            return;
+        }
+#else
+        // In editor, just log a reminder
+        if (!isSecure && !isLocalhost)
+        {
+            Debug.Log("[VRNet] Note: Using ws:// connection. Remember to use wss:// for production deployment.");
+        }
+#endif
     }
 
     // P0 FIX: Wrapper qui gère correctement les exceptions async
@@ -316,10 +376,50 @@ public class VRNetworkManager : MonoBehaviour
         SendInternal(type, dataJson);
     }
 
+    /// <summary>
+    /// IMPORTANT FIX: Check and consume rate limit tokens using token bucket algorithm.
+    /// Returns true if the message can be sent, false if rate limited.
+    /// </summary>
+    private bool CheckRateLimit(string messageType)
+    {
+        // Skip rate limiting if disabled
+        if (maxMessagesPerSecond <= 0)
+            return true;
+
+        // Refill tokens based on time elapsed
+        float currentTime = Time.unscaledTime;
+        float elapsed = currentTime - _lastRateLimitRefill;
+        _lastRateLimitRefill = currentTime;
+
+        // Add tokens based on time, capped at burst allowance
+        _rateLimitTokens = Mathf.Min(burstAllowance, _rateLimitTokens + (elapsed * maxMessagesPerSecond));
+
+        // Check if we have tokens available
+        if (_rateLimitTokens >= 1f)
+        {
+            _rateLimitTokens -= 1f;
+            return true;
+        }
+
+        // Rate limited - drop the message
+        _messagesDropped++;
+        if (_messagesDropped % 100 == 1) // Log every 100th dropped message
+        {
+            Debug.LogWarning($"[VRNet] IMPORTANT FIX: Rate limited message '{messageType}' (total dropped: {_messagesDropped})");
+        }
+        return false;
+    }
+
     // P0 FIX: async void with proper exception handling
     private async void SendInternal(string type, string dataJson)
     {
         if (_websocket == null || _websocket.State != WebSocketState.Open)
+            return;
+
+        // IMPORTANT FIX: Apply rate limiting to prevent network flooding
+        // Skip rate limiting for critical messages (welcome handshake, room management)
+        bool isCritical = type == "welcome" || type.StartsWith("room-") || type.StartsWith("webrtc-");
+        if (!isCritical && !CheckRateLimit(type))
             return;
 
         try

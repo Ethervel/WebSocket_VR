@@ -15584,6 +15584,7 @@ MonoBehaviour:
   presentationControlsPosition: {x: 0, y: 0, z: 0}
   presentationControlsSize: {x: 500, y: 50}
   maxFileNameLength: 20
+  maxDownloadPathLength: 40
 --- !u!114 &660668647
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -21429,6 +21430,10 @@ PrefabInstance:
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: 43672be0899539340ba6ac5db322693c, type: 2}
+    - target: {fileID: -3752716904266626782, guid: 158d091c8ba317040997f78f4be9cbdd, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -14.57
+      objectReference: {fileID: 0}
     - target: {fileID: -2823411811668078566, guid: 158d091c8ba317040997f78f4be9cbdd, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -28532,13 +28537,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1133816870}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: 0, z: 0.7071068, w: 0.7071068}
   m_LocalPosition: {x: -0.156, y: -0.026, z: -0.027}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 158797904}
-  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 90}
 --- !u!1 &1141771726
 GameObject:
   m_ObjectHideFlags: 0
@@ -38797,6 +38802,7 @@ MonoBehaviour:
   presentationControlsPosition: {x: 0, y: 0, z: 0}
   presentationControlsSize: {x: 500, y: 50}
   maxFileNameLength: 20
+  maxDownloadPathLength: 40
 --- !u!114 &1508358533
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -39311,6 +39317,7 @@ MonoBehaviour:
   presentationControlsPosition: {x: 0, y: 0, z: 0}
   presentationControlsSize: {x: 500, y: 50}
   maxFileNameLength: 20
+  maxDownloadPathLength: 40
 --- !u!114 &1519299019
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -46868,7 +46875,8 @@ MonoBehaviour:
   id: Whiteboard_02
   textureSize: {x: 2048, y: 2048}
   backgroundWhiteboard: {fileID: 119269901}
-  drawingTexture: {fileID: 0}
+  stateRequestTimeout: 10
+  maxStateRequestRetries: 2
 --- !u!23 &1837117769
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -50987,7 +50995,8 @@ MonoBehaviour:
   id: Whiteboard_044
   textureSize: {x: 2048, y: 2048}
   backgroundWhiteboard: {fileID: 1929108976}
-  drawingTexture: {fileID: 0}
+  stateRequestTimeout: 10
+  maxStateRequestRetries: 2
 --- !u!23 &1987062776
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -54714,7 +54723,6 @@ GameObject:
   - component: {fileID: 5950609221776319100}
   - component: {fileID: 5151911558225444945}
   - component: {fileID: 110105093494430144}
-  - component: {fileID: 5950609221776319101}
   m_Layer: 0
   m_Name: Cube.001
   m_TagString: Untagged
@@ -56419,28 +56427,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 158797904}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!64 &5950609221776319101
-MeshCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1362689222261816257}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 5
-  m_Convex: 0
-  m_CookingOptions: 30
-  m_Mesh: {fileID: 4493585093827132993, guid: e9b68e426da2adb4f81f833208f39380, type: 3}
 --- !u!4 &6062732349809830243
 Transform:
   m_ObjectHideFlags: 0
@@ -56802,7 +56788,6 @@ GameObject:
   - component: {fileID: 6468385989109483359}
   - component: {fileID: 2321890766015787457}
   - component: {fileID: 6142644576319253790}
-  - component: {fileID: 7040021951435131318}
   m_Layer: 0
   m_Name: Cube
   m_TagString: Untagged
@@ -56810,28 +56795,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!64 &7040021951435131318
-MeshCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7040021951435131317}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 5
-  m_Convex: 0
-  m_CookingOptions: 30
-  m_Mesh: {fileID: -5495902117074765545, guid: e9b68e426da2adb4f81f833208f39380, type: 3}
 --- !u!4 &7150218417234550349
 Transform:
   m_ObjectHideFlags: 0

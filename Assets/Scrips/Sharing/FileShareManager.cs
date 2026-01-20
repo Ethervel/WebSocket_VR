@@ -31,6 +31,20 @@ public class FileShareManager : MonoBehaviour
     private Coroutine _pendingRequestCoroutine;
     private bool _hasRequestedList = false;
 
+    // IMPORTANT FIX: Timeout handling for late joiner state requests
+    [Header("State Request Timeout")]
+    [Tooltip("Timeout in seconds waiting for file list response")]
+    public float stateRequestTimeout = 10f;
+    [Tooltip("Maximum retry attempts for file list requests")]
+    public int maxStateRequestRetries = 2;
+    private int _stateRequestRetries = 0;
+    private bool _waitingForListResponse = false;
+
+    // MINOR FIX: Constants for magic numbers
+    private const int MAX_FILENAME_LENGTH = 200;
+    private const int MAX_DUPLICATE_ATTEMPTS = 1000;
+    private const int MAX_PATH_LENGTH = 260; // Windows MAX_PATH
+
     /// <summary>
     /// Gets or sets the download path. Saved to PlayerPrefs.
     /// </summary>
@@ -80,7 +94,8 @@ public class FileShareManager : MonoBehaviour
         FileTooLarge,
         UnsupportedType,
         FileNotFound,
-        ReadError
+        ReadError,
+        PathTooLong  // MINOR FIX: Added for path length validation
     }
 
     #region Singleton & Lifecycle
@@ -134,6 +149,10 @@ public class FileShareManager : MonoBehaviour
 
         if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             return FileValidationResult.FileNotFound;
+
+        // MINOR FIX: Validate path length to avoid Windows MAX_PATH issues
+        if (filePath.Length > MAX_PATH_LENGTH)
+            return FileValidationResult.PathTooLong;
 
         try
         {
@@ -196,6 +215,13 @@ public class FileShareManager : MonoBehaviour
             _sharedFiles[metadata.fileId] = metadata;
             _fileContents[metadata.fileId] = fileBytes;
 
+            // MINOR FIX: Check connection before sending
+            if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null)
+            {
+                OnFileShareError?.Invoke("share", "Cannot share file - not connected");
+                return;
+            }
+
             // Broadcast to room
             VRNetworkManager.Instance.Send("file-share-upload", new FileShareUploadData
             {
@@ -240,6 +266,13 @@ public class FileShareManager : MonoBehaviour
         if (_fileContents.ContainsKey(fileId))
         {
             SaveFileLocally(fileId, metadata.fileName, _fileContents[fileId]);
+            return;
+        }
+
+        // MINOR FIX: Check connection before sending
+        if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null)
+        {
+            OnFileShareError?.Invoke(fileId, "Cannot download - not connected");
             return;
         }
 
@@ -311,6 +344,15 @@ public class FileShareManager : MonoBehaviour
         _sharedFiles.Remove(fileId);
         _fileContents.Remove(fileId);
 
+        // MINOR FIX: Check connection before sending
+        if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null)
+        {
+            Debug.LogWarning("[FileShare] Cannot broadcast removal - not connected");
+            OnFileRemoved?.Invoke(fileId);
+            OnFileListUpdated?.Invoke(GetSharedFilesList());
+            return;
+        }
+
         // Broadcast removal to room
         VRNetworkManager.Instance.Send("file-removed", new FileRemovedData
         {
@@ -355,6 +397,58 @@ public class FileShareManager : MonoBehaviour
 
     #region Network Message Handling
 
+    /// <summary>
+    /// IMPORTANT FIX: Safe JSON deserialization with validation.
+    /// Returns null if deserialization fails or data is invalid.
+    /// </summary>
+    private T TryDeserialize<T>(string json, string context) where T : class
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            Debug.LogWarning($"[FileShare] Empty JSON data for {context}");
+            return null;
+        }
+
+        try
+        {
+            T result = JsonUtility.FromJson<T>(json);
+            if (result == null)
+            {
+                Debug.LogWarning($"[FileShare] Null result from JSON for {context}");
+                return null;
+            }
+            return result;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[FileShare] JSON parse error for {context}: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// IMPORTANT FIX: Safe Base64 decode with validation.
+    /// Returns null if decode fails.
+    /// </summary>
+    private byte[] TryDecodeBase64(string base64Data, string context)
+    {
+        if (string.IsNullOrEmpty(base64Data))
+        {
+            Debug.LogWarning($"[FileShare] Empty Base64 data for {context}");
+            return null;
+        }
+
+        try
+        {
+            return Convert.FromBase64String(base64Data);
+        }
+        catch (FormatException e)
+        {
+            Debug.LogError($"[FileShare] Base64 decode error for {context}: {e.Message}");
+            return null;
+        }
+    }
+
     void HandleNetworkMessage(NetworkMessage msg)
     {
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
@@ -385,7 +479,8 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileRemoved(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileRemovedData>(msg.data);
+        var data = TryDeserialize<FileRemovedData>(msg.data, "file-removed");
+        if (data == null) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -408,13 +503,24 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileUpload(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileShareUploadData>(msg.data);
+        var data = TryDeserialize<FileShareUploadData>(msg.data, "file-share-upload");
+        if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
 
         // Ignore our own uploads
         if (data.sharerId == VRNetworkManager.LocalId) return;
+
+        // IMPORTANT FIX: Validate file data before processing
+        byte[] fileContent = TryDecodeBase64(data.fileDataBase64, $"file-upload:{data.fileId}");
+        if (fileContent == null) return;
+
+        // IMPORTANT FIX: Validate file size matches claimed size (prevent truncation attacks)
+        if (fileContent.Length != data.fileSize)
+        {
+            Debug.LogWarning($"[FileShare] File size mismatch for {data.fileName}: claimed {data.fileSize}, actual {fileContent.Length}");
+        }
 
         var metadata = new FileMetadata
         {
@@ -423,7 +529,7 @@ public class FileShareManager : MonoBehaviour
             fileName = data.fileName,
             fileExtension = data.fileExtension,
             mimeType = data.mimeType,
-            fileSize = data.fileSize,
+            fileSize = fileContent.Length, // Use actual size
             sharerId = data.sharerId,
             sharerName = data.sharerName,
             sharedTimestamp = data.timestamp
@@ -431,15 +537,7 @@ public class FileShareManager : MonoBehaviour
 
         // Store metadata and content
         _sharedFiles[data.fileId] = metadata;
-
-        try
-        {
-            _fileContents[data.fileId] = Convert.FromBase64String(data.fileDataBase64);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[FileShare] Failed to decode file content: {e.Message}");
-        }
+        _fileContents[data.fileId] = fileContent;
 
         OnFileShared?.Invoke(metadata);
         OnFileListUpdated?.Invoke(GetSharedFilesList());
@@ -449,7 +547,8 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileListRequest(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileListRequestData>(msg.data);
+        var data = TryDeserialize<FileListRequestData>(msg.data, "file-list-request");
+        if (data == null || string.IsNullOrEmpty(data.roomId)) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -467,6 +566,9 @@ public class FileShareManager : MonoBehaviour
 
         if (myFiles.Count == 0) return;
 
+        // MINOR FIX: Check connection before sending
+        if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null) return;
+
         // Serialize file list (workaround for JsonUtility nested object limitation)
         var fileList = new FileMetadataList(myFiles);
         string filesJson = JsonUtility.ToJson(fileList);
@@ -483,7 +585,8 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileListResponse(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileListResponseData>(msg.data);
+        var data = TryDeserialize<FileListResponseData>(msg.data, "file-list-response");
+        if (data == null || string.IsNullOrEmpty(data.roomId)) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -491,36 +594,36 @@ public class FileShareManager : MonoBehaviour
         // Only process if targeted at us
         if (data.targetPlayerId != VRNetworkManager.LocalId) return;
 
-        try
+        // IMPORTANT FIX: Mark list response as received for timeout handling
+        _waitingForListResponse = false;
+
+        var fileList = TryDeserialize<FileMetadataList>(data.filesJson, "file-list-inner");
+        if (fileList?.files == null) return;
+
+        int addedCount = 0;
+        foreach (var file in fileList.files)
         {
-            var fileList = JsonUtility.FromJson<FileMetadataList>(data.filesJson);
-            if (fileList?.files == null) return;
+            // IMPORTANT FIX: Validate file metadata
+            if (string.IsNullOrEmpty(file.fileId)) continue;
 
-            int addedCount = 0;
-            foreach (var file in fileList.files)
+            if (!_sharedFiles.ContainsKey(file.fileId))
             {
-                if (!_sharedFiles.ContainsKey(file.fileId))
-                {
-                    _sharedFiles[file.fileId] = file;
-                    addedCount++;
-                }
-            }
-
-            if (addedCount > 0)
-            {
-                OnFileListUpdated?.Invoke(GetSharedFilesList());
-                Debug.Log($"[FileShare] Added {addedCount} files from list response");
+                _sharedFiles[file.fileId] = file;
+                addedCount++;
             }
         }
-        catch (Exception e)
+
+        if (addedCount > 0)
         {
-            Debug.LogError($"[FileShare] Failed to parse file list response: {e.Message}");
+            OnFileListUpdated?.Invoke(GetSharedFilesList());
+            Debug.Log($"[FileShare] Added {addedCount} files from list response");
         }
     }
 
     void HandleDownloadRequest(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileDownloadRequestData>(msg.data);
+        var data = TryDeserialize<FileDownloadRequestData>(msg.data, "file-download-request");
+        if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -528,6 +631,9 @@ public class FileShareManager : MonoBehaviour
         // Only respond if we have the file content
         if (!_fileContents.TryGetValue(data.fileId, out var content)) return;
         if (!_sharedFiles.TryGetValue(data.fileId, out var metadata)) return;
+
+        // IMPORTANT FIX: Check connection before sending
+        if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null) return;
 
         VRNetworkManager.Instance.Send("file-download-response", new FileDownloadResponseData
         {
@@ -543,7 +649,8 @@ public class FileShareManager : MonoBehaviour
 
     void HandleDownloadResponse(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<FileDownloadResponseData>(msg.data);
+        var data = TryDeserialize<FileDownloadResponseData>(msg.data, "file-download-response");
+        if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -551,18 +658,16 @@ public class FileShareManager : MonoBehaviour
         // Only process if targeted at us
         if (data.targetPlayerId != VRNetworkManager.LocalId) return;
 
-        try
+        // IMPORTANT FIX: Safe Base64 decode
+        byte[] fileData = TryDecodeBase64(data.fileDataBase64, $"file-download:{data.fileId}");
+        if (fileData == null)
         {
-            byte[] fileData = Convert.FromBase64String(data.fileDataBase64);
-            _fileContents[data.fileId] = fileData;
+            OnFileShareError?.Invoke(data.fileId, "Download failed: Invalid data");
+            return;
+        }
 
-            SaveFileLocally(data.fileId, data.fileName, fileData);
-        }
-        catch (Exception e)
-        {
-            OnFileShareError?.Invoke(data.fileId, $"Download failed: {e.Message}");
-            Debug.LogError($"[FileShare] Download decode error: {e.Message}");
-        }
+        _fileContents[data.fileId] = fileData;
+        SaveFileLocally(data.fileId, data.fileName, fileData);
     }
 
     #endregion
@@ -585,7 +690,31 @@ public class FileShareManager : MonoBehaviour
 
         if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom && !_hasRequestedList)
         {
+            _stateRequestRetries = 0;
+            yield return StartCoroutine(RequestFileListWithTimeout());
+        }
+
+        _pendingRequestCoroutine = null;
+    }
+
+    // IMPORTANT FIX: Request file list with timeout and retry logic
+    IEnumerator RequestFileListWithTimeout()
+    {
+        while (_stateRequestRetries < maxStateRequestRetries)
+        {
+            _stateRequestRetries++;
+            _waitingForListResponse = true;
             _hasRequestedList = true;
+
+            Debug.Log($"[FileShare] IMPORTANT FIX: Requesting file list (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
+
+            // IMPORTANT FIX: Check connection before sending
+            if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null)
+            {
+                Debug.LogWarning("[FileShare] Cannot request file list - not connected");
+                _waitingForListResponse = false;
+                yield break;
+            }
 
             VRNetworkManager.Instance.Send("file-list-request", new FileListRequestData
             {
@@ -593,10 +722,28 @@ public class FileShareManager : MonoBehaviour
                 requesterId = VRNetworkManager.LocalId
             });
 
-            Debug.Log("[FileShare] Requested file list from room");
+            // Wait for response or timeout
+            float timer = 0f;
+            while (_waitingForListResponse && timer < stateRequestTimeout)
+            {
+                timer += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!_waitingForListResponse)
+            {
+                // Response received
+                Debug.Log("[FileShare] IMPORTANT FIX: File list response received");
+                yield break;
+            }
+
+            // Timeout - retry if attempts remaining
+            Debug.LogWarning($"[FileShare] IMPORTANT FIX: File list request timeout after {stateRequestTimeout}s (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
         }
 
-        _pendingRequestCoroutine = null;
+        // All retries exhausted - no files in room or network issue
+        _waitingForListResponse = false;
+        Debug.Log("[FileShare] IMPORTANT FIX: File list request completed - no shared files detected or timeout");
     }
 
     void OnRoomLeft()
@@ -645,6 +792,57 @@ public class FileShareManager : MonoBehaviour
 
     #region Helpers
 
+    /// <summary>
+    /// SECURITY FIX: Sanitizes filename to prevent path traversal attacks.
+    /// Removes directory separators, parent references, and invalid characters.
+    /// </summary>
+    private string SanitizeFileName(string fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+            return "unnamed_file";
+
+        // Remove any directory components (path traversal prevention)
+        fileName = Path.GetFileName(fileName);
+
+        // Remove parent directory references
+        fileName = fileName.Replace("..", "");
+
+        // Remove invalid filename characters
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        foreach (char c in invalidChars)
+        {
+            fileName = fileName.Replace(c, '_');
+        }
+
+        // Ensure filename isn't empty after sanitization
+        if (string.IsNullOrWhiteSpace(fileName))
+            return "unnamed_file";
+
+        // MINOR FIX: Use constant for max filename length
+        if (fileName.Length > MAX_FILENAME_LENGTH)
+            fileName = fileName.Substring(0, MAX_FILENAME_LENGTH);
+
+        return fileName;
+    }
+
+    /// <summary>
+    /// SECURITY FIX: Validates that the final path is within the allowed download directory.
+    /// </summary>
+    private bool IsPathWithinDownloadDirectory(string fullPath, string downloadPath)
+    {
+        try
+        {
+            string normalizedFullPath = Path.GetFullPath(fullPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedDownloadPath = Path.GetFullPath(downloadPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            return normalizedFullPath.StartsWith(normalizedDownloadPath, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     void SaveFileLocally(string fileId, string fileName, byte[] data)
     {
         string downloadPath = DownloadPath;
@@ -653,16 +851,42 @@ public class FileShareManager : MonoBehaviour
         {
             Directory.CreateDirectory(downloadPath);
 
-            string filePath = Path.Combine(downloadPath, fileName);
+            // SECURITY FIX: Sanitize filename to prevent path traversal
+            string sanitizedFileName = SanitizeFileName(fileName);
+
+            string filePath = Path.Combine(downloadPath, sanitizedFileName);
+
+            // SECURITY FIX: Verify path is within download directory
+            if (!IsPathWithinDownloadDirectory(filePath, downloadPath))
+            {
+                OnFileShareError?.Invoke(fileId, "Invalid file path detected");
+                Debug.LogError($"[FileShare] SECURITY: Path traversal attempt blocked for: {fileName}");
+                return;
+            }
 
             // Handle duplicate filenames
             int counter = 1;
-            string baseName = Path.GetFileNameWithoutExtension(fileName);
-            string ext = Path.GetExtension(fileName);
+            string baseName = Path.GetFileNameWithoutExtension(sanitizedFileName);
+            string ext = Path.GetExtension(sanitizedFileName);
             while (File.Exists(filePath))
             {
-                filePath = Path.Combine(downloadPath, $"{baseName}_{counter}{ext}");
+                string newFileName = $"{baseName}_{counter}{ext}";
+                filePath = Path.Combine(downloadPath, newFileName);
+
+                // Re-validate path after modification
+                if (!IsPathWithinDownloadDirectory(filePath, downloadPath))
+                {
+                    OnFileShareError?.Invoke(fileId, "Invalid file path detected");
+                    return;
+                }
+
                 counter++;
+                // MINOR FIX: Use constant for max duplicate attempts
+                if (counter > MAX_DUPLICATE_ATTEMPTS)
+                {
+                    OnFileShareError?.Invoke(fileId, "Too many duplicate files");
+                    return;
+                }
             }
 
             File.WriteAllBytes(filePath, data);
@@ -722,6 +946,8 @@ public class FileShareManager : MonoBehaviour
                 return "File not found";
             case FileValidationResult.ReadError:
                 return "Cannot read file";
+            case FileValidationResult.PathTooLong:
+                return "File path exceeds maximum length";
             default:
                 return "Unknown error";
         }

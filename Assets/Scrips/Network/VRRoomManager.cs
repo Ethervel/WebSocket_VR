@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
 using UnityEngine;
 
 // VR meeting room manager
@@ -674,16 +675,28 @@ public class VRRoomManager : MonoBehaviour
         }
     }
 
-    // Generates a 6-character room code with unambiguous characters
+    /// <summary>
+    /// IMPORTANT FIX: Generates a 6-character room code using cryptographically secure random.
+    /// Uses unambiguous characters (excludes O/0, I/1/L to avoid confusion).
+    /// System.Random is predictable and unsuitable for generating session identifiers.
+    /// </summary>
     string GenerateRoomId()
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         char[] id = new char[6];
-        var random = new System.Random();
 
-        for (int i = 0; i < 6; i++)
+        // IMPORTANT FIX: Use cryptographically secure random instead of System.Random
+        // System.Random is predictable if the seed is known (time-based)
+        using (var rng = RandomNumberGenerator.Create())
         {
-            id[i] = chars[random.Next(chars.Length)];
+            byte[] randomBytes = new byte[6];
+            rng.GetBytes(randomBytes);
+
+            for (int i = 0; i < 6; i++)
+            {
+                // Map each byte to a character index (modulo bias is negligible for 32-char alphabet)
+                id[i] = chars[randomBytes[i] % chars.Length];
+            }
         }
 
         return new string(id);

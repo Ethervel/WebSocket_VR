@@ -99,6 +99,9 @@ public class VRGameManager : MonoBehaviour
     // Using a parent container instead of individual DontDestroyOnLoad calls
     private Transform _detachedPartsContainer;
 
+    // MINOR FIX: Constants for layer names to avoid magic strings
+    private const string LAYER_WHITEBOARD = "Whiteboard";
+
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
     public static event Action<string, GameObject> OnRemotePlayerSpawned;
@@ -439,7 +442,8 @@ public class VRGameManager : MonoBehaviour
             if (cam != null && cam.GetComponent<UnityEngine.EventSystems.PhysicsRaycaster>() == null)
             {
                 var physicsRaycaster = cam.gameObject.AddComponent<UnityEngine.EventSystems.PhysicsRaycaster>();
-                physicsRaycaster.eventMask = LayerMask.GetMask("Whiteboard"); // Only raycast to whiteboard layer
+                // MINOR FIX: Use constant for layer name
+                physicsRaycaster.eventMask = LayerMask.GetMask(LAYER_WHITEBOARD); // Only raycast to whiteboard layer
                 Debug.Log("[VRGame] Added PhysicsRaycaster to camera for whiteboard drawing");
             }
         }
@@ -834,31 +838,35 @@ public class VRGameManager : MonoBehaviour
         Debug.Log($"[VRGame] Applied avatar color {color} to {remote.playerName}");
     }
 
+    // IMPORTANT FIX: Cached MaterialPropertyBlock to avoid memory allocations
+    // Using MaterialPropertyBlock avoids creating new Material instances (memory leak)
+    private static MaterialPropertyBlock _cachedPropertyBlock;
+
     void ApplyColorToRenderers(GameObject target, Color color)
     {
+        // IMPORTANT FIX: Use MaterialPropertyBlock instead of renderer.materials
+        // Accessing renderer.materials creates a copy of the materials array each time,
+        // causing memory leaks. MaterialPropertyBlock sets per-renderer properties without
+        // creating new Material instances.
+        if (_cachedPropertyBlock == null)
+            _cachedPropertyBlock = new MaterialPropertyBlock();
+
         // Apply to MeshRenderers
         foreach (var renderer in target.GetComponentsInChildren<MeshRenderer>(true))
         {
-            foreach (var mat in renderer.materials)
-            {
-                // Try common color properties
-                if (mat.HasProperty("_Color"))
-                    mat.SetColor("_Color", color);
-                if (mat.HasProperty("_BaseColor"))
-                    mat.SetColor("_BaseColor", color);
-            }
+            renderer.GetPropertyBlock(_cachedPropertyBlock);
+            _cachedPropertyBlock.SetColor("_Color", color);
+            _cachedPropertyBlock.SetColor("_BaseColor", color);
+            renderer.SetPropertyBlock(_cachedPropertyBlock);
         }
 
         // Apply to SkinnedMeshRenderers
         foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
         {
-            foreach (var mat in renderer.materials)
-            {
-                if (mat.HasProperty("_Color"))
-                    mat.SetColor("_Color", color);
-                if (mat.HasProperty("_BaseColor"))
-                    mat.SetColor("_BaseColor", color);
-            }
+            renderer.GetPropertyBlock(_cachedPropertyBlock);
+            _cachedPropertyBlock.SetColor("_Color", color);
+            _cachedPropertyBlock.SetColor("_BaseColor", color);
+            renderer.SetPropertyBlock(_cachedPropertyBlock);
         }
     }
 
@@ -1136,7 +1144,28 @@ public class VRGameManager : MonoBehaviour
         if (msg.type != "vr-position")
             return;
 
-        var data = JsonUtility.FromJson<VRPositionData>(msg.data);
+        // IMPORTANT FIX: Validate JSON before processing
+        if (string.IsNullOrEmpty(msg.data))
+        {
+            Debug.LogWarning("[VRGame] Empty vr-position data received");
+            return;
+        }
+
+        VRPositionData data;
+        try
+        {
+            data = JsonUtility.FromJson<VRPositionData>(msg.data);
+            if (data == null || string.IsNullOrEmpty(data.roomId))
+            {
+                Debug.LogWarning("[VRGame] Invalid vr-position data");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[VRGame] JSON parse error for vr-position: {e.Message}");
+            return;
+        }
 
         if (VRRoomManager.Instance == null || data.roomId != VRRoomManager.Instance.CurrentRoomId)
             return;

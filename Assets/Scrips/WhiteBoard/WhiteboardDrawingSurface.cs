@@ -23,7 +23,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     public Whiteboard backgroundWhiteboard;
 
     // Texture de dessin (transparente)
-    [HideInInspector] public Texture2D drawingTexture;
+    // MINOR FIX: Converted public field to property with private setter
+    [HideInInspector] public Texture2D drawingTexture { get; private set; }
 
     private Renderer _renderer;
     private bool _isInitialized = false;
@@ -42,6 +43,15 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     // P2 FIX: Track pending state request coroutine to prevent duplicates
     private Coroutine _pendingStateRequestCoroutine;
+
+    // IMPORTANT FIX: Timeout handling for late joiner state requests
+    [Header("State Request Timeout")]
+    [Tooltip("Timeout in seconds waiting for state response")]
+    public float stateRequestTimeout = 10f;
+    [Tooltip("Maximum retry attempts for state requests")]
+    public int maxStateRequestRetries = 2;
+    private int _stateRequestRetries = 0;
+    private bool _waitingForStateResponse = false;
 
 
     void Start()
@@ -194,13 +204,49 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         {
             if (!_hasRequestedState)
             {
-                RequestState();
-                _hasRequestedState = true;
+                _stateRequestRetries = 0;
+                yield return StartCoroutine(RequestStateWithTimeout());
             }
         }
 
         // P2 FIX: Clear coroutine reference when complete
         _pendingStateRequestCoroutine = null;
+    }
+
+    // IMPORTANT FIX: Request state with timeout and retry logic
+    System.Collections.IEnumerator RequestStateWithTimeout()
+    {
+        while (_stateRequestRetries < maxStateRequestRetries)
+        {
+            _stateRequestRetries++;
+            _waitingForStateResponse = true;
+
+            Debug.Log($"[DrawingSurface:{id}] IMPORTANT FIX: Requesting state (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
+            RequestState();
+            _hasRequestedState = true;
+
+            // Wait for response or timeout
+            float timer = 0f;
+            while (_waitingForStateResponse && timer < stateRequestTimeout)
+            {
+                timer += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!_waitingForStateResponse)
+            {
+                // Response received
+                Debug.Log($"[DrawingSurface:{id}] IMPORTANT FIX: State response received");
+                yield break;
+            }
+
+            // Timeout - retry if attempts remaining
+            Debug.LogWarning($"[DrawingSurface:{id}] IMPORTANT FIX: State request timeout after {stateRequestTimeout}s (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
+        }
+
+        // All retries exhausted
+        _waitingForStateResponse = false;
+        Debug.LogWarning($"[DrawingSurface:{id}] IMPORTANT FIX: State request failed after {maxStateRequestRetries} attempts - proceeding with empty canvas");
     }
 
     string GetCurrentRoomId()
@@ -244,7 +290,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void HandleBatchReceived(string dataJson, string senderId)
     {
-        WhiteboardBatchData batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
+        // IMPORTANT FIX: Defensive null checks
+        if (string.IsNullOrEmpty(dataJson)) return;
+
+        WhiteboardBatchData batchData;
+        try
+        {
+            batchData = JsonUtility.FromJson<WhiteboardBatchData>(dataJson);
+            if (batchData == null) return;
+        }
+        catch (Exception e)
+        {
+            // MINOR FIX: Log instead of silently swallowing
+            Debug.LogWarning($"[DrawingSurface:{id}] Failed to parse batch data: {e.Message}");
+            return;
+        }
 
         if (batchData.whiteboardId != id) return;
 
@@ -359,7 +419,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void HandleClearReceived(string dataJson, string senderId)
     {
-        WhiteboardClearData clearData = JsonUtility.FromJson<WhiteboardClearData>(dataJson);
+        // IMPORTANT FIX: Defensive null checks
+        if (string.IsNullOrEmpty(dataJson)) return;
+
+        WhiteboardClearData clearData;
+        try
+        {
+            clearData = JsonUtility.FromJson<WhiteboardClearData>(dataJson);
+            if (clearData == null) return;
+        }
+        catch (Exception e)
+        {
+            // MINOR FIX: Log instead of silently swallowing
+            Debug.LogWarning($"[DrawingSurface:{id}] Failed to parse clear data: {e.Message}");
+            return;
+        }
 
         if (clearData.whiteboardId != id) return;
         if (senderId == VRNetworkManager.LocalId) return;
@@ -403,7 +477,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void HandleStateRequest(string dataJson, string requesterId)
     {
-        WhiteboardRequestData request = JsonUtility.FromJson<WhiteboardRequestData>(dataJson);
+        // IMPORTANT FIX: Defensive null checks
+        if (string.IsNullOrEmpty(dataJson)) return;
+
+        WhiteboardRequestData request;
+        try
+        {
+            request = JsonUtility.FromJson<WhiteboardRequestData>(dataJson);
+            if (request == null) return;
+        }
+        catch (Exception e)
+        {
+            // MINOR FIX: Log instead of silently swallowing
+            Debug.LogWarning($"[DrawingSurface:{id}] Failed to parse state request: {e.Message}");
+            return;
+        }
 
         if (request.whiteboardId != id) return;
         if (request.requesterId == VRNetworkManager.LocalId) return;
@@ -460,7 +548,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void HandleStateReceived(string dataJson, string senderId)
     {
-        WhiteboardStateData state = JsonUtility.FromJson<WhiteboardStateData>(dataJson);
+        // IMPORTANT FIX: Defensive null checks
+        if (string.IsNullOrEmpty(dataJson)) return;
+
+        WhiteboardStateData state;
+        try
+        {
+            state = JsonUtility.FromJson<WhiteboardStateData>(dataJson);
+            if (state == null) return;
+        }
+        catch (Exception e)
+        {
+            // MINOR FIX: Log instead of silently swallowing
+            Debug.LogWarning($"[DrawingSurface:{id}] Failed to parse state data: {e.Message}");
+            return;
+        }
 
         if (state.whiteboardId != id) return;
         if (senderId == VRNetworkManager.LocalId) return;
@@ -468,9 +570,14 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         string currentRoom = GetCurrentRoomId();
         if (!string.IsNullOrEmpty(state.roomId) && state.roomId != currentRoom) return;
 
+        // IMPORTANT FIX: Validate Base64 data before decoding
+        if (string.IsNullOrEmpty(state.textureData)) return;
+
         try
         {
             byte[] pngData = Convert.FromBase64String(state.textureData);
+            if (pngData == null || pngData.Length == 0) return;
+
             Texture2D receivedTexture = new Texture2D(state.width, state.height);
             receivedTexture.LoadImage(pngData);
 
@@ -478,6 +585,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             drawingTexture.Apply();
 
             Destroy(receivedTexture);
+
+            // IMPORTANT FIX: Mark state response as received for timeout handling
+            _waitingForStateResponse = false;
         }
         catch (Exception e)
         {
@@ -488,7 +598,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     // P1 FIX: Handle history-based state sync (much faster than PNG)
     void HandleHistoryReceived(string dataJson, string senderId)
     {
-        WhiteboardHistoryData historyData = JsonUtility.FromJson<WhiteboardHistoryData>(dataJson);
+        // IMPORTANT FIX: Defensive null checks
+        if (string.IsNullOrEmpty(dataJson)) return;
+
+        WhiteboardHistoryData historyData;
+        try
+        {
+            historyData = JsonUtility.FromJson<WhiteboardHistoryData>(dataJson);
+            if (historyData == null) return;
+        }
+        catch (Exception e)
+        {
+            // MINOR FIX: Log instead of silently swallowing
+            Debug.LogWarning($"[DrawingSurface:{id}] Failed to parse history data: {e.Message}");
+            return;
+        }
 
         if (historyData.whiteboardId != id) return;
         if (senderId == VRNetworkManager.LocalId) return;
@@ -507,12 +631,18 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         foreach (var packet in historyData.packets)
         {
+            // IMPORTANT FIX: Skip invalid packets
+            if (packet == null || packet.pointsFlat == null) continue;
+
             ApplyPacket(packet, false, null); // Don't apply yet, batch it
             AddToHistory(packet);
         }
 
         // Single Apply() after replaying all strokes
         drawingTexture.Apply();
+
+        // IMPORTANT FIX: Mark state response as received for timeout handling
+        _waitingForStateResponse = false;
 
         Debug.Log($"[DrawingSurface:{id}] P1 FIX: Replayed {historyData.packets.Count} strokes from history");
     }
