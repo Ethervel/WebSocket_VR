@@ -33,6 +33,13 @@ public class FilePresentationManager : MonoBehaviour
     private Dictionary<int, byte[]> _pageCache = new Dictionary<int, byte[]>();
     private Texture2D _displayTexture;
 
+    // Zoom et Pan
+    private float _zoomLevel = 1f;
+    private Vector2 _panOffset = Vector2.zero;
+    private const float MIN_ZOOM = 0.5f;
+    private const float MAX_ZOOM = 4f;
+    private const float ZOOM_STEP = 0.25f;
+
     // État de réception par whiteboard
     private class WhiteboardPresentState
     {
@@ -54,12 +61,15 @@ public class FilePresentationManager : MonoBehaviour
     public static event Action<string, string> OnPresentationStopped; // wbId, presenterId
     public static event Action<string, int, int> OnPageChanged; // fileId, currentPage, totalPages
     public static event Action<string, string> OnPresentationError; // context, error
+    public static event Action<float, Vector2> OnZoomPanChanged; // zoomLevel, panOffset
 
     // Public properties
     public bool IsPresenting => _isPresenting;
     public string PresentingFileId => _presentingFileId;
     public int CurrentPage => _currentPage;
     public int TotalPages => _totalPages;
+    public float ZoomLevel => _zoomLevel;
+    public Vector2 PanOffset => _panOffset;
 
     public bool IsWhiteboardReceiving(string whiteboardId)
     {
@@ -206,13 +216,126 @@ public class FilePresentationManager : MonoBehaviour
             presenterId = VRNetworkManager.LocalId
         });
 
-        // Afficher la page
+        // Envoyer aussi l'image de la page pour les autres joueurs
+        if (_pageCache.TryGetValue(pageNumber, out byte[] pageBytes))
+        {
+            SendPage(pageNumber, pageBytes);
+        }
+
+        // Afficher la page localement
         DisplayPage(pageNumber);
         OnPageChanged?.Invoke(_presentingFileId, _currentPage, _totalPages);
     }
 
     public void NextPage() => NavigateToPage(_currentPage + 1);
     public void PreviousPage() => NavigateToPage(_currentPage - 1);
+
+    #endregion
+
+    #region Zoom and Pan
+
+    /// <summary>
+    /// Zoom avant
+    /// </summary>
+    public void ZoomIn()
+    {
+        SetZoom(_zoomLevel + ZOOM_STEP);
+    }
+
+    /// <summary>
+    /// Zoom arrière
+    /// </summary>
+    public void ZoomOut()
+    {
+        SetZoom(_zoomLevel - ZOOM_STEP);
+    }
+
+    /// <summary>
+    /// Définit le niveau de zoom
+    /// </summary>
+    public void SetZoom(float zoom)
+    {
+        float newZoom = Mathf.Clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+        if (Mathf.Approximately(newZoom, _zoomLevel)) return;
+
+        _zoomLevel = newZoom;
+
+        // Ajuster le pan pour rester dans les limites
+        ClampPan();
+
+        OnZoomPanChanged?.Invoke(_zoomLevel, _panOffset);
+        RefreshDisplay();
+
+        // Synchroniser avec les autres joueurs
+        SendZoomPanUpdate();
+    }
+
+    /// <summary>
+    /// Réinitialise le zoom et le pan
+    /// </summary>
+    public void ResetZoomPan()
+    {
+        _zoomLevel = 1f;
+        _panOffset = Vector2.zero;
+        OnZoomPanChanged?.Invoke(_zoomLevel, _panOffset);
+        RefreshDisplay();
+
+        // Synchroniser avec les autres joueurs
+        SendZoomPanUpdate();
+    }
+
+    /// <summary>
+    /// Déplace la vue (pan)
+    /// </summary>
+    public void Pan(Vector2 delta)
+    {
+        _panOffset += delta;
+        ClampPan();
+        OnZoomPanChanged?.Invoke(_zoomLevel, _panOffset);
+        RefreshDisplay();
+
+        // Synchroniser avec les autres joueurs
+        SendZoomPanUpdate();
+    }
+
+    /// <summary>
+    /// Définit la position de pan
+    /// </summary>
+    public void SetPan(Vector2 position)
+    {
+        _panOffset = position;
+        ClampPan();
+        OnZoomPanChanged?.Invoke(_zoomLevel, _panOffset);
+        RefreshDisplay();
+
+        // Synchroniser avec les autres joueurs
+        SendZoomPanUpdate();
+    }
+
+    private void ClampPan()
+    {
+        // Limite le pan pour que l'image reste visible
+        // À zoom 1x, pas de pan possible
+        // À zoom 2x, on peut se déplacer de ±0.5 dans chaque direction (normalisé)
+        float maxPan = Mathf.Max(0, (_zoomLevel - 1f) / (2f * _zoomLevel));
+        _panOffset.x = Mathf.Clamp(_panOffset.x, -maxPan, maxPan);
+        _panOffset.y = Mathf.Clamp(_panOffset.y, -maxPan, maxPan);
+    }
+
+    private void RefreshDisplay()
+    {
+        if (!_isPresenting || _displayTexture == null) return;
+
+        // Réafficher la page courante avec le nouveau zoom/pan
+        if (_presentingToWhiteboard != null)
+        {
+            _presentingToWhiteboard.UpdatePresentationTexture(_displayTexture);
+        }
+    }
+
+    #endregion
+
+    #region Stop Presentation
 
     /// <summary>
     /// Arrête la présentation
@@ -424,6 +547,23 @@ public class FilePresentationManager : MonoBehaviour
         });
     }
 
+    private void SendZoomPanUpdate()
+    {
+        if (!_isPresenting) return;
+        if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom) return;
+
+        VRNetworkManager.Instance.Send("file-present-zoom-pan", new FilePresentZoomPanData
+        {
+            roomId = VRRoomManager.Instance.CurrentRoomId,
+            whiteboardId = _presentingToWhiteboardId,
+            fileId = _presentingFileId,
+            presenterId = VRNetworkManager.LocalId,
+            zoomLevel = _zoomLevel,
+            panOffsetX = _panOffset.x,
+            panOffsetY = _panOffset.y
+        });
+    }
+
     #endregion
 
     #region Display
@@ -504,6 +644,9 @@ public class FilePresentationManager : MonoBehaviour
                 break;
             case "file-present-stop":
                 HandlePresentStop(msg);
+                break;
+            case "file-present-zoom-pan":
+                HandleZoomPan(msg);
                 break;
             case "file-present-request":
                 HandlePresentRequest(msg);
@@ -601,6 +744,34 @@ public class FilePresentationManager : MonoBehaviour
             state.currentPage = data.newPageNumber;
             OnPageChanged?.Invoke(data.fileId, state.currentPage, state.totalPages);
         }
+    }
+
+    private void HandleZoomPan(NetworkMessage msg)
+    {
+        var data = JsonUtility.FromJson<FilePresentZoomPanData>(msg.data);
+
+        if (VRRoomManager.Instance == null || data.roomId != VRRoomManager.Instance.CurrentRoomId)
+            return;
+
+        // Vérifier qu'on reçoit bien cette présentation
+        if (!_receivingStates.TryGetValue(data.whiteboardId, out var state))
+            return;
+
+        // Vérifier que c'est bien le présentateur qui envoie
+        if (state.presenterId != data.presenterId)
+            return;
+
+        Debug.Log($"[FilePresent] Received zoom/pan update: zoom={data.zoomLevel}, pan=({data.panOffsetX}, {data.panOffsetY})");
+
+        // Mettre à jour le whiteboard avec le nouveau zoom/pan
+        Whiteboard targetWhiteboard = FindWhiteboardById(data.whiteboardId);
+        if (targetWhiteboard != null)
+        {
+            targetWhiteboard.SetPresentationZoomPan(data.zoomLevel, new Vector2(data.panOffsetX, data.panOffsetY));
+        }
+
+        // Notifier l'UI
+        OnZoomPanChanged?.Invoke(data.zoomLevel, new Vector2(data.panOffsetX, data.panOffsetY));
     }
 
     private void HandlePresentStop(NetworkMessage msg)
@@ -854,6 +1025,10 @@ public class FilePresentationManager : MonoBehaviour
         _totalPages = 1;
         _currentPage = 0;
         _pageCache.Clear();
+
+        // Reset zoom and pan
+        _zoomLevel = 1f;
+        _panOffset = Vector2.zero;
 
         if (_displayTexture != null)
         {

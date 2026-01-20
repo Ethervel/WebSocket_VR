@@ -118,4 +118,16 @@ namespace VRMeeting.Sharing
         public int width;
         public int height;
     }
+
+    [Serializable]
+    public class FilePresentZoomPanData
+    {
+        public string roomId;
+        public string whiteboardId;
+        public string fileId;
+        public string presenterId;
+        public float zoomLevel;
+        public float panOffsetX;
+        public float panOffsetY;
+    }
 }

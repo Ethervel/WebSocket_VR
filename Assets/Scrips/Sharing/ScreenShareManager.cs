@@ -386,7 +386,7 @@ public class ScreenShareManager : MonoBehaviour
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             });
 
-            _sharingToWhiteboard.UpdatePresentationTexture(textureToSend);
+            _sharingToWhiteboard.UpdateScreenShare(textureToSend, rotate180: false);
 
             yield return frameDelay;
         }
@@ -532,7 +532,7 @@ public class ScreenShareManager : MonoBehaviour
             Whiteboard targetWhiteboard = FindWhiteboardById(data.whiteboardId);
             if (targetWhiteboard != null)
             {
-                targetWhiteboard.UpdatePresentationTexture(state.displayTexture);
+                targetWhiteboard.UpdateScreenShare(state.displayTexture, rotate180: false);
             }
         }
         catch (Exception e)
