@@ -31,6 +31,24 @@ public class FilePresentationUI : MonoBehaviour
     private bool _isPresenter = false;
     private string _currentWhiteboardId;
 
+    void OnEnable()
+    {
+        // S'abonner aux events dans OnEnable pour capturer les events des managers DontDestroyOnLoad
+        FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
+        FilePresentationManager.OnPageChanged += OnPageChanged;
+        FilePresentationManager.OnPresentationError += OnPresentationError;
+    }
+
+    void OnDisable()
+    {
+        // Se desabonner dans OnDisable
+        FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
+        FilePresentationManager.OnPageChanged -= OnPageChanged;
+        FilePresentationManager.OnPresentationError -= OnPresentationError;
+    }
+
     void Start()
     {
         // Connecter les boutons
@@ -40,12 +58,6 @@ public class FilePresentationUI : MonoBehaviour
             nextButton.onClick.AddListener(OnNextClicked);
         if (stopButton != null)
             stopButton.onClick.AddListener(OnStopClicked);
-
-        // S'abonner aux events
-        FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
-        FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
-        FilePresentationManager.OnPageChanged += OnPageChanged;
-        FilePresentationManager.OnPresentationError += OnPresentationError;
 
         // Etat initial: tout cache
         if (presenterPanel != null)
@@ -67,14 +79,70 @@ public class FilePresentationUI : MonoBehaviour
         {
             _currentWhiteboardId = targetWhiteboard.id;
         }
+
+        // Synchroniser avec l'etat actuel (si presentation deja en cours)
+        SyncWithCurrentPresentationState();
     }
 
     void OnDestroy()
     {
-        FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
-        FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
-        FilePresentationManager.OnPageChanged -= OnPageChanged;
-        FilePresentationManager.OnPresentationError -= OnPresentationError;
+        // Cleanup button listeners
+        if (prevButton != null)
+            prevButton.onClick.RemoveAllListeners();
+        if (nextButton != null)
+            nextButton.onClick.RemoveAllListeners();
+        if (stopButton != null)
+            stopButton.onClick.RemoveAllListeners();
+    }
+
+    /// <summary>
+    /// Synchronise l'UI avec l'etat de presentation actuel.
+    /// </summary>
+    void SyncWithCurrentPresentationState()
+    {
+        if (FilePresentationManager.Instance == null) return;
+        if (string.IsNullOrEmpty(_currentWhiteboardId)) return;
+
+        // Verifier si le local player presente
+        if (FilePresentationManager.Instance.IsPresenting)
+        {
+            _isPresenter = true;
+
+            if (presenterPanel != null)
+                presenterPanel.SetActive(true);
+            if (viewerPanel != null)
+                viewerPanel.SetActive(false);
+
+            string fileId = FilePresentationManager.Instance.PresentingFileId;
+            if (fileNameText != null && FileShareManager.Instance != null)
+            {
+                var metadata = FileShareManager.Instance.GetFileMetadata(fileId);
+                if (metadata != null)
+                {
+                    fileNameText.text = metadata.fileName;
+                }
+            }
+
+            UpdatePageDisplay();
+        }
+        // Verifier si on recoit une presentation sur ce whiteboard
+        else if (FilePresentationManager.Instance.IsWhiteboardReceiving(_currentWhiteboardId))
+        {
+            _isPresenter = false;
+            string presenterName = FilePresentationManager.Instance.GetPresenterName(_currentWhiteboardId);
+
+            if (presenterPanel != null)
+                presenterPanel.SetActive(false);
+            if (viewerPanel != null)
+                viewerPanel.SetActive(true);
+
+            if (presenterNameText != null)
+            {
+                presenterNameText.text = $"Presenting: {presenterName ?? "Someone"}";
+            }
+
+            UpdatePageDisplay();
+        }
     }
 
     /// <summary>

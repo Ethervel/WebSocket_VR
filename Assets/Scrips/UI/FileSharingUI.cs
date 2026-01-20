@@ -109,6 +109,27 @@ public class FileSharingUI : MonoBehaviour
 
     #region Lifecycle
 
+    void OnEnable()
+    {
+        // Subscribe to events in OnEnable (before Start) to catch events from DontDestroyOnLoad managers
+        FileShareManager.OnFileShared += OnFileShared;
+        FileShareManager.OnFileRemoved += OnFileRemoved;
+        FileShareManager.OnFileListUpdated += OnFileListUpdated;
+        FileShareManager.OnFileDownloadStarted += OnDownloadStarted;
+        FileShareManager.OnFileDownloadComplete += OnDownloadComplete;
+        FileShareManager.OnFileShareError += OnError;
+
+        // Subscribe to presentation events
+        FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
+        FilePresentationManager.OnPageChanged += OnPageChanged;
+        FilePresentationManager.OnZoomPanChanged += OnZoomPanChanged;
+
+        // Subscribe to screen share events (also blocks presenting)
+        ScreenShareManager.OnScreenShareStarted += OnScreenShareStarted;
+        ScreenShareManager.OnScreenShareStopped += OnScreenShareStopped;
+    }
+
     void Start()
     {
         // Button listeners
@@ -136,20 +157,6 @@ public class FileSharingUI : MonoBehaviour
 
         if (downloadPathInput != null)
             downloadPathInput.onEndEdit.AddListener(OnDownloadPathChanged);
-
-        // Subscribe to events
-        FileShareManager.OnFileShared += OnFileShared;
-        FileShareManager.OnFileRemoved += OnFileRemoved;
-        FileShareManager.OnFileListUpdated += OnFileListUpdated;
-        FileShareManager.OnFileDownloadStarted += OnDownloadStarted;
-        FileShareManager.OnFileDownloadComplete += OnDownloadComplete;
-        FileShareManager.OnFileShareError += OnError;
-
-        // Subscribe to presentation events
-        FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
-        FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
-        FilePresentationManager.OnPageChanged += OnPageChanged;
-        FilePresentationManager.OnZoomPanChanged += OnZoomPanChanged;
 
         // Presentation control buttons
         if (stopPresentationButton != null)
@@ -190,11 +197,35 @@ public class FileSharingUI : MonoBehaviour
 
         // Initialize download path display
         UpdateDownloadPathDisplay();
+
+        // Sync with current presentation state (in case presentation started before this UI loaded)
+        SyncWithCurrentPresentationState();
+    }
+
+    void OnDisable()
+    {
+        // Unsubscribe from events in OnDisable
+        FileShareManager.OnFileShared -= OnFileShared;
+        FileShareManager.OnFileRemoved -= OnFileRemoved;
+        FileShareManager.OnFileListUpdated -= OnFileListUpdated;
+        FileShareManager.OnFileDownloadStarted -= OnDownloadStarted;
+        FileShareManager.OnFileDownloadComplete -= OnDownloadComplete;
+        FileShareManager.OnFileShareError -= OnError;
+
+        // Unsubscribe presentation events
+        FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
+        FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
+        FilePresentationManager.OnPageChanged -= OnPageChanged;
+        FilePresentationManager.OnZoomPanChanged -= OnZoomPanChanged;
+
+        // Unsubscribe screen share events
+        ScreenShareManager.OnScreenShareStarted -= OnScreenShareStarted;
+        ScreenShareManager.OnScreenShareStopped -= OnScreenShareStopped;
     }
 
     void OnDestroy()
     {
-        // Cleanup listeners
+        // Cleanup button listeners
         if (fileButton != null) fileButton.onClick.RemoveAllListeners();
         if (closeButton != null) closeButton.onClick.RemoveAllListeners();
         if (shareButton != null) shareButton.onClick.RemoveAllListeners();
@@ -212,19 +243,6 @@ public class FileSharingUI : MonoBehaviour
             vrFileBrowser.OnBrowserClosed -= OnVRBrowserClosed;
         }
 
-        // Unsubscribe
-        FileShareManager.OnFileShared -= OnFileShared;
-        FileShareManager.OnFileRemoved -= OnFileRemoved;
-        FileShareManager.OnFileListUpdated -= OnFileListUpdated;
-        FileShareManager.OnFileDownloadStarted -= OnDownloadStarted;
-        FileShareManager.OnFileDownloadComplete -= OnDownloadComplete;
-        FileShareManager.OnFileShareError -= OnError;
-
-        // Unsubscribe presentation events
-        FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
-        FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
-        FilePresentationManager.OnPageChanged -= OnPageChanged;
-        FilePresentationManager.OnZoomPanChanged -= OnZoomPanChanged;
         // Cleanup presentation button listeners
         if (stopPresentationButton != null)
             stopPresentationButton.onClick.RemoveAllListeners();
@@ -264,6 +282,64 @@ public class FileSharingUI : MonoBehaviour
             Destroy(_previewTexture);
             _previewTexture = null;
         }
+    }
+
+    /// <summary>
+    /// Synchronise l'état de l'UI avec l'état actuel de présentation.
+    /// Appelé au démarrage pour gérer le cas où la présentation a commencé avant que cette UI soit chargée.
+    /// </summary>
+    void SyncWithCurrentPresentationState()
+    {
+        // Vérifier si une présentation est en cours via FilePresentationManager
+        if (FilePresentationManager.Instance != null)
+        {
+            // Vérifier si le manager local est en train de présenter
+            if (FilePresentationManager.Instance.IsPresenting)
+            {
+                _isPresentationActive = true;
+                ShowPresentationControls(true);
+
+                if (presentationStatusText != null)
+                {
+                    presentationStatusText.gameObject.SetActive(true);
+                    presentationStatusText.text = "You are presenting";
+                }
+            }
+            else
+            {
+                // Vérifier si on reçoit une présentation (quelqu'un d'autre présente)
+                string wbId = targetWhiteboard != null ? targetWhiteboard.id : null;
+                if (!string.IsNullOrEmpty(wbId) && FilePresentationManager.Instance.IsWhiteboardReceiving(wbId))
+                {
+                    _isPresentationActive = true;
+                    string presenterName = FilePresentationManager.Instance.GetPresenterName(wbId);
+
+                    if (presentationStatusText != null)
+                    {
+                        presentationStatusText.gameObject.SetActive(true);
+                        presentationStatusText.text = $"{presenterName ?? "Someone"} is presenting";
+                    }
+                }
+            }
+        }
+
+        // Vérifier aussi ScreenShareManager pour le screen sharing
+        if (ScreenShareManager.Instance != null)
+        {
+            bool isScreenSharing = ScreenShareManager.Instance.IsSharing;
+            bool isReceivingScreenShare = false;
+            if (targetWhiteboard != null)
+            {
+                isReceivingScreenShare = ScreenShareManager.Instance.IsWhiteboardReceiving(targetWhiteboard.id);
+            }
+
+            if (isScreenSharing || isReceivingScreenShare)
+            {
+                _isPresentationActive = true;
+            }
+        }
+
+        Debug.Log($"[FileSharingUI] SyncWithCurrentPresentationState: _isPresentationActive = {_isPresentationActive}");
     }
 
     #endregion
@@ -1253,17 +1329,33 @@ public class FileSharingUI : MonoBehaviour
 
     void OnPresentationStopped(string whiteboardId, string presenterId)
     {
-        _isPresentationActive = false;
-
         // Hide the controls panel
         ShowPresentationControls(false);
 
-        if (presentationStatusText != null)
-            presentationStatusText.gameObject.SetActive(false);
+        // Only reset if no screen share is active
+        bool screenShareActive = false;
+        if (ScreenShareManager.Instance != null)
+        {
+            screenShareActive = ScreenShareManager.Instance.IsSharing;
+            if (!screenShareActive && targetWhiteboard != null)
+            {
+                screenShareActive = ScreenShareManager.Instance.IsWhiteboardReceiving(targetWhiteboard.id);
+            }
+        }
+
+        if (!screenShareActive)
+        {
+            _isPresentationActive = false;
+
+            if (presentationStatusText != null)
+                presentationStatusText.gameObject.SetActive(false);
+        }
 
         // Refresh list to show present buttons again
         if (_isOpen)
             RefreshFileList();
+
+        Debug.Log($"[FileSharingUI] Presentation stopped, _isPresentationActive = {_isPresentationActive}");
     }
 
     void OnPageChanged(string fileId, int currentPage, int totalPages)
@@ -1355,6 +1447,62 @@ public class FileSharingUI : MonoBehaviour
             if (panDownButton != null)
                 panDownButton.interactable = canPan;
         }
+    }
+
+    #endregion
+
+    #region Screen Share Event Handlers
+
+    void OnScreenShareStarted(string whiteboardId, string sharerId, string sharerName)
+    {
+        _isPresentationActive = true;
+
+        // Fermer le VR file browser s'il est ouvert
+        if (vrFileBrowser != null && vrFileBrowser.browserPanel != null && vrFileBrowser.browserPanel.activeSelf)
+        {
+            vrFileBrowser.Close();
+        }
+
+        if (presentationStatusText != null)
+        {
+            presentationStatusText.gameObject.SetActive(true);
+            bool isLocalSharer = (sharerId == VRNetworkManager.LocalId);
+            if (isLocalSharer)
+                presentationStatusText.text = "You are sharing screen";
+            else
+                presentationStatusText.text = $"{sharerName} is sharing screen";
+        }
+
+        // Refresh list to hide present buttons during screen share
+        if (_isOpen)
+            RefreshFileList();
+
+        Debug.Log($"[FileSharingUI] Screen share started by {sharerName}, _isPresentationActive = true");
+    }
+
+    void OnScreenShareStopped(string whiteboardId, string sharerId)
+    {
+        // Only reset if no file presentation is active
+        bool filePresenting = FilePresentationManager.Instance != null && FilePresentationManager.Instance.IsPresenting;
+        bool fileReceiving = false;
+        if (FilePresentationManager.Instance != null && targetWhiteboard != null)
+        {
+            fileReceiving = FilePresentationManager.Instance.IsWhiteboardReceiving(targetWhiteboard.id);
+        }
+
+        if (!filePresenting && !fileReceiving)
+        {
+            _isPresentationActive = false;
+
+            if (presentationStatusText != null)
+                presentationStatusText.gameObject.SetActive(false);
+        }
+
+        // Refresh list to show present buttons again
+        if (_isOpen)
+            RefreshFileList();
+
+        Debug.Log($"[FileSharingUI] Screen share stopped, _isPresentationActive = {_isPresentationActive}");
     }
 
     #endregion
