@@ -29,6 +29,11 @@ public class Whiteboard : MonoBehaviour
     // Ressources screen share
     private RenderTexture _screenShareRT;
 
+    // Zoom/Pan reçus du réseau (pour les récepteurs)
+    private float _receivedZoomLevel = 1f;
+    private Vector2 _receivedPanOffset = Vector2.zero;
+    private Texture2D _lastReceivedTexture; // Cache pour re-render après zoom/pan
+
     // Events
     public static event Action<Whiteboard, bool> OnPresentationModeChanged;
 
@@ -99,6 +104,10 @@ public class Whiteboard : MonoBehaviour
             Debug.Log($"[Whiteboard] Already in presentation mode");
             return;
         }
+
+        // Réinitialiser le zoom/pan reçu
+        _receivedZoomLevel = 1f;
+        _receivedPanOffset = Vector2.zero;
 
         // Sauvegarder le fond actuel (au cas où on voudrait le restaurer)
         if (texture != null)
@@ -193,6 +202,17 @@ public class Whiteboard : MonoBehaviour
             _screenShareRT = null;
         }
 
+        // Nettoyer la texture cachée
+        if (_lastReceivedTexture != null)
+        {
+            Destroy(_lastReceivedTexture);
+            _lastReceivedTexture = null;
+        }
+
+        // Réinitialiser le zoom/pan reçu
+        _receivedZoomLevel = 1f;
+        _receivedPanOffset = Vector2.zero;
+
         _isPresentationMode = false;
         _presenterName = null;
 
@@ -204,7 +224,9 @@ public class Whiteboard : MonoBehaviour
     /// <summary>
     /// Met à jour l'affichage du screen share (appelé par ScreenShareManager)
     /// </summary>
-    public void UpdateScreenShare(Texture2D frameTexture)
+    /// <param name="frameTexture">La texture à afficher</param>
+    /// <param name="rotate180">True pour rotation 180° (PDF), False pour screen share</param>
+    public void UpdateScreenShare(Texture2D frameTexture, bool rotate180 = false)
     {
         if (!_isPresentationMode)
         {
@@ -247,22 +269,42 @@ public class Whiteboard : MonoBehaviour
 
         try
         {
-            // Créer une texture temporaire avec la bonne orientation et proportions
-            Texture2D displayTexture = CreateDisplayTexture(frameTexture);
-
-            if (displayTexture == null)
+            if (rotate180)
             {
-                Debug.LogError($"[Whiteboard:{id}] CreateDisplayTexture returned null!");
-                return;
+                // Pour PDF/File presentation: traitement complet avec rotation et aspect ratio
+                // Cacher la texture pour pouvoir re-render si zoom/pan change
+                if (_lastReceivedTexture == null || _lastReceivedTexture.width != frameTexture.width || _lastReceivedTexture.height != frameTexture.height)
+                {
+                    if (_lastReceivedTexture != null)
+                        Destroy(_lastReceivedTexture);
+                    _lastReceivedTexture = new Texture2D(frameTexture.width, frameTexture.height, TextureFormat.RGB24, false);
+                }
+                // Utiliser GetPixels/SetPixels au lieu de CopyTexture pour éviter les problèmes de mipmap
+                _lastReceivedTexture.SetPixels(frameTexture.GetPixels());
+                _lastReceivedTexture.Apply();
+
+                Texture2D displayTexture = CreateDisplayTexture(frameTexture, rotate180);
+
+                if (displayTexture == null)
+                {
+                    Debug.LogError($"[Whiteboard:{id}] CreateDisplayTexture returned null!");
+                    return;
+                }
+
+                Graphics.Blit(displayTexture, _screenShareRT);
+                Destroy(displayTexture);
             }
+            else
+            {
+                // Pour screen share: utiliser Graphics.Blit direct (rapide)
+                // Effacer avec du noir d'abord
+                RenderTexture.active = _screenShareRT;
+                GL.Clear(true, true, Color.black);
+                RenderTexture.active = null;
 
-            // Copier simplement vers la RenderTexture
-            Graphics.Blit(displayTexture, _screenShareRT);
-
-            Debug.Log($"[Whiteboard:{id}] Frame affichée: src={frameTexture.width}x{frameTexture.height}");
-
-            // Nettoyer
-            Destroy(displayTexture);
+                // Blit simple - la texture sera étirée pour remplir le RT
+                Graphics.Blit(frameTexture, _screenShareRT);
+            }
         }
         catch (System.Exception e)
         {
@@ -272,9 +314,11 @@ public class Whiteboard : MonoBehaviour
 
     /// <summary>
     /// Crée une texture avec fond noir, image centrée avec bonnes proportions,
-    /// et orientation corrigée (flip horizontal si nécessaire)
+    /// orientation corrigée si nécessaire, et zoom/pan appliqués
     /// </summary>
-    private Texture2D CreateDisplayTexture(Texture2D source)
+    /// <param name="source">Texture source</param>
+    /// <param name="rotate180">Appliquer une rotation 180°</param>
+    private Texture2D CreateDisplayTexture(Texture2D source, bool rotate180)
     {
         int dstWidth = (int)textureSize.x;
         int dstHeight = (int)textureSize.y;
@@ -287,19 +331,32 @@ public class Whiteboard : MonoBehaviour
         for (int i = 0; i < pixels.Length; i++)
             pixels[i] = Color.black;
 
+        // Récupérer zoom et pan - utiliser les valeurs locales du présentateur ou celles reçues du réseau
+        float zoomLevel = 1f;
+        Vector2 panOffset = Vector2.zero;
+        if (FilePresentationManager.Instance != null && FilePresentationManager.Instance.IsPresenting)
+        {
+            // On est le présentateur - utiliser nos propres valeurs
+            zoomLevel = FilePresentationManager.Instance.ZoomLevel;
+            panOffset = FilePresentationManager.Instance.PanOffset;
+        }
+        else
+        {
+            // On est un récepteur - utiliser les valeurs reçues du réseau
+            zoomLevel = _receivedZoomLevel;
+            panOffset = _receivedPanOffset;
+        }
+
         // Calculer l'aspect ratio réel du whiteboard (basé sur le mesh/transform)
         float whiteboardAspect = 1f;
         if (targetRenderer != null)
         {
             Vector3 scale = targetRenderer.transform.lossyScale;
-            Debug.Log($"[Whiteboard:{id}] Transform scale: {scale}");
 
             // Pour un Quad vertical, la largeur est X et la hauteur est Y
             // Pour un Plane horizontal tourné, ça peut être X/Z
             float xyRatio = Mathf.Abs(scale.x) / Mathf.Abs(scale.y);
             float xzRatio = Mathf.Abs(scale.x) / Mathf.Abs(scale.z);
-
-            Debug.Log($"[Whiteboard:{id}] X/Y ratio: {xyRatio:F2}, X/Z ratio: {xzRatio:F2}");
 
             // Utiliser le ratio qui semble le plus raisonnable (entre 0.3 et 3)
             if (xyRatio >= 0.3f && xyRatio <= 3f)
@@ -310,66 +367,66 @@ public class Whiteboard : MonoBehaviour
             {
                 whiteboardAspect = xzRatio;
             }
-
-            Debug.Log($"[Whiteboard:{id}] Using whiteboard aspect: {whiteboardAspect:F2}");
         }
 
-        // Calculer la zone de destination en préservant l'aspect ratio
-        // On doit PRÉ-COMPENSER pour l'étirement du mesh whiteboard
+        // Calculer la zone de destination BASE (à zoom 1x) en préservant l'aspect ratio
         float srcAspect = (float)source.width / source.height;
-
-        // L'aspect ratio de l'image DANS LA TEXTURE doit être ajusté
-        // pour compenser l'étirement du whiteboard
-        // Si whiteboard est 2.28:1 et texture est 1:1, le contenu sera étiré 2.28x horizontalement
-        // Donc on doit dessiner l'image 2.28x plus étroite dans la texture
         float compensatedSrcAspect = srcAspect / whiteboardAspect;
 
-        Debug.Log($"[Whiteboard:{id}] srcAspect={srcAspect:F2}, compensated={compensatedSrcAspect:F2}");
-
-        int targetWidth, targetHeight, offsetX, offsetY;
-
-        // Calculer par rapport à la texture carrée (1:1)
-        float textureAspect = (float)dstWidth / dstHeight; // = 1.0 pour texture carrée
+        int baseTargetWidth, baseTargetHeight;
+        float textureAspect = (float)dstWidth / dstHeight;
 
         if (compensatedSrcAspect > textureAspect)
         {
-            // Image compensée plus large - utiliser toute la largeur
-            targetWidth = dstWidth;
-            targetHeight = Mathf.RoundToInt(dstWidth / compensatedSrcAspect);
-            offsetX = 0;
-            offsetY = (dstHeight - targetHeight) / 2;
+            baseTargetWidth = dstWidth;
+            baseTargetHeight = Mathf.RoundToInt(dstWidth / compensatedSrcAspect);
         }
         else
         {
-            // Image compensée plus haute - utiliser toute la hauteur
-            targetHeight = dstHeight;
-            targetWidth = Mathf.RoundToInt(dstHeight * compensatedSrcAspect);
-            offsetX = (dstWidth - targetWidth) / 2;
-            offsetY = 0;
+            baseTargetHeight = dstHeight;
+            baseTargetWidth = Mathf.RoundToInt(dstHeight * compensatedSrcAspect);
         }
 
-        // Protection contre les valeurs invalides
-        targetWidth = Mathf.Max(targetWidth, 2);
-        targetHeight = Mathf.Max(targetHeight, 2);
+        // Appliquer le zoom aux dimensions - l'image devient plus grande
+        int zoomedWidth = Mathf.RoundToInt(baseTargetWidth * zoomLevel);
+        int zoomedHeight = Mathf.RoundToInt(baseTargetHeight * zoomLevel);
 
-        Debug.Log($"[Whiteboard:{id}] target={targetWidth}x{targetHeight}, offset=({offsetX},{offsetY})");
+        // Protection contre les valeurs invalides
+        zoomedWidth = Mathf.Max(zoomedWidth, 2);
+        zoomedHeight = Mathf.Max(zoomedHeight, 2);
+
+        // Calculer l'offset pour centrer, puis appliquer le pan
+        // Le pan est en coordonnées normalisées (-0.5 à 0.5 selon le zoom)
+        int offsetX = (dstWidth - zoomedWidth) / 2 - Mathf.RoundToInt(panOffset.x * zoomedWidth);
+        int offsetY = (dstHeight - zoomedHeight) / 2 - Mathf.RoundToInt(panOffset.y * zoomedHeight);
 
         // Copier les pixels avec redimensionnement bilinéaire et rotation 180°
         Color[] srcPixels = source.GetPixels();
         int srcWidth = source.width;
         int srcHeight = source.height;
 
-        for (int y = 0; y < targetHeight; y++)
+        for (int y = 0; y < zoomedHeight; y++)
         {
-            for (int x = 0; x < targetWidth; x++)
+            for (int x = 0; x < zoomedWidth; x++)
             {
-                // Position normalisée dans la source (0-1)
-                float u = (float)x / Mathf.Max(targetWidth - 1, 1);
-                float v = (float)y / Mathf.Max(targetHeight - 1, 1);
+                // Position dans la destination
+                int dstX = offsetX + x;
+                int dstY = offsetY + y;
 
-                // Rotation 180° = flip horizontal + flip vertical
-                u = 1f - u;
-                v = 1f - v;
+                // Vérifier si on est dans les limites de la destination
+                if (dstX < 0 || dstX >= dstWidth || dstY < 0 || dstY >= dstHeight)
+                    continue;
+
+                // Position normalisée dans la source (0-1)
+                float u = (float)x / Mathf.Max(zoomedWidth - 1, 1);
+                float v = (float)y / Mathf.Max(zoomedHeight - 1, 1);
+
+                // Rotation 180° si demandé (pour PDF)
+                if (rotate180)
+                {
+                    u = 1f - u;
+                    v = 1f - v;
+                }
 
                 // Position dans la source
                 float srcX = u * (srcWidth - 1);
@@ -395,20 +452,37 @@ public class Whiteboard : MonoBehaviour
                     fy
                 );
 
-                // Position dans la destination
-                int dstX = offsetX + x;
-                int dstY = offsetY + y;
-
-                if (dstX >= 0 && dstX < dstWidth && dstY >= 0 && dstY < dstHeight)
-                {
-                    pixels[dstY * dstWidth + dstX] = c;
-                }
+                pixels[dstY * dstWidth + dstX] = c;
             }
         }
 
         result.SetPixels(pixels);
         result.Apply();
         return result;
+    }
+
+    /// <summary>
+    /// Met à jour le zoom et le pan reçus du réseau et rafraîchit l'affichage.
+    /// Appelé par FilePresentationManager quand on reçoit un message file-present-zoom-pan.
+    /// </summary>
+    public void SetPresentationZoomPan(float zoomLevel, Vector2 panOffset)
+    {
+        if (!_isPresentationMode)
+        {
+            Debug.LogWarning($"[Whiteboard:{id}] SetPresentationZoomPan appelé mais pas en mode présentation");
+            return;
+        }
+
+        _receivedZoomLevel = zoomLevel;
+        _receivedPanOffset = panOffset;
+
+        Debug.Log($"[Whiteboard:{id}] Zoom/Pan mis à jour: zoom={zoomLevel}, pan={panOffset}");
+
+        // Re-render avec le nouveau zoom/pan si on a une texture en cache
+        if (_lastReceivedTexture != null)
+        {
+            UpdateScreenShare(_lastReceivedTexture, rotate180: true);
+        }
     }
 
     void CleanupResources()
@@ -427,6 +501,16 @@ public class Whiteboard : MonoBehaviour
             Destroy(_savedTexture);
             _savedTexture = null;
         }
+
+        if (_lastReceivedTexture != null)
+        {
+            Destroy(_lastReceivedTexture);
+            _lastReceivedTexture = null;
+        }
+
+        // Réinitialiser le zoom/pan
+        _receivedZoomLevel = 1f;
+        _receivedPanOffset = Vector2.zero;
 
         // Nettoyer le material créé dynamiquement
         if (targetRenderer != null && targetRenderer.material != null)
@@ -459,11 +543,11 @@ public class Whiteboard : MonoBehaviour
     }
 
     /// <summary>
-    /// [LEGACY] Redirige vers UpdateScreenShare
+    /// [LEGACY] Redirige vers UpdateScreenShare avec rotation 180° pour les PDF
     /// </summary>
     public void UpdatePresentationTexture(Texture2D frameTexture)
     {
-        UpdateScreenShare(frameTexture);
+        UpdateScreenShare(frameTexture, rotate180: true);
     }
 
     #endregion

@@ -8,10 +8,21 @@ using UnityEngine.InputSystem;
 /// </summary>
 public class DesktopWhiteboardDrawer : MonoBehaviour
 {
+    public enum DrawingMode
+    {
+        Draw,       // Mode dessin normal
+        Cursor,     // Mode curseur - pas de dessin
+        Eraser      // Mode gomme - efface ce qu'on touche
+    }
+
     [Header("Configuration")]
     public int penSize = 10;
+    public int eraserSize = 40;
     public Color currentColor = Color.blue;
     public LayerMask drawingSurfaceLayer;
+
+    [Header("Mode")]
+    public DrawingMode currentMode = DrawingMode.Draw;
 
     [Header("Network Settings")]
     public float sendRate = 0.05f;
@@ -23,6 +34,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
     private Vector2 _lastTouchPos;
     private bool _touchedLastFrame;
     private RaycastHit _touch;
+    private Color _eraserColor = new Color(0, 0, 0, 0); // Transparent pour effacer
 
     // Network batching
     private float _networkTimer;
@@ -32,9 +44,13 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
     // Drawing colors
     private Color[] _colors;
+    private Color[] _eraserColors;
 
     // P2 FIX: Deferred Apply() to batch all SetPixels in a single Apply() per frame
     private bool _textureDirty = false;
+
+    // Events pour notifier l'UI du changement de mode
+    public static event System.Action<DrawingMode> OnModeChanged;
 
     void Start()
     {
@@ -55,6 +71,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         }
 
         ApplyColor(currentColor);
+        ApplyEraserColor();
     }
 
     void Update()
@@ -66,6 +83,17 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         }
 
         if (Mouse.current == null) return;
+
+        // En mode Cursor, ne pas dessiner
+        if (currentMode == DrawingMode.Cursor)
+        {
+            // Terminer le stroke si on était en train de dessiner
+            if (_touchedLastFrame)
+            {
+                EndStroke();
+            }
+            return;
+        }
 
         var mouse = Mouse.current;
         bool middlePressed = mouse.middleButton.isPressed;
@@ -136,11 +164,15 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
         if (tex == null) return;
 
-        int maxX = (int)surface.textureSize.x - penSize;
-        int maxY = (int)surface.textureSize.y - penSize;
+        // Utiliser la taille appropriée selon le mode
+        int currentSize = (currentMode == DrawingMode.Eraser) ? eraserSize : penSize;
+        Color[] colorsToUse = (currentMode == DrawingMode.Eraser) ? _eraserColors : _colors;
 
-        int x = Mathf.Clamp((int)(uv.x * surface.textureSize.x - penSize / 2), 0, maxX);
-        int y = Mathf.Clamp((int)(uv.y * surface.textureSize.y - penSize / 2), 0, maxY);
+        int maxX = (int)surface.textureSize.x - currentSize;
+        int maxY = (int)surface.textureSize.y - currentSize;
+
+        int x = Mathf.Clamp((int)(uv.x * surface.textureSize.x - currentSize / 2), 0, maxX);
+        int y = Mathf.Clamp((int)(uv.y * surface.textureSize.y - currentSize / 2), 0, maxY);
 
         // Draw locally
         if (_touchedLastFrame)
@@ -156,12 +188,12 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
                 float t = steps > 0 ? (float)i / steps : 0;
                 int lerpX = Mathf.Clamp((int)Mathf.Lerp(start.x, end.x, t), 0, maxX);
                 int lerpY = Mathf.Clamp((int)Mathf.Lerp(start.y, end.y, t), 0, maxY);
-                tex.SetPixels(lerpX, lerpY, penSize, penSize, _colors);
+                tex.SetPixels(lerpX, lerpY, currentSize, currentSize, colorsToUse);
             }
         }
         else
         {
-            tex.SetPixels(x, y, penSize, penSize, _colors);
+            tex.SetPixels(x, y, currentSize, currentSize, colorsToUse);
         }
 
         // P2 FIX: Mark texture as dirty instead of calling Apply() immediately
@@ -210,15 +242,20 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
         string roomId = VRRoomManager.Instance.CurrentRoomId;
 
+        // Utiliser la couleur et la taille appropriées selon le mode
+        bool isErasing = (currentMode == DrawingMode.Eraser);
+        Color colorToSend = isErasing ? _eraserColor : currentColor;
+        int sizeToSend = isErasing ? eraserSize : penSize;
+
         WhiteboardPacket packet = new WhiteboardPacket
         {
             whiteboardId = _currentSurfaceId,
             roomId = roomId,
-            r = currentColor.r,
-            g = currentColor.g,
-            b = currentColor.b,
-            a = currentColor.a,
-            penSize = penSize,
+            r = colorToSend.r,
+            g = colorToSend.g,
+            b = colorToSend.b,
+            a = colorToSend.a,
+            penSize = sizeToSend,
             isNewStroke = _isNewStroke, // Indique si c'est un nouveau trait
             pointsFlat = _pendingPointsFlat.ToArray()
         };
@@ -270,4 +307,78 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         for (int i = 0; i < count; i++)
             _colors[i] = c;
     }
+
+    private int _lastEraserSize = -1;
+
+    void ApplyEraserColor()
+    {
+        int count = eraserSize * eraserSize;
+
+        // Only reallocate if size changed
+        if (_eraserColors == null || _lastEraserSize != eraserSize)
+        {
+            _eraserColors = new Color[count];
+            _lastEraserSize = eraserSize;
+        }
+
+        // Fill with transparent color
+        for (int i = 0; i < count; i++)
+            _eraserColors[i] = _eraserColor;
+    }
+
+    #region Mode Methods
+
+    /// <summary>
+    /// Définit le mode de dessin
+    /// </summary>
+    public void SetMode(DrawingMode mode)
+    {
+        Debug.Log($"[DesktopDrawer] SetMode appelé: {mode} (actuel: {currentMode})");
+
+        if (currentMode == mode)
+        {
+            Debug.Log($"[DesktopDrawer] Mode déjà actif, pas de changement");
+            return;
+        }
+
+        currentMode = mode;
+        Debug.Log($"[DesktopDrawer] Mode changé avec succès: {currentMode}");
+        OnModeChanged?.Invoke(mode);
+    }
+
+    /// <summary>
+    /// Active le mode curseur (pas de dessin)
+    /// </summary>
+    public void SetCursorMode()
+    {
+        SetMode(DrawingMode.Cursor);
+    }
+
+    /// <summary>
+    /// Active le mode dessin
+    /// </summary>
+    public void SetDrawMode()
+    {
+        SetMode(DrawingMode.Draw);
+    }
+
+    /// <summary>
+    /// Active le mode gomme
+    /// </summary>
+    public void SetEraserMode()
+    {
+        SetMode(DrawingMode.Eraser);
+        // S'assurer que la taille de la gomme est initialisée
+        ApplyEraserColor();
+    }
+
+    /// <summary>
+    /// Retourne le mode actuel
+    /// </summary>
+    public DrawingMode GetCurrentMode()
+    {
+        return currentMode;
+    }
+
+    #endregion
 }

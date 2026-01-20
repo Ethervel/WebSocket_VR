@@ -44,11 +44,57 @@ public class FileSharingUI : MonoBehaviour
     [Tooltip("VR File Browser component for in-VR file selection")]
     public VRFileBrowser vrFileBrowser;
 
+    [Header("Whiteboard")]
+    [Tooltip("Le whiteboard sur lequel présenter les fichiers. Si non assigné, cherche le premier disponible.")]
+    public Whiteboard targetWhiteboard;
+
     [Header("Presentation Controls")]
     [Tooltip("Button to stop ongoing presentation")]
     public Button stopPresentationButton;
+    [Tooltip("Button for previous page")]
+    public Button prevPageButton;
+    [Tooltip("Button for next page")]
+    public Button nextPageButton;
+    [Tooltip("Text showing page number")]
+    public TextMeshProUGUI pageNumberText;
     [Tooltip("Text showing current presentation status")]
     public TextMeshProUGUI presentationStatusText;
+
+    [Header("Zoom Controls")]
+    [Tooltip("Button for zoom in")]
+    public Button zoomInButton;
+    [Tooltip("Button for zoom out")]
+    public Button zoomOutButton;
+    [Tooltip("Button for reset zoom")]
+    public Button resetZoomButton;
+    [Tooltip("Text showing zoom level")]
+    public TextMeshProUGUI zoomLevelText;
+
+    [Header("Pan Controls")]
+    [Tooltip("Button for pan left")]
+    public Button panLeftButton;
+    [Tooltip("Button for pan right")]
+    public Button panRightButton;
+    [Tooltip("Button for pan up")]
+    public Button panUpButton;
+    [Tooltip("Button for pan down")]
+    public Button panDownButton;
+
+    [Header("Presentation Controls - Option 1: Prefab existant dans la scène")]
+    [Tooltip("Panneau de contrôles déjà créé dans la scène. Si assigné, sera utilisé au lieu de créer dynamiquement. Peut être caché (inactive) - sera activé pendant la présentation.")]
+    public GameObject existingPresentationControlsPanel;
+
+    [Header("Presentation Controls - Option 2: Création dynamique")]
+    [Tooltip("Transform parent où placer les contrôles de présentation. Si vide, utilise mainPanel. (Ignoré si existingPresentationControlsPanel est assigné)")]
+    public Transform presentationControlsParent;
+    [Tooltip("Position locale des contrôles dans le parent (Ignoré si existingPresentationControlsPanel est assigné)")]
+    public Vector3 presentationControlsPosition = Vector3.zero;
+    [Tooltip("Taille du panneau de contrôles (Ignoré si existingPresentationControlsPanel est assigné)")]
+    public Vector2 presentationControlsSize = new Vector2(500, 50);
+
+    // Panneau créé dynamiquement (uniquement si existingPresentationControlsPanel n'est pas assigné)
+    private GameObject _presentationControlsPanel;
+    private bool _usingExistingPanel = false;
 
     [Header("Settings")]
     [Tooltip("Maximum length for displayed file names")]
@@ -102,13 +148,27 @@ public class FileSharingUI : MonoBehaviour
         // Subscribe to presentation events
         FilePresentationManager.OnPresentationStarted += OnPresentationStarted;
         FilePresentationManager.OnPresentationStopped += OnPresentationStopped;
+        FilePresentationManager.OnPageChanged += OnPageChanged;
+        FilePresentationManager.OnZoomPanChanged += OnZoomPanChanged;
 
-        // Stop presentation button
+        // Presentation control buttons
         if (stopPresentationButton != null)
         {
             stopPresentationButton.onClick.AddListener(OnStopPresentationClicked);
             stopPresentationButton.gameObject.SetActive(false);
         }
+        if (prevPageButton != null)
+        {
+            prevPageButton.onClick.AddListener(OnPrevPageClicked);
+            prevPageButton.gameObject.SetActive(false);
+        }
+        if (nextPageButton != null)
+        {
+            nextPageButton.onClick.AddListener(OnNextPageClicked);
+            nextPageButton.gameObject.SetActive(false);
+        }
+        if (pageNumberText != null)
+            pageNumberText.gameObject.SetActive(false);
         if (presentationStatusText != null)
             presentationStatusText.gameObject.SetActive(false);
 
@@ -123,6 +183,10 @@ public class FileSharingUI : MonoBehaviour
         // Initial state
         if (mainPanel != null) mainPanel.SetActive(false);
         if (previewPanel != null) previewPanel.SetActive(false);
+
+        // Cacher le panneau de contrôles existant au démarrage (sera activé pendant la présentation)
+        if (existingPresentationControlsPanel != null)
+            existingPresentationControlsPanel.SetActive(false);
 
         // Initialize download path display
         UpdateDownloadPathDisplay();
@@ -159,8 +223,33 @@ public class FileSharingUI : MonoBehaviour
         // Unsubscribe presentation events
         FilePresentationManager.OnPresentationStarted -= OnPresentationStarted;
         FilePresentationManager.OnPresentationStopped -= OnPresentationStopped;
+        FilePresentationManager.OnPageChanged -= OnPageChanged;
+        FilePresentationManager.OnZoomPanChanged -= OnZoomPanChanged;
+        // Cleanup presentation button listeners
         if (stopPresentationButton != null)
             stopPresentationButton.onClick.RemoveAllListeners();
+        if (prevPageButton != null)
+            prevPageButton.onClick.RemoveAllListeners();
+        if (nextPageButton != null)
+            nextPageButton.onClick.RemoveAllListeners();
+        if (zoomInButton != null)
+            zoomInButton.onClick.RemoveAllListeners();
+        if (zoomOutButton != null)
+            zoomOutButton.onClick.RemoveAllListeners();
+        if (resetZoomButton != null)
+            resetZoomButton.onClick.RemoveAllListeners();
+        if (panLeftButton != null)
+            panLeftButton.onClick.RemoveAllListeners();
+        if (panRightButton != null)
+            panRightButton.onClick.RemoveAllListeners();
+        if (panUpButton != null)
+            panUpButton.onClick.RemoveAllListeners();
+        if (panDownButton != null)
+            panDownButton.onClick.RemoveAllListeners();
+
+        // Cleanup dynamic controls panel (ne pas détruire si c'est le panneau existant de la scène)
+        if (_presentationControlsPanel != null && !_usingExistingPanel)
+            Destroy(_presentationControlsPanel);
 
         // Destroy list items
         foreach (var item in _fileListItems.Values)
@@ -700,12 +789,18 @@ public class FileSharingUI : MonoBehaviour
         if (FilePresentationManager.Instance == null)
             return;
 
-        // Find the whiteboard to present on
-        Whiteboard targetWhiteboard = FindAnyObjectByType<Whiteboard>();
-        if (targetWhiteboard != null)
+        // Utiliser le whiteboard assigné, ou en trouver un si non assigné
+        Whiteboard wb = targetWhiteboard;
+        if (wb == null)
         {
-            FilePresentationManager.Instance.StartPresentation(fileId, targetWhiteboard);
-            Debug.Log($"[FileSharingUI] Starting presentation of {fileId}");
+            wb = FindAnyObjectByType<Whiteboard>();
+            Debug.LogWarning("[FileSharingUI] No whiteboard assigned, using first found");
+        }
+
+        if (wb != null)
+        {
+            FilePresentationManager.Instance.StartPresentation(fileId, wb);
+            Debug.Log($"[FileSharingUI] Starting presentation of {fileId} on whiteboard {wb.id}");
         }
         else
         {
@@ -843,17 +938,19 @@ public class FileSharingUI : MonoBehaviour
     {
         _isPresentationActive = true;
 
-        // Show stop button only if we are the presenter
-        bool isLocalPresenter = (presenterId == VRNetworkManager.LocalId);
-
-        // Create stop button dynamically if not configured
-        if (stopPresentationButton == null && isLocalPresenter && mainPanel != null)
+        // Fermer le VR file browser s'il est ouvert
+        if (vrFileBrowser != null && vrFileBrowser.browserPanel != null && vrFileBrowser.browserPanel.activeSelf)
         {
-            CreateDynamicStopButton();
+            vrFileBrowser.Close();
         }
 
-        if (stopPresentationButton != null)
-            stopPresentationButton.gameObject.SetActive(isLocalPresenter);
+        // Show controls only if we are the presenter
+        bool isLocalPresenter = (presenterId == VRNetworkManager.LocalId);
+
+        if (isLocalPresenter)
+        {
+            ShowPresentationControls(true);
+        }
 
         if (presentationStatusText != null)
         {
@@ -869,30 +966,255 @@ public class FileSharingUI : MonoBehaviour
             RefreshFileList();
     }
 
-    void CreateDynamicStopButton()
+    void ShowPresentationControls(bool show)
     {
-        if (mainPanel == null) return;
+        if (show)
+        {
+            // Option 1: Utiliser le panneau existant dans la scène
+            if (existingPresentationControlsPanel != null)
+            {
+                _usingExistingPanel = true;
+                existingPresentationControlsPanel.SetActive(true);
 
-        GameObject stopBtn = new GameObject("StopPresentationButton");
-        stopBtn.transform.SetParent(mainPanel.transform, false);
+                // Réactiver les boutons qui ont été désactivés dans Start()
+                if (stopPresentationButton != null)
+                    stopPresentationButton.gameObject.SetActive(true);
+                if (prevPageButton != null)
+                    prevPageButton.gameObject.SetActive(true);
+                if (nextPageButton != null)
+                    nextPageButton.gameObject.SetActive(true);
+                if (pageNumberText != null)
+                    pageNumberText.gameObject.SetActive(true);
+                if (presentationStatusText != null)
+                    presentationStatusText.gameObject.SetActive(true);
 
-        RectTransform rt = stopBtn.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 1);
-        rt.anchorMax = new Vector2(0.5f, 1);
-        rt.pivot = new Vector2(0.5f, 1);
-        rt.anchoredPosition = new Vector2(0, -10);
-        rt.sizeDelta = new Vector2(150, 40);
+                // Récupérer les références des boutons depuis le panneau existant
+                BindExistingPanelButtons();
 
-        Image img = stopBtn.AddComponent<Image>();
-        img.color = new Color(0.9f, 0.2f, 0.2f, 1f);  // Red color
+                UpdatePageDisplay();
+                UpdateZoomDisplay();
+            }
+            else
+            {
+                // Option 2: Créer dynamiquement
+                _usingExistingPanel = false;
+                CreateDynamicPresentationControls();
+            }
+        }
+        else
+        {
+            if (_usingExistingPanel && existingPresentationControlsPanel != null)
+            {
+                // Juste cacher le panneau existant
+                existingPresentationControlsPanel.SetActive(false);
+            }
+            else if (_presentationControlsPanel != null)
+            {
+                // Détruire le panneau créé dynamiquement
+                Destroy(_presentationControlsPanel);
+                _presentationControlsPanel = null;
+            }
+        }
+    }
 
-        stopPresentationButton = stopBtn.AddComponent<Button>();
-        stopPresentationButton.targetGraphic = img;
+    /// <summary>
+    /// Lie les boutons du panneau existant aux fonctions de contrôle.
+    /// Les boutons doivent déjà être assignés via l'Inspector.
+    /// </summary>
+    void BindExistingPanelButtons()
+    {
+        // Prev/Next page
+        if (prevPageButton != null)
+        {
+            prevPageButton.onClick.RemoveAllListeners();
+            prevPageButton.onClick.AddListener(OnPrevPageClicked);
+        }
+        if (nextPageButton != null)
+        {
+            nextPageButton.onClick.RemoveAllListeners();
+            nextPageButton.onClick.AddListener(OnNextPageClicked);
+        }
+
+        // Zoom
+        if (zoomInButton != null)
+        {
+            zoomInButton.onClick.RemoveAllListeners();
+            zoomInButton.onClick.AddListener(OnZoomInClicked);
+        }
+        if (zoomOutButton != null)
+        {
+            zoomOutButton.onClick.RemoveAllListeners();
+            zoomOutButton.onClick.AddListener(OnZoomOutClicked);
+        }
+        if (resetZoomButton != null)
+        {
+            resetZoomButton.onClick.RemoveAllListeners();
+            resetZoomButton.onClick.AddListener(OnResetZoomClicked);
+        }
+
+        // Pan
+        if (panLeftButton != null)
+        {
+            panLeftButton.onClick.RemoveAllListeners();
+            panLeftButton.onClick.AddListener(OnPanLeftClicked);
+        }
+        if (panRightButton != null)
+        {
+            panRightButton.onClick.RemoveAllListeners();
+            panRightButton.onClick.AddListener(OnPanRightClicked);
+        }
+        if (panUpButton != null)
+        {
+            panUpButton.onClick.RemoveAllListeners();
+            panUpButton.onClick.AddListener(OnPanUpClicked);
+        }
+        if (panDownButton != null)
+        {
+            panDownButton.onClick.RemoveAllListeners();
+            panDownButton.onClick.AddListener(OnPanDownClicked);
+        }
+
+        // Stop
+        if (stopPresentationButton != null)
+        {
+            stopPresentationButton.onClick.RemoveAllListeners();
+            stopPresentationButton.onClick.AddListener(OnStopPresentationClicked);
+        }
+    }
+
+    void CreateDynamicPresentationControls()
+    {
+        // Destroy existing panel if any
+        if (_presentationControlsPanel != null)
+            Destroy(_presentationControlsPanel);
+
+        // Determine parent - use custom parent if set, otherwise mainPanel
+        Transform parent = presentationControlsParent != null ? presentationControlsParent : (mainPanel != null ? mainPanel.transform : null);
+        if (parent == null) return;
+
+        // Create container panel
+        _presentationControlsPanel = new GameObject("PresentationControlsPanel");
+        _presentationControlsPanel.transform.SetParent(parent, false);
+
+        RectTransform panelRt = _presentationControlsPanel.AddComponent<RectTransform>();
+        panelRt.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRt.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRt.pivot = new Vector2(0.5f, 0.5f);
+        panelRt.anchoredPosition3D = presentationControlsPosition;
+        panelRt.sizeDelta = presentationControlsSize;
+
+        Image panelBg = _presentationControlsPanel.AddComponent<Image>();
+        panelBg.color = new Color(0.2f, 0.2f, 0.2f, 0.9f);
+
+        // Horizontal layout
+        HorizontalLayoutGroup layout = _presentationControlsPanel.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 8;
+        layout.padding = new RectOffset(10, 10, 5, 5);
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.childControlWidth = false;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = true;
+
+        // Previous button
+        prevPageButton = CreateControlButton(_presentationControlsPanel.transform, "PrevBtn", "<", 35, new Color(0.3f, 0.5f, 0.8f));
+        prevPageButton.onClick.AddListener(OnPrevPageClicked);
+
+        // Page number text
+        GameObject pageNumObj = new GameObject("PageNumber");
+        pageNumObj.transform.SetParent(_presentationControlsPanel.transform, false);
+        RectTransform pageNumRt = pageNumObj.AddComponent<RectTransform>();
+        pageNumRt.sizeDelta = new Vector2(60, 40);
+        pageNumberText = pageNumObj.AddComponent<TextMeshProUGUI>();
+        pageNumberText.text = "1 / 1";
+        pageNumberText.fontSize = 14;
+        pageNumberText.color = Color.white;
+        pageNumberText.alignment = TextAlignmentOptions.Center;
+
+        // Next button
+        nextPageButton = CreateControlButton(_presentationControlsPanel.transform, "NextBtn", ">", 35, new Color(0.3f, 0.5f, 0.8f));
+        nextPageButton.onClick.AddListener(OnNextPageClicked);
+
+        // Separator
+        CreateSeparator(_presentationControlsPanel.transform);
+
+        // Zoom out button
+        zoomOutButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomOutBtn", "-", 30, new Color(0.4f, 0.4f, 0.6f));
+        zoomOutButton.onClick.AddListener(OnZoomOutClicked);
+
+        // Zoom level text
+        GameObject zoomObj = new GameObject("ZoomLevel");
+        zoomObj.transform.SetParent(_presentationControlsPanel.transform, false);
+        RectTransform zoomRt = zoomObj.AddComponent<RectTransform>();
+        zoomRt.sizeDelta = new Vector2(50, 40);
+        zoomLevelText = zoomObj.AddComponent<TextMeshProUGUI>();
+        zoomLevelText.text = "100%";
+        zoomLevelText.fontSize = 12;
+        zoomLevelText.color = Color.white;
+        zoomLevelText.alignment = TextAlignmentOptions.Center;
+
+        // Zoom in button
+        zoomInButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomInBtn", "+", 30, new Color(0.4f, 0.4f, 0.6f));
+        zoomInButton.onClick.AddListener(OnZoomInClicked);
+
+        // Reset zoom button
+        resetZoomButton = CreateControlButton(_presentationControlsPanel.transform, "ResetZoomBtn", "1:1", 35, new Color(0.4f, 0.4f, 0.6f));
+        resetZoomButton.onClick.AddListener(OnResetZoomClicked);
+
+        // Separator
+        CreateSeparator(_presentationControlsPanel.transform);
+
+        // Pan controls
+        panLeftButton = CreateControlButton(_presentationControlsPanel.transform, "PanLeftBtn", "\u25C0", 28, new Color(0.5f, 0.5f, 0.5f));
+        panLeftButton.onClick.AddListener(OnPanLeftClicked);
+
+        panUpButton = CreateControlButton(_presentationControlsPanel.transform, "PanUpBtn", "\u25B2", 28, new Color(0.5f, 0.5f, 0.5f));
+        panUpButton.onClick.AddListener(OnPanUpClicked);
+
+        panDownButton = CreateControlButton(_presentationControlsPanel.transform, "PanDownBtn", "\u25BC", 28, new Color(0.5f, 0.5f, 0.5f));
+        panDownButton.onClick.AddListener(OnPanDownClicked);
+
+        panRightButton = CreateControlButton(_presentationControlsPanel.transform, "PanRightBtn", "\u25B6", 28, new Color(0.5f, 0.5f, 0.5f));
+        panRightButton.onClick.AddListener(OnPanRightClicked);
+
+        // Separator
+        CreateSeparator(_presentationControlsPanel.transform);
+
+        // Stop button
+        stopPresentationButton = CreateControlButton(_presentationControlsPanel.transform, "StopBtn", "Stop", 50, new Color(0.8f, 0.2f, 0.2f));
         stopPresentationButton.onClick.AddListener(OnStopPresentationClicked);
+
+        UpdatePageDisplay();
+        UpdateZoomDisplay();
+    }
+
+    void CreateSeparator(Transform parent)
+    {
+        GameObject sep = new GameObject("Separator");
+        sep.transform.SetParent(parent, false);
+        RectTransform rt = sep.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(2, 25);
+        Image img = sep.AddComponent<Image>();
+        img.color = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+    }
+
+    Button CreateControlButton(Transform parent, string name, string label, float width, Color bgColor)
+    {
+        GameObject btnObj = new GameObject(name);
+        btnObj.transform.SetParent(parent, false);
+
+        RectTransform rt = btnObj.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(width, 35);
+
+        Image img = btnObj.AddComponent<Image>();
+        img.color = bgColor;
+
+        Button btn = btnObj.AddComponent<Button>();
+        btn.targetGraphic = img;
 
         // Add text
         GameObject textObj = new GameObject("Text");
-        textObj.transform.SetParent(stopBtn.transform, false);
+        textObj.transform.SetParent(btnObj.transform, false);
 
         RectTransform textRt = textObj.AddComponent<RectTransform>();
         textRt.anchorMin = Vector2.zero;
@@ -901,18 +1223,40 @@ public class FileSharingUI : MonoBehaviour
         textRt.offsetMax = Vector2.zero;
 
         TextMeshProUGUI text = textObj.AddComponent<TextMeshProUGUI>();
-        text.text = "Stop Presentation";
+        text.text = label;
         text.fontSize = 14;
+        text.fontStyle = FontStyles.Bold;
         text.color = Color.white;
         text.alignment = TextAlignmentOptions.Center;
+
+        return btn;
+    }
+
+    void UpdatePageDisplay()
+    {
+        if (pageNumberText == null) return;
+
+        var mgr = FilePresentationManager.Instance;
+        if (mgr != null && mgr.IsPresenting)
+        {
+            int current = mgr.CurrentPage + 1;
+            int total = mgr.TotalPages;
+            pageNumberText.text = $"{current} / {total}";
+
+            // Enable/disable prev/next based on position
+            if (prevPageButton != null)
+                prevPageButton.interactable = mgr.CurrentPage > 0;
+            if (nextPageButton != null)
+                nextPageButton.interactable = mgr.CurrentPage < total - 1;
+        }
     }
 
     void OnPresentationStopped(string whiteboardId, string presenterId)
     {
         _isPresentationActive = false;
 
-        if (stopPresentationButton != null)
-            stopPresentationButton.gameObject.SetActive(false);
+        // Hide the controls panel
+        ShowPresentationControls(false);
 
         if (presentationStatusText != null)
             presentationStatusText.gameObject.SetActive(false);
@@ -922,9 +1266,95 @@ public class FileSharingUI : MonoBehaviour
             RefreshFileList();
     }
 
+    void OnPageChanged(string fileId, int currentPage, int totalPages)
+    {
+        UpdatePageDisplay();
+    }
+
+    void OnPrevPageClicked()
+    {
+        FilePresentationManager.Instance?.PreviousPage();
+    }
+
+    void OnNextPageClicked()
+    {
+        FilePresentationManager.Instance?.NextPage();
+    }
+
     void OnStopPresentationClicked()
     {
         FilePresentationManager.Instance?.StopPresentation();
+    }
+
+    void OnZoomInClicked()
+    {
+        FilePresentationManager.Instance?.ZoomIn();
+    }
+
+    void OnZoomOutClicked()
+    {
+        FilePresentationManager.Instance?.ZoomOut();
+    }
+
+    void OnResetZoomClicked()
+    {
+        FilePresentationManager.Instance?.ResetZoomPan();
+    }
+
+    void OnPanLeftClicked()
+    {
+        FilePresentationManager.Instance?.Pan(new Vector2(-0.1f, 0f));
+    }
+
+    void OnPanRightClicked()
+    {
+        FilePresentationManager.Instance?.Pan(new Vector2(0.1f, 0f));
+    }
+
+    void OnPanUpClicked()
+    {
+        FilePresentationManager.Instance?.Pan(new Vector2(0f, 0.1f));
+    }
+
+    void OnPanDownClicked()
+    {
+        FilePresentationManager.Instance?.Pan(new Vector2(0f, -0.1f));
+    }
+
+    void OnZoomPanChanged(float zoomLevel, Vector2 panOffset)
+    {
+        UpdateZoomDisplay();
+    }
+
+    void UpdateZoomDisplay()
+    {
+        if (zoomLevelText == null) return;
+
+        var mgr = FilePresentationManager.Instance;
+        if (mgr != null && mgr.IsPresenting)
+        {
+            int zoomPercent = Mathf.RoundToInt(mgr.ZoomLevel * 100);
+            zoomLevelText.text = $"{zoomPercent}%";
+
+            // Enable/disable zoom buttons based on limits
+            if (zoomOutButton != null)
+                zoomOutButton.interactable = mgr.ZoomLevel > 0.5f;
+            if (zoomInButton != null)
+                zoomInButton.interactable = mgr.ZoomLevel < 4f;
+            if (resetZoomButton != null)
+                resetZoomButton.interactable = !Mathf.Approximately(mgr.ZoomLevel, 1f) || mgr.PanOffset != Vector2.zero;
+
+            // Pan buttons only work when zoomed in
+            bool canPan = mgr.ZoomLevel > 1f;
+            if (panLeftButton != null)
+                panLeftButton.interactable = canPan;
+            if (panRightButton != null)
+                panRightButton.interactable = canPan;
+            if (panUpButton != null)
+                panUpButton.interactable = canPan;
+            if (panDownButton != null)
+                panDownButton.interactable = canPan;
+        }
     }
 
     #endregion
