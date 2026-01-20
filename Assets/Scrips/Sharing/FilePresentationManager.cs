@@ -113,6 +113,14 @@ public class FilePresentationManager : MonoBehaviour
     void OnDestroy()
     {
         StopPresentation();
+
+        // MINOR FIX: Ensure pending request coroutine is stopped on destroy
+        if (_pendingRequestCoroutine != null)
+        {
+            StopCoroutine(_pendingRequestCoroutine);
+            _pendingRequestCoroutine = null;
+        }
+
         CleanupAllReceivingStates();
     }
 

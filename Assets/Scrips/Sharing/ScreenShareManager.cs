@@ -57,6 +57,21 @@ public class ScreenShareManager : MonoBehaviour
     private Coroutine _pendingRequestCoroutine;
     private Texture2D _windowTexture;
 
+    // IMPORTANT FIX: Timeout handling for late joiner state requests
+    [Header("State Request Timeout")]
+    [Tooltip("Timeout in seconds waiting for state response")]
+    public float stateRequestTimeout = 10f;
+    [Tooltip("Maximum retry attempts for state requests")]
+    public int maxStateRequestRetries = 2;
+    private int _stateRequestRetries = 0;
+    private bool _waitingForStateResponse = false;
+
+    // MINOR FIX: Constants for magic numbers
+    private const int DEFAULT_DISPLAY_WIDTH = 1280;
+    private const int DEFAULT_DISPLAY_HEIGHT = 720;
+    private const int WINDOW_TEXTURE_INIT_SIZE = 16;
+    private const float STATE_REQUEST_DELAY = 1.5f;
+
     // Events
     public static event Action<string, string, string> OnScreenShareStarted;
     public static event Action<string, string> OnScreenShareStopped;
@@ -111,6 +126,14 @@ public class ScreenShareManager : MonoBehaviour
     void OnDestroy()
     {
         StopSharing();
+
+        // MINOR FIX: Ensure pending request coroutine is stopped on destroy
+        if (_pendingRequestCoroutine != null)
+        {
+            StopCoroutine(_pendingRequestCoroutine);
+            _pendingRequestCoroutine = null;
+        }
+
         CleanupResources();
     }
 
@@ -240,15 +263,19 @@ public class ScreenShareManager : MonoBehaviour
         InitializeCaptureResources();
         targetWhiteboard.EnterPresentationMode(sharerName);
 
-        VRNetworkManager.Instance.Send("screen-share-start", new ScreenShareStartData
+        // MINOR FIX: Add null check before sending
+        if (VRNetworkManager.Instance != null)
         {
-            roomId = VRRoomManager.Instance.CurrentRoomId,
-            whiteboardId = targetWhiteboard.id,
-            sharerId = VRNetworkManager.LocalId,
-            sharerName = sharerName,
-            width = captureWidth,
-            height = captureHeight
-        });
+            VRNetworkManager.Instance.Send("screen-share-start", new ScreenShareStartData
+            {
+                roomId = VRRoomManager.Instance.CurrentRoomId,
+                whiteboardId = targetWhiteboard.id,
+                sharerId = VRNetworkManager.LocalId,
+                sharerName = sharerName,
+                width = captureWidth,
+                height = captureHeight
+            });
+        }
 
         _captureCoroutine = StartCoroutine(CaptureLoop());
 
@@ -335,8 +362,9 @@ public class ScreenShareManager : MonoBehaviour
         WaitForSeconds frameDelay = new WaitForSeconds(1f / captureFrameRate);
 
         // P2 FIX: Use class-level texture for proper cleanup on early termination
+        // MINOR FIX: Use constant for initial texture size
         if (_windowTexture == null)
-            _windowTexture = new Texture2D(16, 16, TextureFormat.RGB24, false);
+            _windowTexture = new Texture2D(WINDOW_TEXTURE_INIT_SIZE, WINDOW_TEXTURE_INIT_SIZE, TextureFormat.RGB24, false);
 
         while (_isSharing && _sharingToWhiteboard != null)
         {
@@ -376,15 +404,19 @@ public class ScreenShareManager : MonoBehaviour
             byte[] jpegData = textureToSend.EncodeToJPG(jpegQuality);
             string base64Data = Convert.ToBase64String(jpegData);
 
-            VRNetworkManager.Instance.Send("screen-share-frame", new ScreenShareFrameData
+            // MINOR FIX: Add null check before sending
+            if (VRNetworkManager.Instance != null && VRRoomManager.Instance != null)
             {
-                roomId = VRRoomManager.Instance.CurrentRoomId,
-                whiteboardId = _sharingToWhiteboardId,
-                sharerId = VRNetworkManager.LocalId,
-                imageData = base64Data,
-                frameIndex = _frameIndex++,
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
+                VRNetworkManager.Instance.Send("screen-share-frame", new ScreenShareFrameData
+                {
+                    roomId = VRRoomManager.Instance.CurrentRoomId,
+                    whiteboardId = _sharingToWhiteboardId,
+                    sharerId = VRNetworkManager.LocalId,
+                    imageData = base64Data,
+                    frameIndex = _frameIndex++,
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+            }
 
             _sharingToWhiteboard.UpdateScreenShare(textureToSend, rotate180: false);
 
@@ -443,6 +475,53 @@ public class ScreenShareManager : MonoBehaviour
 
     #region Network Handlers
 
+    /// <summary>
+    /// IMPORTANT FIX: Safe JSON deserialization with validation.
+    /// </summary>
+    private T TryDeserialize<T>(string json, string context) where T : class
+    {
+        if (string.IsNullOrEmpty(json))
+        {
+            Debug.LogWarning($"[ScreenShare] Empty JSON data for {context}");
+            return null;
+        }
+
+        try
+        {
+            T result = JsonUtility.FromJson<T>(json);
+            if (result == null)
+            {
+                Debug.LogWarning($"[ScreenShare] Null result from JSON for {context}");
+                return null;
+            }
+            return result;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[ScreenShare] JSON parse error for {context}: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// IMPORTANT FIX: Safe Base64 decode for image data.
+    /// </summary>
+    private byte[] TryDecodeBase64(string base64Data, string context)
+    {
+        if (string.IsNullOrEmpty(base64Data))
+            return null;
+
+        try
+        {
+            return Convert.FromBase64String(base64Data);
+        }
+        catch (FormatException e)
+        {
+            Debug.LogError($"[ScreenShare] Base64 decode error for {context}: {e.Message}");
+            return null;
+        }
+    }
+
     void HandleNetworkMessage(NetworkMessage msg)
     {
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
@@ -470,7 +549,8 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareStart(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<ScreenShareStartData>(msg.data);
+        var data = TryDeserialize<ScreenShareStartData>(msg.data, "screen-share-start");
+        if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
         if (data.sharerId == VRNetworkManager.LocalId) return;
@@ -493,7 +573,8 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareStop(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<ScreenShareStopData>(msg.data);
+        var data = TryDeserialize<ScreenShareStopData>(msg.data, "screen-share-stop");
+        if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
 
@@ -517,27 +598,32 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareFrame(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<ScreenShareFrameData>(msg.data);
+        var data = TryDeserialize<ScreenShareFrameData>(msg.data, "screen-share-frame");
+        if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
 
         if (!_receivingStates.TryGetValue(data.whiteboardId, out var state)) return;
         if (state.sharerId != data.sharerId) return;
 
-        try
-        {
-            byte[] jpegData = Convert.FromBase64String(data.imageData);
-            state.displayTexture.LoadImage(jpegData);
+        // IMPORTANT FIX: Safe Base64 decode
+        byte[] jpegData = TryDecodeBase64(data.imageData, "frame-image");
+        if (jpegData == null || jpegData.Length == 0) return;
 
-            Whiteboard targetWhiteboard = FindWhiteboardById(data.whiteboardId);
-            if (targetWhiteboard != null)
-            {
-                targetWhiteboard.UpdateScreenShare(state.displayTexture, rotate180: false);
-            }
-        }
-        catch (Exception e)
+        // IMPORTANT FIX: Validate texture before loading
+        // MINOR FIX: Use constants for default dimensions
+        if (state.displayTexture == null)
         {
-            Debug.LogError($"[ScreenShare] Failed to decode frame: {e.Message}");
+            Debug.LogWarning("[ScreenShare] Display texture is null, recreating...");
+            state.displayTexture = new Texture2D(DEFAULT_DISPLAY_WIDTH, DEFAULT_DISPLAY_HEIGHT, TextureFormat.RGB24, false);
+        }
+
+        state.displayTexture.LoadImage(jpegData);
+
+        Whiteboard targetWhiteboard = FindWhiteboardById(data.whiteboardId);
+        if (targetWhiteboard != null)
+        {
+            targetWhiteboard.UpdateScreenShare(state.displayTexture, rotate180: false);
         }
     }
 
@@ -545,11 +631,16 @@ public class ScreenShareManager : MonoBehaviour
     {
         if (!_isSharing) return;
 
-        var data = JsonUtility.FromJson<ScreenShareRequestData>(msg.data);
+        var data = TryDeserialize<ScreenShareRequestData>(msg.data, "screen-share-request");
+        if (data == null) return;
+
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
 
         if (!string.IsNullOrEmpty(data.whiteboardId) && data.whiteboardId != _sharingToWhiteboardId)
             return;
+
+        // IMPORTANT FIX: Check connection before sending
+        if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null) return;
 
         string sharerName = PlayerPrefs.GetString("PlayerName", "Player");
 
@@ -565,21 +656,26 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareState(NetworkMessage msg)
     {
-        var data = JsonUtility.FromJson<ScreenShareStateData>(msg.data);
-        if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
+        var data = TryDeserialize<ScreenShareStateData>(msg.data, "screen-share-state");
+        if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
+        if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
         if (data.sharerId == VRNetworkManager.LocalId) return;
+
+        // IMPORTANT FIX: Mark state response as received for timeout handling
+        _waitingForStateResponse = false;
 
         if (data.isSharing && !_receivingStates.ContainsKey(data.whiteboardId))
         {
             Whiteboard targetWhiteboard = FindWhiteboardById(data.whiteboardId);
             if (targetWhiteboard == null) return;
 
+            // MINOR FIX: Use constants for default dimensions
             var state = new WhiteboardShareState
             {
                 sharerId = data.sharerId,
                 sharerName = data.sharerName,
-                displayTexture = new Texture2D(1280, 720, TextureFormat.RGB24, false)
+                displayTexture = new Texture2D(DEFAULT_DISPLAY_WIDTH, DEFAULT_DISPLAY_HEIGHT, TextureFormat.RGB24, false)
             };
             _receivingStates[data.whiteboardId] = state;
 
@@ -603,20 +699,66 @@ public class ScreenShareManager : MonoBehaviour
 
     IEnumerator RequestShareStateDelayed()
     {
-        yield return new WaitForSeconds(1.5f);
+        // MINOR FIX: Use constant for delay
+        yield return new WaitForSeconds(STATE_REQUEST_DELAY);
 
         if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom)
         {
+            _stateRequestRetries = 0;
+            yield return StartCoroutine(RequestStateWithTimeout());
+        }
+
+        // P2 FIX: Clear coroutine reference when complete
+        _pendingRequestCoroutine = null;
+    }
+
+    // IMPORTANT FIX: Request state with timeout and retry logic
+    IEnumerator RequestStateWithTimeout()
+    {
+        while (_stateRequestRetries < maxStateRequestRetries)
+        {
+            _stateRequestRetries++;
+            _waitingForStateResponse = true;
+
+            Debug.Log($"[ScreenShare] IMPORTANT FIX: Requesting share state (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
+
+            // IMPORTANT FIX: Check connection before sending
+            if (!VRNetworkManager.IsConnected || VRNetworkManager.Instance == null)
+            {
+                Debug.LogWarning("[ScreenShare] Cannot request state - not connected");
+                _waitingForStateResponse = false;
+                yield break;
+            }
+
             VRNetworkManager.Instance.Send("screen-share-request", new ScreenShareRequestData
             {
                 roomId = VRRoomManager.Instance.CurrentRoomId,
                 whiteboardId = "",
                 requesterId = VRNetworkManager.LocalId
             });
+
+            // Wait for response or timeout
+            float timer = 0f;
+            while (_waitingForStateResponse && timer < stateRequestTimeout)
+            {
+                timer += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!_waitingForStateResponse)
+            {
+                // Response received (or no active share in room)
+                Debug.Log("[ScreenShare] IMPORTANT FIX: State response received or no active share");
+                yield break;
+            }
+
+            // Timeout - retry if attempts remaining
+            Debug.LogWarning($"[ScreenShare] IMPORTANT FIX: State request timeout after {stateRequestTimeout}s (attempt {_stateRequestRetries}/{maxStateRequestRetries})");
         }
 
-        // P2 FIX: Clear coroutine reference when complete
-        _pendingRequestCoroutine = null;
+        // All retries exhausted - no screen share active or network issue
+        _waitingForStateResponse = false;
+        Debug.Log("[ScreenShare] IMPORTANT FIX: State request completed - no active screen share detected or timeout");
     }
 
     void OnRoomLeft()

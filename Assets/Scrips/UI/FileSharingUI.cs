@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -96,9 +97,21 @@ public class FileSharingUI : MonoBehaviour
     private GameObject _presentationControlsPanel;
     private bool _usingExistingPanel = false;
 
+    // MINOR FIX: Constants for unicode symbols used in UI buttons
+    private const string SYMBOL_ARROW_LEFT = "\u25C0";   // ◀
+    private const string SYMBOL_ARROW_RIGHT = "\u25B6";  // ▶
+    private const string SYMBOL_ARROW_UP = "\u25B2";     // ▲
+    private const string SYMBOL_ARROW_DOWN = "\u25BC";   // ▼
+    private const string SYMBOL_NAV_PREV = "<";
+    private const string SYMBOL_NAV_NEXT = ">";
+    private const string SYMBOL_ZOOM_IN = "+";
+    private const string SYMBOL_ZOOM_OUT = "-";
+
     [Header("Settings")]
     [Tooltip("Maximum length for displayed file names")]
     public int maxFileNameLength = 20;
+    [Tooltip("Maximum length for displayed download path")]
+    public int maxDownloadPathLength = 40;
 
     // State
     private string _pendingFilePath;
@@ -106,6 +119,7 @@ public class FileSharingUI : MonoBehaviour
     private bool _isOpen = false;
     private Texture2D _previewTexture;
     private bool _isPresentationActive = false;
+    private string _fullDownloadPath; // Store full path while displaying truncated version
 
     #region Lifecycle
 
@@ -156,7 +170,11 @@ public class FileSharingUI : MonoBehaviour
             openFolderButton.onClick.AddListener(OpenDownloadFolder);
 
         if (downloadPathInput != null)
+        {
             downloadPathInput.onEndEdit.AddListener(OnDownloadPathChanged);
+            downloadPathInput.onSelect.AddListener(OnDownloadPathSelect);
+            downloadPathInput.onDeselect.AddListener(OnDownloadPathDeselect);
+        }
 
         // Presentation control buttons
         if (stopPresentationButton != null)
@@ -233,7 +251,12 @@ public class FileSharingUI : MonoBehaviour
         if (previewCancelButton != null) previewCancelButton.onClick.RemoveAllListeners();
         if (browsePathButton != null) browsePathButton.onClick.RemoveAllListeners();
         if (openFolderButton != null) openFolderButton.onClick.RemoveAllListeners();
-        if (downloadPathInput != null) downloadPathInput.onEndEdit.RemoveAllListeners();
+        if (downloadPathInput != null)
+        {
+            downloadPathInput.onEndEdit.RemoveAllListeners();
+            downloadPathInput.onSelect.RemoveAllListeners();
+            downloadPathInput.onDeselect.RemoveAllListeners();
+        }
 
         // Unsubscribe VR browser
         if (vrFileBrowser != null)
@@ -308,7 +331,8 @@ public class FileSharingUI : MonoBehaviour
             else
             {
                 // Vérifier si on reçoit une présentation (quelqu'un d'autre présente)
-                string wbId = targetWhiteboard != null ? targetWhiteboard.id : null;
+                // MINOR FIX: Use null-conditional operator
+                string wbId = targetWhiteboard?.id;
                 if (!string.IsNullOrEmpty(wbId) && FilePresentationManager.Instance.IsWhiteboardReceiving(wbId))
                 {
                     _isPresentationActive = true;
@@ -597,8 +621,63 @@ public class FileSharingUI : MonoBehaviour
     {
         if (downloadPathInput != null && FileShareManager.Instance != null)
         {
-            downloadPathInput.text = FileShareManager.Instance.DownloadPath;
+            _fullDownloadPath = FileShareManager.Instance.DownloadPath;
+            downloadPathInput.text = TruncatePath(_fullDownloadPath, maxDownloadPathLength);
         }
+    }
+
+    /// <summary>
+    /// Truncates a path to a maximum length, keeping the end (most relevant part).
+    /// Example: "C:\Users\Name\Very\Long\Path\Folder" -> "...\Long\Path\Folder"
+    /// </summary>
+    string TruncatePath(string path, int maxLength)
+    {
+        if (string.IsNullOrEmpty(path) || path.Length <= maxLength)
+            return path;
+
+        // Keep the end of the path (most relevant part)
+        string truncated = path.Substring(path.Length - maxLength + 3);
+
+        // Try to start at a path separator for cleaner display
+        int separatorIndex = truncated.IndexOfAny(new char[] { '\\', '/' });
+        if (separatorIndex > 0 && separatorIndex < truncated.Length - 5)
+        {
+            truncated = truncated.Substring(separatorIndex);
+        }
+
+        return "..." + truncated;
+    }
+
+    /// <summary>
+    /// Called when the user clicks on the download path input field.
+    /// Shows the full path for editing.
+    /// </summary>
+    void OnDownloadPathSelect(string _)
+    {
+        if (downloadPathInput != null && !string.IsNullOrEmpty(_fullDownloadPath))
+        {
+            downloadPathInput.text = _fullDownloadPath;
+        }
+    }
+
+    /// <summary>
+    /// Called when the user clicks away from the download path input field.
+    /// Shows the truncated path again.
+    /// </summary>
+    void OnDownloadPathDeselect(string _)
+    {
+        // Delay the truncation slightly to allow onEndEdit to process first
+        if (this != null && gameObject.activeInHierarchy)
+        {
+            StartCoroutine(DelayedUpdateDownloadPathDisplay());
+        }
+    }
+
+    // MINOR FIX: Use IEnumerator directly with proper using statement
+    IEnumerator DelayedUpdateDownloadPathDisplay()
+    {
+        yield return null; // Wait one frame
+        UpdateDownloadPathDisplay();
     }
 
     void OnDownloadPathChanged(string newPath)
@@ -619,6 +698,7 @@ public class FileSharingUI : MonoBehaviour
                     Directory.CreateDirectory(newPath);
                 }
                 FileShareManager.Instance.DownloadPath = newPath;
+                _fullDownloadPath = newPath; // Update stored full path
                 SetStatus("Download path updated");
             }
             catch (Exception e)
@@ -983,20 +1063,7 @@ public class FileSharingUI : MonoBehaviour
 
     void OnDownloadComplete(string fileId, string localPath)
     {
-        SetStatus($"Downloaded!");
-
-        // Open folder in explorer (Windows)
-#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
-        try
-        {
-            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{localPath}\"");
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning($"[FileSharingUI] Could not open explorer: {e.Message}");
-        }
-#endif
-
+        SetStatus($"Downloaded to: {Path.GetFileName(localPath)}");
         Debug.Log($"[FileSharingUI] File downloaded to: {localPath}");
     }
 
@@ -1164,8 +1231,8 @@ public class FileSharingUI : MonoBehaviour
         if (_presentationControlsPanel != null)
             Destroy(_presentationControlsPanel);
 
-        // Determine parent - use custom parent if set, otherwise mainPanel
-        Transform parent = presentationControlsParent != null ? presentationControlsParent : (mainPanel != null ? mainPanel.transform : null);
+        // MINOR FIX: Use null-coalescing operator to simplify
+        Transform parent = presentationControlsParent ?? mainPanel?.transform;
         if (parent == null) return;
 
         // Create container panel
@@ -1193,7 +1260,7 @@ public class FileSharingUI : MonoBehaviour
         layout.childForceExpandHeight = true;
 
         // Previous button
-        prevPageButton = CreateControlButton(_presentationControlsPanel.transform, "PrevBtn", "<", 35, new Color(0.3f, 0.5f, 0.8f));
+        prevPageButton = CreateControlButton(_presentationControlsPanel.transform, "PrevBtn", SYMBOL_NAV_PREV, 35, new Color(0.3f, 0.5f, 0.8f));
         prevPageButton.onClick.AddListener(OnPrevPageClicked);
 
         // Page number text
@@ -1208,14 +1275,14 @@ public class FileSharingUI : MonoBehaviour
         pageNumberText.alignment = TextAlignmentOptions.Center;
 
         // Next button
-        nextPageButton = CreateControlButton(_presentationControlsPanel.transform, "NextBtn", ">", 35, new Color(0.3f, 0.5f, 0.8f));
+        nextPageButton = CreateControlButton(_presentationControlsPanel.transform, "NextBtn", SYMBOL_NAV_NEXT, 35, new Color(0.3f, 0.5f, 0.8f));
         nextPageButton.onClick.AddListener(OnNextPageClicked);
 
         // Separator
         CreateSeparator(_presentationControlsPanel.transform);
 
         // Zoom out button
-        zoomOutButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomOutBtn", "-", 30, new Color(0.4f, 0.4f, 0.6f));
+        zoomOutButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomOutBtn", SYMBOL_ZOOM_OUT, 30, new Color(0.4f, 0.4f, 0.6f));
         zoomOutButton.onClick.AddListener(OnZoomOutClicked);
 
         // Zoom level text
@@ -1230,7 +1297,7 @@ public class FileSharingUI : MonoBehaviour
         zoomLevelText.alignment = TextAlignmentOptions.Center;
 
         // Zoom in button
-        zoomInButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomInBtn", "+", 30, new Color(0.4f, 0.4f, 0.6f));
+        zoomInButton = CreateControlButton(_presentationControlsPanel.transform, "ZoomInBtn", SYMBOL_ZOOM_IN, 30, new Color(0.4f, 0.4f, 0.6f));
         zoomInButton.onClick.AddListener(OnZoomInClicked);
 
         // Reset zoom button
@@ -1241,16 +1308,16 @@ public class FileSharingUI : MonoBehaviour
         CreateSeparator(_presentationControlsPanel.transform);
 
         // Pan controls
-        panLeftButton = CreateControlButton(_presentationControlsPanel.transform, "PanLeftBtn", "\u25C0", 28, new Color(0.5f, 0.5f, 0.5f));
+        panLeftButton = CreateControlButton(_presentationControlsPanel.transform, "PanLeftBtn", SYMBOL_ARROW_LEFT, 28, new Color(0.5f, 0.5f, 0.5f));
         panLeftButton.onClick.AddListener(OnPanLeftClicked);
 
-        panUpButton = CreateControlButton(_presentationControlsPanel.transform, "PanUpBtn", "\u25B2", 28, new Color(0.5f, 0.5f, 0.5f));
+        panUpButton = CreateControlButton(_presentationControlsPanel.transform, "PanUpBtn", SYMBOL_ARROW_UP, 28, new Color(0.5f, 0.5f, 0.5f));
         panUpButton.onClick.AddListener(OnPanUpClicked);
 
-        panDownButton = CreateControlButton(_presentationControlsPanel.transform, "PanDownBtn", "\u25BC", 28, new Color(0.5f, 0.5f, 0.5f));
+        panDownButton = CreateControlButton(_presentationControlsPanel.transform, "PanDownBtn", SYMBOL_ARROW_DOWN, 28, new Color(0.5f, 0.5f, 0.5f));
         panDownButton.onClick.AddListener(OnPanDownClicked);
 
-        panRightButton = CreateControlButton(_presentationControlsPanel.transform, "PanRightBtn", "\u25B6", 28, new Color(0.5f, 0.5f, 0.5f));
+        panRightButton = CreateControlButton(_presentationControlsPanel.transform, "PanRightBtn", SYMBOL_ARROW_RIGHT, 28, new Color(0.5f, 0.5f, 0.5f));
         panRightButton.onClick.AddListener(OnPanRightClicked);
 
         // Separator
