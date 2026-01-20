@@ -30,6 +30,11 @@ public class WhiteboardBarUI : MonoBehaviour
         Color.yellow, Color.black, Color.white
     };
 
+    [Header("Mode Buttons (assignés auto par le setup)")]
+    public Button cursorButton;
+    public Button drawButton;
+    public Button eraserButton;
+
     // State
     private bool _isMenuOpen = true;
     private bool _isSharePanelOpen = false;
@@ -37,12 +42,17 @@ public class WhiteboardBarUI : MonoBehaviour
     private RectTransform _canvasRect;
     private float _menuFullWidth;
     private float _menuCollapsedWidth = 60f;
+    private DesktopWhiteboardDrawer.DrawingMode _currentMode = DesktopWhiteboardDrawer.DrawingMode.Draw;
 
     // Cache
     private WhiteboardMarker[] _markers;
     private DesktopWhiteboardDrawer _desktopDrawer;
     private Color _currentColor;
     private List<WindowCapture.WindowInfo> _windowList = new List<WindowCapture.WindowInfo>();
+
+    // UI State pour mode buttons
+    private Color _normalButtonColor = new Color(0.25f, 0.25f, 0.3f, 1f);
+    private Color _activeButtonColor = new Color(0.3f, 0.5f, 0.8f, 1f);
 
     void Start()
     {
@@ -101,7 +111,31 @@ public class WhiteboardBarUI : MonoBehaviour
             else if (name == "Btn_StartShare") btn.onClick.AddListener(StartScreenShare);
             else if (name == "Btn_StopShare") btn.onClick.AddListener(StopScreenShare);
             else if (name == "Btn_Refresh") btn.onClick.AddListener(RefreshWindowList);
+            else if (name == "Btn_Cursor" || name == "CursorButton" || name.ToLower().Contains("cursor"))
+            {
+                btn.onClick.AddListener(SetCursorMode);
+                cursorButton = btn;
+                Debug.Log($"[WhiteboardBarUI] Bouton Cursor connecté: {name}");
+            }
+            else if (name == "Btn_Draw" || name == "DrawButton" || name.ToLower().Contains("draw") || name.ToLower().Contains("pen") || name.ToLower().Contains("stylo"))
+            {
+                btn.onClick.AddListener(SetDrawMode);
+                drawButton = btn;
+                Debug.Log($"[WhiteboardBarUI] Bouton Draw connecté: {name}");
+            }
+            else if (name == "Btn_Eraser" || name == "EraserButton" || name.ToLower().Contains("eraser") || name.ToLower().Contains("gomme"))
+            {
+                btn.onClick.AddListener(SetEraserMode);
+                eraserButton = btn;
+                Debug.Log($"[WhiteboardBarUI] Bouton Eraser connecté: {name}");
+            }
         }
+
+        // Log des boutons de mode trouvés
+        Debug.Log($"[WhiteboardBarUI] Boutons de mode: Cursor={cursorButton != null}, Draw={drawButton != null}, Eraser={eraserButton != null}");
+
+        // Mettre à jour l'affichage des boutons de mode
+        UpdateModeButtonsUI();
 
         // Connecter le dropdown
         Dropdown[] dropdowns = GetComponentsInChildren<Dropdown>(true);
@@ -390,5 +424,91 @@ public class WhiteboardBarUI : MonoBehaviour
     void OnScreenShareStopped(string wbId, string sharerId)
     {
         Debug.Log("[WhiteboardBarUI] Partage arrêté");
+    }
+
+    // ============================================
+    // MODES - Cursor, Draw, Eraser
+    // ============================================
+
+    /// <summary>
+    /// Active le mode curseur (pas de dessin)
+    /// </summary>
+    public void SetCursorMode()
+    {
+        Debug.Log("[WhiteboardBarUI] SetCursorMode() appelé");
+        _currentMode = DesktopWhiteboardDrawer.DrawingMode.Cursor;
+        ApplyModeToDrawer();
+        UpdateModeButtonsUI();
+    }
+
+    /// <summary>
+    /// Active le mode dessin
+    /// </summary>
+    public void SetDrawMode()
+    {
+        Debug.Log("[WhiteboardBarUI] SetDrawMode() appelé");
+        _currentMode = DesktopWhiteboardDrawer.DrawingMode.Draw;
+        ApplyModeToDrawer();
+        UpdateModeButtonsUI();
+    }
+
+    /// <summary>
+    /// Active le mode gomme
+    /// </summary>
+    public void SetEraserMode()
+    {
+        Debug.Log("[WhiteboardBarUI] SetEraserMode() appelé");
+        _currentMode = DesktopWhiteboardDrawer.DrawingMode.Eraser;
+        ApplyModeToDrawer();
+        UpdateModeButtonsUI();
+    }
+
+    void ApplyModeToDrawer()
+    {
+        // Essayer plusieurs méthodes pour trouver le drawer
+        if (_desktopDrawer == null)
+        {
+            // Méthode 1: Via le local player
+            var localPlayer = VRGameManager.Instance?.GetLocalPlayer();
+            if (localPlayer != null)
+            {
+                _desktopDrawer = localPlayer.GetComponentInChildren<DesktopWhiteboardDrawer>();
+            }
+        }
+
+        if (_desktopDrawer == null)
+        {
+            // Méthode 2: Chercher dans toute la scène
+            _desktopDrawer = FindAnyObjectByType<DesktopWhiteboardDrawer>();
+        }
+
+        if (_desktopDrawer != null)
+        {
+            _desktopDrawer.SetMode(_currentMode);
+            Debug.Log($"[WhiteboardBarUI] Mode appliqué au drawer: {_currentMode}");
+        }
+        else
+        {
+            Debug.LogWarning("[WhiteboardBarUI] DesktopWhiteboardDrawer non trouvé!");
+        }
+    }
+
+    void UpdateModeButtonsUI()
+    {
+        // Mettre à jour la couleur des boutons selon le mode actif
+        SetButtonActive(cursorButton, _currentMode == DesktopWhiteboardDrawer.DrawingMode.Cursor);
+        SetButtonActive(drawButton, _currentMode == DesktopWhiteboardDrawer.DrawingMode.Draw);
+        SetButtonActive(eraserButton, _currentMode == DesktopWhiteboardDrawer.DrawingMode.Eraser);
+    }
+
+    void SetButtonActive(Button btn, bool active)
+    {
+        if (btn == null) return;
+
+        Image img = btn.GetComponent<Image>();
+        if (img != null)
+        {
+            img.color = active ? _activeButtonColor : _normalButtonColor;
+        }
     }
 }

@@ -35,7 +35,7 @@ public class WhiteboardBarUISetup : Editor
         canvas.renderMode = RenderMode.WorldSpace;
 
         RectTransform canvasRect = canvasGO.GetComponent<RectTransform>();
-        canvasRect.sizeDelta = new Vector2(500, 70);
+        canvasRect.sizeDelta = new Vector2(680, 70); // Plus large pour les boutons de mode
         canvasRect.localScale = new Vector3(0.001f, 0.001f, 0.001f);
 
         canvasGO.AddComponent<CanvasScaler>();
@@ -92,6 +92,28 @@ public class WhiteboardBarUISetup : Editor
         // Separator
         CreateSeparator(menuRect);
 
+        // Mode Buttons
+        Color modeButtonColor = new Color(0.25f, 0.25f, 0.3f, 1f);
+        Color modeActiveColor = new Color(0.3f, 0.5f, 0.8f, 1f);
+
+        // Cursor Button
+        GameObject cursorBtn = CreateButton("Btn_Cursor", menuRect, new Vector2(50, 50), "🖱", 18);
+        cursorBtn.AddComponent<LayoutElement>().preferredWidth = 50;
+        cursorBtn.GetComponent<Image>().color = modeButtonColor;
+
+        // Draw Button (active par défaut)
+        GameObject drawBtn = CreateButton("Btn_Draw", menuRect, new Vector2(50, 50), "✏", 18);
+        drawBtn.AddComponent<LayoutElement>().preferredWidth = 50;
+        drawBtn.GetComponent<Image>().color = modeActiveColor; // Active par défaut
+
+        // Eraser Button
+        GameObject eraserBtn = CreateButton("Btn_Eraser", menuRect, new Vector2(50, 50), "🧽", 18);
+        eraserBtn.AddComponent<LayoutElement>().preferredWidth = 50;
+        eraserBtn.GetComponent<Image>().color = modeButtonColor;
+
+        // Separator
+        CreateSeparator(menuRect);
+
         // Clear Button
         GameObject clearBtn = CreateButton("Btn_Clear", menuRect, new Vector2(70, 50), "Effacer", 14);
         clearBtn.AddComponent<LayoutElement>().preferredWidth = 70;
@@ -113,9 +135,17 @@ public class WhiteboardBarUISetup : Editor
         barUI.sharePanel = sharePanel;
         barUI.burgerText = burgerBtn.GetComponentInChildren<Text>();
         barUI.screenDropdown = sharePanel.GetComponentInChildren<Dropdown>();
+        barUI.cursorButton = cursorBtn.GetComponent<Button>();
+        barUI.drawButton = drawBtn.GetComponent<Button>();
+        barUI.eraserButton = eraserBtn.GetComponent<Button>();
 
         // Connect buttons
         burgerBtn.GetComponent<Button>().onClick.AddListener(barUI.ToggleMenu);
+
+        // Mode buttons
+        cursorBtn.GetComponent<Button>().onClick.AddListener(barUI.SetCursorMode);
+        drawBtn.GetComponent<Button>().onClick.AddListener(barUI.SetDrawMode);
+        eraserBtn.GetComponent<Button>().onClick.AddListener(barUI.SetEraserMode);
 
         for (int i = 0; i < defaultColors.Length; i++)
         {
