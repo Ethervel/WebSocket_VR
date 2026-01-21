@@ -3,6 +3,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.XR.Management;
+using System;
 using System.Collections;
 
 /// Gère le chargement des scènes. Cette scène contient tous les managers
@@ -10,6 +11,9 @@ using System.Collections;
 public class BootstrapManager : MonoBehaviour
 {
     public static BootstrapManager Instance { get; private set; }
+
+    // Event déclenché quand la scène principale est complètement chargée et prête
+    public static event Action<string> OnSceneReady;
 
     [Header("Scene Settings")]
     [Tooltip("Nom de la scène principale à charger")]
@@ -167,6 +171,14 @@ public class BootstrapManager : MonoBehaviour
             loadingScreen.SetActive(false);
 
         _isLoading = false;
+
+        // Attendre quelques frames pour que tous les objets de la scène soient initialisés
+        yield return null;
+        yield return null;
+
+        // Notifier que la scène est prête
+        Debug.Log($"[Bootstrap] Scene '{sceneName}' is fully loaded and ready");
+        OnSceneReady?.Invoke(sceneName);
     }
 
     public EventSystem GetPersistentEventSystem()

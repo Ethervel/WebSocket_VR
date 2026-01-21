@@ -147,7 +147,25 @@ public class VRGameManager : MonoBehaviour
     void Start()
     {
         if (spawnPlayerOnStart)
-            SpawnLocalPlayer(RoomType.Lobby);
+        {
+            // Vérifier si Bootstrap est en train de charger une scène
+            if (BootstrapManager.Instance != null && BootstrapManager.Instance.IsLoading)
+            {
+                Debug.Log("[VRGame] Scene is loading, waiting for OnSceneReady before spawning player...");
+                // Le spawn sera déclenché par OnSceneReady
+            }
+            else if (BootstrapManager.Instance != null && !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName()))
+            {
+                // La scène est déjà chargée
+                Debug.Log("[VRGame] Scene already loaded, spawning player now");
+                SpawnLocalPlayer(RoomType.Lobby);
+            }
+            else
+            {
+                // Pas de BootstrapManager ou première fois, attendre OnSceneReady
+                Debug.Log("[VRGame] Waiting for scene to load before spawning player...");
+            }
+        }
     }
 
     void OnEnable()
@@ -163,6 +181,9 @@ public class VRGameManager : MonoBehaviour
 
         // P1 FIX: Subscribe to scene loaded event to invalidate caches
         UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+
+        // FIX: Subscribe to OnSceneReady pour spawner le joueur quand la scène est prête
+        BootstrapManager.OnSceneReady += OnMainSceneReady;
     }
 
     void OnDisable()
@@ -178,6 +199,9 @@ public class VRGameManager : MonoBehaviour
 
         // P1 FIX: Unsubscribe from scene loaded event
         UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+
+        // FIX: Unsubscribe from OnSceneReady
+        BootstrapManager.OnSceneReady -= OnMainSceneReady;
     }
 
     // P1 FIX: Invalidate caches when a new scene is loaded
@@ -186,6 +210,21 @@ public class VRGameManager : MonoBehaviour
         _teleportCacheValid = false;
         _canvasCacheValid = false;
         Debug.Log($"[VRGame] P1 FIX: Invalidated caches after scene load: {scene.name}");
+    }
+
+    /// <summary>
+    /// Appelé quand la scène principale est complètement chargée et prête.
+    /// C'est ici qu'on spawn le joueur pour éviter qu'il tombe dans le vide.
+    /// </summary>
+    void OnMainSceneReady(string sceneName)
+    {
+        Debug.Log($"[VRGame] Scene '{sceneName}' is ready, checking if player needs to spawn...");
+
+        if (spawnPlayerOnStart && _localPlayer == null && !_isSpawning)
+        {
+            Debug.Log("[VRGame] Spawning local player now that scene is ready");
+            SpawnLocalPlayer(RoomType.Lobby);
+        }
     }
 
     void Update()

@@ -46,7 +46,9 @@
       "mcp__memory__create_relations",
       "mcp__filesystem__search_files",
       "mcp__filesystem__edit_file",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(head:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
