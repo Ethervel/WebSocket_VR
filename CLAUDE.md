@@ -85,11 +85,72 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 ## Build & Development
 
-**Server Requirement:** Requires a Node.js WebSocket server running at `ws://localhost:8080` (configurable in `VRNetworkManager.serverUrl`). Server handles message routing, room management, and WebRTC signaling.
+### Server Commands
 
-**Testing Multiplayer Locally:** Use ParrelSync to clone the project and run multiple Unity instances.
+```bash
+cd Server/
 
-**Quick Test Tools:** ParrelSync for multi-instance testing.
+# Install dependencies
+npm install
+
+# Run server (production)
+npm start
+
+# Run server with auto-reload (development)
+npm run dev
+
+# Run tests
+npm test
+```
+
+**Server URL:** `ws://localhost:8080` (configurable via `VRNetworkManager.serverUrl` in Inspector)
+
+#### Connection Configuration (`VRNetworkManager.cs`)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `serverUrl` | `ws://localhost:8080` | WebSocket server URL |
+| `enforceSecureConnection` | `false` | Block insecure (ws://) connections in builds |
+| `autoReconnect` | `true` | Automatically reconnect on disconnect |
+| `welcomeTimeout` | `5s` | Timeout waiting for server welcome message |
+| `initialReconnectDelay` | `1s` | First reconnect attempt delay |
+| `maxReconnectDelay` | `30s` | Maximum backoff delay |
+| `backoffMultiplier` | `2` | Exponential backoff multiplier |
+| `maxMessagesPerSecond` | `60` | Rate limit (0 = unlimited) |
+| `burstAllowance` | `10` | Messages allowed in quick succession |
+
+#### Security Validation
+
+- **Production:** Use `wss://` (TLS encrypted) - set `enforceSecureConnection = true`
+- **Development:** `ws://localhost:8080` allowed without warnings
+- **Remote ws://:** Logs warning in editor, blocks in build if `enforceSecureConnection` enabled
+
+#### Reconnection (Exponential Backoff)
+
+Connection failures trigger automatic reconnection with exponential backoff:
+```
+Attempt 1: 1s → Attempt 2: 2s → Attempt 3: 4s → ... → Max: 30s
+```
+Resets to initial delay on successful connection.
+
+#### Connection Flow
+
+1. `Start()` → `ValidateConnectionSecurity()` → `ConnectAsync()`
+2. Server sends `welcome` message with assigned `LocalId`
+3. If no welcome within `welcomeTimeout` → reconnect
+4. On disconnect → exponential backoff reconnection (if `autoReconnect` enabled)
+
+### Unity Build
+
+```bash
+# Unity Editor: File > Build Settings
+# Platforms: Windows, Android (Quest)
+# Scenes: Bootstrap (index 0), Meet (index 1)
+```
+
+### Local Multiplayer Testing
+
+Use **ParrelSync** to clone the project and run multiple Unity instances simultaneously. Each clone shares the same project files but runs independently.
 
 ## Project Structure
 
@@ -378,7 +439,7 @@ public class NetworkMessage {
 
 ```
 Bootstrap Scene (Persistent via DontDestroyOnLoad)
-├── VRNetworkManager ─── WebSocket ──→ Server (ws://localhost:8080)
+├── VRNetworkManager ─── WebSocket ──→ Server (configurable, default: ws://localhost:8080)
 ├── VRRoomManager ←──────── OnConnected, OnMessageReceived
 ├── VRGameManager ←──────── OnRoomCreated/Joined, OnPlayerJoined/Left, OnRoomTypeChanged
 ├── VoiceChatManager ←───── OnPlayerJoined (mesh topology: smaller ID initiates WebRTC)
@@ -591,6 +652,16 @@ AvatarCustomization.GetLocalName()
 - **Problem:** Malformed JSON from server could crash client
 - **Solution:** `TryDeserialize<T>()` helper with null checks
 - **Result:** Graceful handling of invalid messages
+
+#### Rate Limiting (VRNetworkManager.cs)
+- **Problem:** Uncontrolled message sending could flood server/network
+- **Solution:** Token bucket rate limiter with configurable `maxMessagesPerSecond` (60) and `burstAllowance` (10)
+- **Result:** Controlled message flow, prevents server overload
+
+#### Connection Security Validation (VRNetworkManager.cs)
+- **Problem:** Insecure ws:// connections in production expose data
+- **Solution:** `ValidateConnectionSecurity()` validates URL, `enforceSecureConnection` option blocks ws:// in builds
+- **Result:** Security warnings in editor, mandatory wss:// enforcement in production builds
 
 ### P1 Performance Fixes (Recent)
 
