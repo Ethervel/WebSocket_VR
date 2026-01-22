@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.XR;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.InputSystem;
 using System.Collections.Generic;
 
 // Avoid ambiguity with UnityEngine.InputSystem
@@ -70,7 +71,8 @@ public class VRPlayerController : MonoBehaviour
     
     // Component references
     private CharacterController _characterController;
-    
+    private Keyboard _keyboard;
+
     // Movement state
     private Vector3 _velocity;
     private bool _canSnapTurn = true;
@@ -132,32 +134,51 @@ public class VRPlayerController : MonoBehaviour
     // Reads joystick inputs from VR controllers (with keyboard fallback)
     void ReadInputs()
     {
+        // Cache keyboard reference
+        if (_keyboard == null)
+        {
+            _keyboard = Keyboard.current;
+        }
+
         // Read movement joystick
         if (_moveDevice.isValid)
         {
             _moveDevice.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out _moveInput);
         }
+        else if (_keyboard != null)
+        {
+            // Keyboard fallback for testing (using new Input System)
+            float horizontal = 0f;
+            float vertical = 0f;
+
+            if (_keyboard.aKey.isPressed) horizontal -= 1f;
+            if (_keyboard.dKey.isPressed) horizontal += 1f;
+            if (_keyboard.wKey.isPressed) vertical += 1f;
+            if (_keyboard.sKey.isPressed) vertical -= 1f;
+
+            _moveInput = new Vector2(horizontal, vertical);
+        }
         else
         {
-            // Keyboard fallback for testing
-            _moveInput = new Vector2(
-                Input.GetAxis("Horizontal"),
-                Input.GetAxis("Vertical")
-            );
+            _moveInput = Vector2.zero;
         }
-        
+
         // Read rotation joystick
         if (_turnDevice.isValid)
         {
             _turnDevice.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out _turnInput);
         }
+        else if (_keyboard != null)
+        {
+            // Keyboard fallback (using new Input System)
+            float turnKeyboard = 0f;
+            if (_keyboard.qKey.isPressed) turnKeyboard -= 1f;
+            if (_keyboard.eKey.isPressed) turnKeyboard += 1f;
+            _turnInput = new Vector2(turnKeyboard, 0);
+        }
         else
         {
-            // Keyboard fallback
-            float turnKeyboard = 0f;
-            if (Input.GetKey(KeyCode.Q)) turnKeyboard -= 1f;
-            if (Input.GetKey(KeyCode.E)) turnKeyboard += 1f;
-            _turnInput = new Vector2(turnKeyboard, 0);
+            _turnInput = Vector2.zero;
         }
     }
     
@@ -185,7 +206,11 @@ public class VRPlayerController : MonoBehaviour
         {
             _moveDevice.TryGetFeatureValue(XRCommonUsages.gripButton, out isSprinting);
         }
-        isSprinting = isSprinting || Input.GetKey(KeyCode.LeftShift);
+        // Keyboard fallback for sprint (using new Input System)
+        if (_keyboard != null && _keyboard.leftShiftKey.isPressed)
+        {
+            isSprinting = true;
+        }
         
         float currentSpeed = isSprinting ? moveSpeed * sprintMultiplier : moveSpeed;
         

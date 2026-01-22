@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
@@ -22,26 +23,60 @@ public class VRMenuPageRoom : MonoBehaviour
     public Button copyCodeButton;
 
     private Dictionary<string, GameObject> _playerItems = new Dictionary<string, GameObject>();
+    private bool _isSubscribed = false;
+
+    void Awake()
+    {
+        // Subscribe to events in Awake so we always receive them, even when page is hidden
+        SubscribeToEvents();
+    }
 
     void OnEnable()
     {
-        // Subscribe to room events
-        VRRoomManager.OnPlayerJoined += OnPlayerJoined;
-        VRRoomManager.OnPlayerLeft += OnPlayerLeft;
-        VRRoomManager.OnRoomJoined += OnRoomJoined;
-        VRRoomManager.OnRoomLeft += OnRoomLeft;
+        // Ensure subscribed (in case Awake wasn't called)
+        SubscribeToEvents();
 
-        // Refresh display
+        // Refresh display when page becomes visible
         RefreshRoomInfo();
         RefreshPlayerList();
     }
 
     void OnDisable()
     {
+        // Don't unsubscribe - we want to keep receiving events even when hidden
+        // The page will refresh when it becomes visible again
+    }
+
+    void OnDestroy()
+    {
+        // Only unsubscribe when destroyed
+        UnsubscribeFromEvents();
+    }
+
+    void SubscribeToEvents()
+    {
+        if (_isSubscribed) return;
+
+        VRRoomManager.OnPlayerJoined += OnPlayerJoined;
+        VRRoomManager.OnPlayerLeft += OnPlayerLeft;
+        VRRoomManager.OnRoomCreated += OnRoomCreated;
+        VRRoomManager.OnRoomJoined += OnRoomJoined;
+        VRRoomManager.OnRoomLeft += OnRoomLeft;
+
+        _isSubscribed = true;
+    }
+
+    void UnsubscribeFromEvents()
+    {
+        if (!_isSubscribed) return;
+
         VRRoomManager.OnPlayerJoined -= OnPlayerJoined;
         VRRoomManager.OnPlayerLeft -= OnPlayerLeft;
+        VRRoomManager.OnRoomCreated -= OnRoomCreated;
         VRRoomManager.OnRoomJoined -= OnRoomJoined;
         VRRoomManager.OnRoomLeft -= OnRoomLeft;
+
+        _isSubscribed = false;
     }
 
     void Start()
@@ -51,13 +86,11 @@ public class VRMenuPageRoom : MonoBehaviour
         if (leaveRoomButton != null)
         {
             leaveRoomButton.onClick.AddListener(OnLeaveRoomClicked);
-            Debug.Log("[VRMenuPageRoom] Leave Room button connected");
         }
 
         if (copyCodeButton != null)
         {
             copyCodeButton.onClick.AddListener(OnCopyCodeClicked);
-            Debug.Log("[VRMenuPageRoom] Copy Code button connected");
         }
 
         RefreshRoomInfo();
@@ -107,7 +140,38 @@ public class VRMenuPageRoom : MonoBehaviour
             }
         }
 
-        Debug.Log($"[VRMenuPageRoom] AutoFind: roomName={roomNameText != null}, leave={leaveRoomButton != null}, copy={copyCodeButton != null}, list={playerListContainer != null}");
+        // Ensure container has proper layout
+        EnsureContainerLayout();
+    }
+
+    void EnsureContainerLayout()
+    {
+        if (playerListContainer == null) return;
+
+        // Add or configure VerticalLayoutGroup
+        VerticalLayoutGroup vlg = playerListContainer.GetComponent<VerticalLayoutGroup>();
+        if (vlg == null)
+        {
+            vlg = playerListContainer.gameObject.AddComponent<VerticalLayoutGroup>();
+        }
+
+        // Force proper settings
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.childControlHeight = true;  // Control height
+        vlg.childControlWidth = true;   // Control width - THIS IS KEY
+        vlg.childForceExpandHeight = false;
+        vlg.childForceExpandWidth = true;  // Expand width to fill
+        vlg.spacing = 5;
+        vlg.padding = new RectOffset(5, 5, 5, 5);
+
+        // Add ContentSizeFitter if missing (for ScrollRect)
+        ContentSizeFitter csf = playerListContainer.GetComponent<ContentSizeFitter>();
+        if (csf == null)
+        {
+            csf = playerListContainer.gameObject.AddComponent<ContentSizeFitter>();
+        }
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
     }
 
     void RefreshRoomInfo()
@@ -155,29 +219,19 @@ public class VRMenuPageRoom : MonoBehaviour
         _playerItems.Clear();
 
         var roomManager = VRRoomManager.Instance;
-        if (roomManager == null)
-        {
-            Debug.Log("[VRMenuPageRoom] RoomManager is null");
-            return;
-        }
+        if (roomManager == null) return;
 
         if (playerListContainer == null)
         {
-            Debug.LogWarning("[VRMenuPageRoom] playerListContainer is null - trying to find it");
             AutoFindReferences();
             if (playerListContainer == null) return;
         }
 
-        // Create a simple player item if prefab is missing
-        if (playerItemPrefab == null)
-        {
-            Debug.LogWarning("[VRMenuPageRoom] playerItemPrefab is null - will create items manually");
-        }
+        // Ensure container has proper layout components
+        EnsureContainerLayout();
 
         // Add current players
         var players = roomManager.GetPlayers();
-        Debug.Log($"[VRMenuPageRoom] Found {players.Count} players in room");
-
         foreach (var player in players)
         {
             AddPlayerItem(player);
@@ -188,6 +242,55 @@ public class VRMenuPageRoom : MonoBehaviour
         {
             CreateSimplePlayerItem("You", true);
         }
+
+        // Force layout rebuild (immediate + delayed for proper sizing)
+        if (playerListContainer != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(playerListContainer as RectTransform);
+            StartCoroutine(DelayedLayoutRebuild());
+        }
+    }
+
+    IEnumerator DelayedLayoutRebuild()
+    {
+        yield return new WaitForEndOfFrame();
+
+        if (playerListContainer == null) yield break;
+
+        RectTransform containerRect = playerListContainer as RectTransform;
+
+        // Rebuild layout hierarchy
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(containerRect);
+
+        // Also rebuild parent (Viewport)
+        if (containerRect.parent != null)
+        {
+            RectTransform parentRect = containerRect.parent as RectTransform;
+            if (parentRect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(parentRect);
+            }
+        }
+    }
+
+    // Helper to validate RectTransform values - prevent AABB errors
+    void ValidateRectTransform(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        Vector3 pos = rect.localPosition;
+        if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z))
+        {
+            rect.localPosition = Vector3.zero;
+        }
+
+        Vector3 scale = rect.localScale;
+        if (float.IsNaN(scale.x) || float.IsNaN(scale.y) || float.IsNaN(scale.z))
+        {
+            rect.localScale = Vector3.one;
+        }
     }
 
     void CreateSimplePlayerItem(string name, bool isLocal)
@@ -197,6 +300,14 @@ public class VRMenuPageRoom : MonoBehaviour
         GameObject item = new GameObject($"Player_{name}");
         item.transform.SetParent(playerListContainer, false);
 
+        // Configure RectTransform for the item (already added by Unity when parented to Canvas)
+        RectTransform itemRect = item.GetComponent<RectTransform>();
+        if (itemRect == null) itemRect = item.AddComponent<RectTransform>();
+        itemRect.anchorMin = new Vector2(0, 1);
+        itemRect.anchorMax = new Vector2(1, 1);
+        itemRect.pivot = new Vector2(0.5f, 1);
+        itemRect.sizeDelta = new Vector2(0, 40);
+
         // Add background
         Image bg = item.AddComponent<Image>();
         bg.color = isLocal ? new Color(0.2f, 0.4f, 0.6f, 0.8f) : new Color(0.2f, 0.2f, 0.25f, 0.8f);
@@ -205,6 +316,7 @@ public class VRMenuPageRoom : MonoBehaviour
         LayoutElement layout = item.AddComponent<LayoutElement>();
         layout.minHeight = 40;
         layout.preferredHeight = 40;
+        layout.flexibleWidth = 1;
 
         // Add text
         GameObject textObj = new GameObject("PlayerName");
@@ -216,11 +328,21 @@ public class VRMenuPageRoom : MonoBehaviour
         text.color = Color.white;
         text.alignment = TextAlignmentOptions.Left;
 
+        // Assign default TMP font
+        if (TMP_Settings.defaultFontAsset != null)
+        {
+            text.font = TMP_Settings.defaultFontAsset;
+        }
+
         RectTransform textRect = textObj.GetComponent<RectTransform>();
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;
         textRect.offsetMin = new Vector2(15, 5);
         textRect.offsetMax = new Vector2(-15, -5);
+
+        // Validate transforms to prevent AABB errors
+        ValidateRectTransform(itemRect);
+        ValidateRectTransform(textRect);
     }
 
     void AddPlayerItem(VRPlayerData player)
@@ -241,11 +363,39 @@ public class VRMenuPageRoom : MonoBehaviour
             item.name = $"Player_{player.playerId}";
             item.SetActive(true);
 
+            // Force correct RectTransform settings
+            RectTransform prefabRect = item.GetComponent<RectTransform>();
+            if (prefabRect != null)
+            {
+                prefabRect.anchorMin = new Vector2(0, 1);
+                prefabRect.anchorMax = new Vector2(1, 1);
+                prefabRect.pivot = new Vector2(0.5f, 1);
+                prefabRect.sizeDelta = new Vector2(0, 40);
+                ValidateRectTransform(prefabRect);
+            }
+
+            // Ensure LayoutElement exists
+            LayoutElement layout = item.GetComponent<LayoutElement>();
+            if (layout == null)
+            {
+                layout = item.AddComponent<LayoutElement>();
+            }
+            layout.minHeight = 40;
+            layout.preferredHeight = 40;
+            layout.flexibleWidth = 1;
+
+            // Update text
             TextMeshProUGUI nameText = item.GetComponentInChildren<TextMeshProUGUI>();
             if (nameText != null)
             {
                 nameText.text = displayName + hostTag + localTag;
+                // Ensure font is assigned
+                if (nameText.font == null && TMP_Settings.defaultFontAsset != null)
+                {
+                    nameText.font = TMP_Settings.defaultFontAsset;
+                }
             }
+
         }
         else
         {
@@ -253,12 +403,21 @@ public class VRMenuPageRoom : MonoBehaviour
             item = new GameObject($"Player_{player.playerId}");
             item.transform.SetParent(playerListContainer, false);
 
+            // Configure RectTransform for the item (already added by Unity when parented to Canvas)
+            RectTransform itemRect = item.GetComponent<RectTransform>();
+            if (itemRect == null) itemRect = item.AddComponent<RectTransform>();
+            itemRect.anchorMin = new Vector2(0, 1);
+            itemRect.anchorMax = new Vector2(1, 1);
+            itemRect.pivot = new Vector2(0.5f, 1);
+            itemRect.sizeDelta = new Vector2(0, 40);
+
             Image bg = item.AddComponent<Image>();
             bg.color = isLocal ? new Color(0.2f, 0.4f, 0.6f, 0.8f) : new Color(0.2f, 0.2f, 0.25f, 0.8f);
 
             LayoutElement layout = item.AddComponent<LayoutElement>();
             layout.minHeight = 40;
             layout.preferredHeight = 40;
+            layout.flexibleWidth = 1;
 
             GameObject textObj = new GameObject("PlayerName");
             textObj.transform.SetParent(item.transform, false);
@@ -269,15 +428,24 @@ public class VRMenuPageRoom : MonoBehaviour
             text.color = Color.white;
             text.alignment = TextAlignmentOptions.Left;
 
+            // Assign default TMP font
+            if (TMP_Settings.defaultFontAsset != null)
+            {
+                text.font = TMP_Settings.defaultFontAsset;
+            }
+
             RectTransform textRect = textObj.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
             textRect.offsetMin = new Vector2(15, 5);
             textRect.offsetMax = new Vector2(-15, -5);
+
+            // Validate transforms to prevent AABB errors
+            ValidateRectTransform(itemRect);
+            ValidateRectTransform(textRect);
         }
 
         _playerItems[player.playerId] = item;
-        Debug.Log($"[VRMenuPageRoom] Added player: {displayName}{hostTag}{localTag}");
     }
 
     void RemovePlayerItem(string playerId)
@@ -300,6 +468,12 @@ public class VRMenuPageRoom : MonoBehaviour
     {
         RemovePlayerItem(playerId);
         RefreshRoomInfo();
+    }
+
+    void OnRoomCreated(string roomId)
+    {
+        RefreshRoomInfo();
+        RefreshPlayerList();
     }
 
     void OnRoomJoined(string roomId)
@@ -328,7 +502,6 @@ public class VRMenuPageRoom : MonoBehaviour
         if (gameManager != null)
         {
             gameManager.TeleportLocalPlayer(RoomType.Lobby);
-            Debug.Log("[VRMenuPageRoom] Teleported to lobby");
         }
 
         // Hide the menu
@@ -345,7 +518,6 @@ public class VRMenuPageRoom : MonoBehaviour
         if (roomManager != null && !string.IsNullOrEmpty(roomManager.CurrentRoomId))
         {
             GUIUtility.systemCopyBuffer = roomManager.CurrentRoomId;
-            Debug.Log($"[VRMenuPageRoom] Room code copied: {roomManager.CurrentRoomId}");
         }
     }
 }

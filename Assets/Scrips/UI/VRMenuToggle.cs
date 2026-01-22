@@ -20,11 +20,12 @@ public class VRMenuToggle : MonoBehaviour
     public bool startHidden = true;
 
     [Tooltip("Also toggle with keyboard key (for desktop testing)")]
-    public KeyCode keyboardToggle = KeyCode.Tab;
+    public Key keyboardToggle = Key.Tab;
 
     // Cached references
     private VRFollowMenu _followMenu;
     private bool _isMenuVisible;
+    private Keyboard _keyboard;
 
     void Start()
     {
@@ -82,8 +83,13 @@ public class VRMenuToggle : MonoBehaviour
 
     void Update()
     {
-        // Keyboard fallback for desktop testing
-        if (Input.GetKeyDown(keyboardToggle))
+        // Keyboard fallback for desktop testing (using new Input System)
+        if (_keyboard == null)
+        {
+            _keyboard = Keyboard.current;
+        }
+
+        if (_keyboard != null && _keyboard[keyboardToggle].wasPressedThisFrame)
         {
             ToggleMenu();
         }

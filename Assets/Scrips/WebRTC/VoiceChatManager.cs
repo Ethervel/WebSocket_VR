@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Unity.WebRTC;
 
 /// <summary>
@@ -35,7 +36,7 @@ public class VoiceChatManager : MonoBehaviour
     public bool usePushToTalk = false;
     
     [Tooltip("Touche pour Push-To-Talk (Desktop)")]
-    public KeyCode pushToTalkKey = KeyCode.V;
+    public Key pushToTalkKey = Key.V;
     
     [Header("VR Controls")]
     [Tooltip("Bouton VR pour Push-To-Talk (exemple: Primary Button)")]
@@ -81,6 +82,9 @@ public class VoiceChatManager : MonoBehaviour
     // MINOR FIX: Added readonly
     private readonly Dictionary<string, float> _pendingConnectionStartTimes = new Dictionary<string, float>();
     private Coroutine _timeoutCheckCoroutine;
+
+    // Input System
+    private Keyboard _keyboard;
     
     // Configuration STUN/TURN - built dynamically based on settings
     private RTCConfiguration _rtcConfig;
@@ -221,19 +225,27 @@ public class VoiceChatManager : MonoBehaviour
     
     void Update()
     {
-        // Push-To-Talk Desktop
+        // Push-To-Talk Desktop (using new Input System)
         if (usePushToTalk && _isInitialized && !useVRPushToTalk)
         {
-            if (Input.GetKeyDown(pushToTalkKey))
+            if (_keyboard == null)
             {
-                StartMicrophone();
+                _keyboard = Keyboard.current;
             }
-            else if (Input.GetKeyUp(pushToTalkKey))
+
+            if (_keyboard != null)
             {
-                StopMicrophone();
+                if (_keyboard[pushToTalkKey].wasPressedThisFrame)
+                {
+                    StartMicrophone();
+                }
+                else if (_keyboard[pushToTalkKey].wasReleasedThisFrame)
+                {
+                    StopMicrophone();
+                }
             }
         }
-        
+
         // TODO: Ajouter support VR Push-To-Talk avec UnityEngine.XR.InputDevice
     }
     

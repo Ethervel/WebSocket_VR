@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 using TMPro;
 using System.Threading.Tasks;
 
@@ -26,6 +27,7 @@ public class VRMenuExitDialog : MonoBehaviour
     public Color quitGameColor = new Color(0.8f, 0.2f, 0.2f, 1f);
 
     private bool _isDialogOpen = false;
+    private Keyboard _keyboard;
 
     void Start()
     {
@@ -148,8 +150,13 @@ public class VRMenuExitDialog : MonoBehaviour
 
     void Update()
     {
-        // Close dialog with Escape key
-        if (_isDialogOpen && Input.GetKeyDown(KeyCode.Escape))
+        // Close dialog with Escape key (using new Input System)
+        if (_keyboard == null)
+        {
+            _keyboard = Keyboard.current;
+        }
+
+        if (_isDialogOpen && _keyboard != null && _keyboard.escapeKey.wasPressedThisFrame)
         {
             HideDialog();
         }
