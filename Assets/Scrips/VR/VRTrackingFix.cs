@@ -175,7 +175,7 @@ public class VRTrackingFix : MonoBehaviour
         SubsystemManager.GetSubsystems(displays);
         sb.AppendLine($"XR Displays: {displays.Count}");
         foreach (var d in displays)
-            sb.AppendLine($"  - {d.SubsystemDescriptor.id} running={d.running}");
+            sb.AppendLine($"  - {d.subsystemDescriptor.id} running={d.running}");
 
         // Check XROrigin
         if (_xrOrigin != null)

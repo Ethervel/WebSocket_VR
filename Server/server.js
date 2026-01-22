@@ -1,48 +1,16 @@
-/**
- * ============================================================================
- * VR MEETING ROOMS - WebSocket Server
- * ============================================================================
- *
- * WebSocket server for the VR Meeting Rooms application.
- * Handles client connections, rooms, and real-time synchronization.
- *
- * FEATURES:
- *   - Room management (create, join, leave)
- *   - VR position synchronization (30 Hz)
- *   - WebRTC signaling (voice chat)
- *   - Collaborative whiteboard
- *   - Screen sharing
- *   - File sharing
- *   - User authentication
- *
- * INSTALLATION:
- *   npm install
- *
- * EXECUTION:
- *   npm start           # Production
- *   npm run dev         # Development (auto-reload)
- *
- * CONFIGURATION:
- *   PORT=8080           # Server port (default: 8080)
- *
- * ============================================================================
- */
+
 
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
-const { registerUser, loginUser, updateUserProfile } = require('./auth');
 
-// ============================================================================
 // CONFIGURATION
-// ============================================================================
+
 
 const PORT = process.env.PORT || 8080;
 const HEARTBEAT_INTERVAL = 30000;  // 30 seconds
 const PDF_CACHE_TTL = 30 * 60 * 1000;  // 30 minutes
 
-// ============================================================================
 // GLOBAL STATE
-// ============================================================================
 
 const clients = new Map();  // clientId -> { ws, roomId, playerName, lastHeartbeat }
 const rooms = new Map();    // roomId -> RoomInfo
@@ -57,9 +25,7 @@ try {
     console.log('[Server] filePresentation module not available');
 }
 
-// ============================================================================
 // SERVER STARTUP
-// ============================================================================
 
 const wss = new WebSocket.Server({ port: PORT });
 
@@ -70,9 +36,7 @@ console.log(`  Port: ${PORT}`);
 console.log(`  Heartbeat: ${HEARTBEAT_INTERVAL / 1000}s`);
 console.log('============================================');
 
-// ============================================================================
 // CONNECTION HANDLING
-// ============================================================================
 
 wss.on('connection', (ws) => {
     const clientId = uuidv4();
@@ -131,9 +95,7 @@ wss.on('connection', (ws) => {
     });
 });
 
-// ============================================================================
 // MESSAGE ROUTING
-// ============================================================================
 
 function handleMessage(clientId, message) {
     const { type, data } = message;
@@ -249,17 +211,6 @@ function handleMessage(clientId, message) {
             handlePdfPageRequest(clientId, data);
             break;
 
-        // --- Authentication ---
-        case 'auth-register':
-            handleAuthRegister(clientId, data);
-            break;
-        case 'auth-login':
-            handleAuthLogin(clientId, data);
-            break;
-        case 'auth-update-profile':
-            handleAuthUpdateProfile(clientId, data);
-            break;
-
         // --- Default: Broadcast to Room ---
         default:
             const client = clients.get(clientId);
@@ -271,9 +222,7 @@ function handleMessage(clientId, message) {
     }
 }
 
-// ============================================================================
 // ROOM MANAGEMENT
-// ============================================================================
 
 function handleRoomAvailable(clientId, dataStr) {
     try {
@@ -459,9 +408,7 @@ function handleDisconnect(clientId) {
     console.log(`[Disconnect] Client ${clientId.substring(0, 8)}...`);
 }
 
-// ============================================================================
 // WHITEBOARD
-// ============================================================================
 
 function handleWhiteboardState(clientId, dataStr) {
     try {
@@ -489,9 +436,7 @@ function handleWhiteboardState(clientId, dataStr) {
     }
 }
 
-// ============================================================================
 // WEBRTC SIGNALING (Voice Chat)
-// ============================================================================
 
 function handleWebRTCOffer(senderId, dataStr) {
     try {
@@ -550,9 +495,7 @@ function handleWebRTCIceCandidate(senderId, dataStr) {
     }
 }
 
-// ============================================================================
 // SCREEN SHARING WEBRTC
-// ============================================================================
 
 function handleScreenVideoOffer(senderId, dataStr) {
     try {
@@ -611,9 +554,7 @@ function handleScreenVideoIce(senderId, dataStr) {
     }
 }
 
-// ============================================================================
 // FILE SHARING
-// ============================================================================
 
 function handleFileListResponse(senderId, dataStr) {
     try {
@@ -641,9 +582,7 @@ function handleFileListResponse(senderId, dataStr) {
     }
 }
 
-// ============================================================================
 // FILE PRESENTATION
-// ============================================================================
 
 function handleFilePresentState(clientId, dataStr) {
     try {
@@ -671,9 +610,7 @@ function handleFilePresentState(clientId, dataStr) {
     }
 }
 
-// ============================================================================
 // PDF CONVERSION
-// ============================================================================
 
 async function handlePdfConvertRequest(clientId, dataStr) {
     try {
@@ -760,121 +697,7 @@ function sendPdfConvertResponse(targetId, fileId, roomId, result) {
     });
 }
 
-// ============================================================================
-// AUTHENTICATION
-// ============================================================================
-
-async function handleAuthRegister(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { username, email, password, displayName } = data;
-
-        if (!username || !email || !password) {
-            sendAuthResponse(clientId, 'auth-register-response', {
-                success: false,
-                error: 'Missing required fields'
-            });
-            return;
-        }
-
-        const result = await registerUser(username, email, password, displayName);
-        sendAuthResponse(clientId, 'auth-register-response', result);
-
-        if (result.success) {
-            const client = clients.get(clientId);
-            if (client) {
-                client.userId = result.userId;
-                client.playerName = result.displayName;
-            }
-        }
-
-    } catch (e) {
-        console.error(`[Error] handleAuthRegister: ${e.message}`);
-        sendAuthResponse(clientId, 'auth-register-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-async function handleAuthLogin(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { username, password } = data;
-
-        if (!username || !password) {
-            sendAuthResponse(clientId, 'auth-login-response', {
-                success: false,
-                error: 'Missing credentials'
-            });
-            return;
-        }
-
-        const result = await loginUser(username, password);
-        sendAuthResponse(clientId, 'auth-login-response', result);
-
-        if (result.success) {
-            const client = clients.get(clientId);
-            if (client) {
-                client.userId = result.userId;
-                client.playerName = result.displayName;
-            }
-        }
-
-    } catch (e) {
-        console.error(`[Error] handleAuthLogin: ${e.message}`);
-        sendAuthResponse(clientId, 'auth-login-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-async function handleAuthUpdateProfile(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { displayName, avatarColor } = data;
-
-        const client = clients.get(clientId);
-        if (!client || !client.userId) {
-            sendAuthResponse(clientId, 'auth-update-response', {
-                success: false,
-                error: 'Not authenticated'
-            });
-            return;
-        }
-
-        const result = await updateUserProfile(client.userId, displayName, avatarColor);
-
-        if (result.success && displayName) {
-            client.playerName = displayName;
-        }
-
-        sendAuthResponse(clientId, 'auth-update-response', result);
-
-    } catch (e) {
-        console.error(`[Error] handleAuthUpdateProfile: ${e.message}`);
-        sendAuthResponse(clientId, 'auth-update-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-function sendAuthResponse(clientId, type, data) {
-    const client = clients.get(clientId);
-    if (client) {
-        sendToClient(client.ws, {
-            type: type,
-            senderId: 'server',
-            data: JSON.stringify(data)
-        });
-    }
-}
-
-// ============================================================================
 // COMMUNICATION UTILITIES
-// ============================================================================
 
 /**
  * Sends a message to a specific client
@@ -959,9 +782,7 @@ function sendError(clientId, errorMessage) {
     }
 }
 
-// ============================================================================
 // SERVER MAINTENANCE
-// ============================================================================
 
 // Heartbeat to detect disconnected clients
 const heartbeatInterval = setInterval(() => {

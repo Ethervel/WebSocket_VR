@@ -9,11 +9,6 @@
     "test": "jest --runInBand --forceExit"
   },
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "db": "^6.0.3",
-    "maria": "^0.0.1-a",
-    "mariadb": "^3.4.5",
-    "mysql2": "^3.16.0",
     "pdf-poppler": "^0.2.3",
     "uuid": "^9.0.1",
     "ws": "^8.14.2"

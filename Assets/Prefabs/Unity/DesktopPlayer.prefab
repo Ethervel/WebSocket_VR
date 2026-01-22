@@ -103,19 +103,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 758137897361201952}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b55a27b9d6c15bf40878ae257cf5ed0c, type: 3}
-  m_Name: 
+  m_Script: {fileID: 11500000, guid: 41906edf5895e464ea8500ae20c56cec, type: 3}
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::DesktopWhiteboardDrawer
   penSize: 10
-  currentColor: {r: 0, g: 0, b: 0, a: 1}
-  whiteboardLayer:
+  eraserSize: 40
+  currentColor: {r: 0, g: 0, b: 1, a: 1}
+  drawingSurfaceLayer:
     serializedVersion: 2
     m_Bits: 64
-  maxRayDistance: 10
+  currentMode: 0
   sendRate: 0.05
   minPointsBeforeSend: 3
-  showCursor: 1
-  cursorPrefab: {fileID: 0}
 --- !u!114 &3619666891771107158
 MonoBehaviour:
   m_ObjectHideFlags: 0
