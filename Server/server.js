@@ -152,6 +152,11 @@ function handleMessage(clientId, message) {
             broadcastToRoom(clientId, message);
             break;
 
+        // --- Kick Player (host only, forward to target) ---
+        case 'kick-player':
+            handleKickPlayer(clientId, data);
+            break;
+
         // --- WebRTC Voice Chat ---
         case 'webrtc-offer':
             handleWebRTCOffer(clientId, data);
@@ -362,6 +367,51 @@ function handleRoomUpdate(clientId, dataStr) {
 
     } catch (e) {
         console.error(`[Error] handleRoomUpdate: ${e.message}`);
+    }
+}
+
+function handleKickPlayer(clientId, dataStr) {
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const room = rooms.get(data.roomId);
+
+        // Only the host can kick
+        if (!room || room.hostId !== clientId) {
+            console.warn(`[Kick] Rejected: ${clientId.substring(0, 8)} is not host of ${data.roomId}`);
+            return;
+        }
+
+        const targetClient = clients.get(data.playerId);
+        if (!targetClient || !targetClient.ws) {
+            console.warn(`[Kick] Target ${data.playerId?.substring(0, 8)} not found`);
+            return;
+        }
+
+        // Send kick message to the target player only
+        const kickMessage = JSON.stringify({
+            type: 'kick-player',
+            senderId: clientId,
+            data: JSON.stringify(data)
+        });
+        targetClient.ws.send(kickMessage);
+
+        // Update room state
+        targetClient.roomId = null;
+        room.playerCount = Math.max(0, room.playerCount - 1);
+
+        // Notify room that this player left
+        broadcastToRoom(clientId, {
+            type: 'room-leave',
+            senderId: data.playerId,
+            data: JSON.stringify({ roomId: data.roomId, playerId: data.playerId })
+        });
+
+        broadcastRoomList();
+
+        console.log(`[Kick] Host ${clientId.substring(0, 8)} kicked ${data.playerId.substring(0, 8)} from ${data.roomId}`);
+
+    } catch (e) {
+        console.error(`[Error] handleKickPlayer: ${e.message}`);
     }
 }
 

@@ -352,6 +352,8 @@ public class VRMenuPageRoom : MonoBehaviour
 
         string displayName = string.IsNullOrEmpty(player.playerName) ? player.playerId : player.playerName;
         bool isLocal = player.playerId == VRNetworkManager.LocalId;
+        bool isLocalHost = VRRoomManager.Instance != null && VRRoomManager.Instance.IsHost;
+        bool canKick = isLocalHost && !isLocal;
         string hostTag = player.isHost ? " (Host)" : "";
         string localTag = isLocal ? " (You)" : "";
 
@@ -438,14 +440,80 @@ public class VRMenuPageRoom : MonoBehaviour
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
             textRect.offsetMin = new Vector2(15, 5);
-            textRect.offsetMax = new Vector2(-15, -5);
+            textRect.offsetMax = new Vector2(-50, -5);
 
             // Validate transforms to prevent AABB errors
             ValidateRectTransform(itemRect);
             ValidateRectTransform(textRect);
         }
 
+        // Add kick button if local player is host and this is not ourselves
+        if (canKick)
+        {
+            AddKickButton(item, player.playerId);
+        }
+
         _playerItems[player.playerId] = item;
+    }
+
+    void AddKickButton(GameObject playerItem, string playerId)
+    {
+        GameObject kickObj = new GameObject("KickButton");
+        kickObj.transform.SetParent(playerItem.transform, false);
+
+        // Background image (red)
+        Image kickBg = kickObj.AddComponent<Image>();
+        kickBg.color = new Color(0.8f, 0.2f, 0.2f, 0.9f);
+
+        // Button component
+        Button kickBtn = kickObj.AddComponent<Button>();
+        var colors = kickBtn.colors;
+        colors.normalColor = new Color(0.8f, 0.2f, 0.2f, 0.9f);
+        colors.highlightedColor = new Color(1f, 0.3f, 0.3f, 1f);
+        colors.pressedColor = new Color(0.6f, 0.1f, 0.1f, 1f);
+        kickBtn.colors = colors;
+
+        // Position: right side of the player item
+        RectTransform kickRect = kickObj.GetComponent<RectTransform>();
+        kickRect.anchorMin = new Vector2(1, 0);
+        kickRect.anchorMax = new Vector2(1, 1);
+        kickRect.pivot = new Vector2(1, 0.5f);
+        kickRect.sizeDelta = new Vector2(40, 0);
+        kickRect.anchoredPosition = new Vector2(-5, 0);
+
+        // "X" text
+        GameObject kickTextObj = new GameObject("KickText");
+        kickTextObj.transform.SetParent(kickObj.transform, false);
+
+        TextMeshProUGUI kickText = kickTextObj.AddComponent<TextMeshProUGUI>();
+        kickText.text = "X";
+        kickText.fontSize = 20;
+        kickText.color = Color.white;
+        kickText.alignment = TextAlignmentOptions.Center;
+        kickText.fontStyle = FontStyles.Bold;
+
+        if (TMP_Settings.defaultFontAsset != null)
+        {
+            kickText.font = TMP_Settings.defaultFontAsset;
+        }
+
+        RectTransform kickTextRect = kickTextObj.GetComponent<RectTransform>();
+        kickTextRect.anchorMin = Vector2.zero;
+        kickTextRect.anchorMax = Vector2.one;
+        kickTextRect.offsetMin = Vector2.zero;
+        kickTextRect.offsetMax = Vector2.zero;
+
+        // Click handler
+        string targetId = playerId;
+        kickBtn.onClick.AddListener(() => OnKickPlayerClicked(targetId));
+    }
+
+    void OnKickPlayerClicked(string playerId)
+    {
+        if (VRRoomManager.Instance != null)
+        {
+            VRRoomManager.Instance.KickPlayer(playerId);
+        }
     }
 
     void RemovePlayerItem(string playerId)

@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Threading.Tasks;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion.Turning;
 
 /// <summary>
 /// Settings page - General application settings.
@@ -201,20 +202,22 @@ public class VRMenuPageSettings : MonoBehaviour
     void LoadSettings()
     {
         // Movement settings
+        bool useSnapTurn = PlayerPrefs.GetInt("SnapTurn", 1) == 1;
+
         if (smoothTurnToggle != null)
         {
-            smoothTurnToggle.SetIsOnWithoutNotify(PlayerPrefs.GetInt("SmoothTurn", 0) == 1);
+            smoothTurnToggle.SetIsOnWithoutNotify(!useSnapTurn);
         }
 
         if (turnSpeedSlider != null)
         {
-            turnSpeedSlider.SetValueWithoutNotify(PlayerPrefs.GetFloat("TurnSpeed", 90f));
+            turnSpeedSlider.SetValueWithoutNotify(PlayerPrefs.GetFloat("TurnSpeed", 60f));
             UpdateTurnSpeedText(turnSpeedSlider.value);
         }
 
         if (snapTurnToggle != null)
         {
-            snapTurnToggle.SetIsOnWithoutNotify(PlayerPrefs.GetInt("SnapTurn", 1) == 1);
+            snapTurnToggle.SetIsOnWithoutNotify(useSnapTurn);
         }
 
         if (snapAngleSlider != null)
@@ -226,6 +229,21 @@ public class VRMenuPageSettings : MonoBehaviour
         if (vignetteToggle != null)
         {
             vignetteToggle.SetIsOnWithoutNotify(PlayerPrefs.GetInt("Vignette", 1) == 1);
+        }
+
+        // Apply turn mode and values to XRI providers
+        ApplyTurnMode(useSnapTurn);
+
+        var snapTurnProvider = FindFirstObjectByType<SnapTurnProvider>(FindObjectsInactive.Include);
+        if (snapTurnProvider != null)
+        {
+            snapTurnProvider.turnAmount = PlayerPrefs.GetFloat("SnapAngle", 45f);
+        }
+
+        var continuousTurnProvider = FindFirstObjectByType<ContinuousTurnProvider>(FindObjectsInactive.Include);
+        if (continuousTurnProvider != null)
+        {
+            continuousTurnProvider.turnSpeed = PlayerPrefs.GetFloat("TurnSpeed", 60f);
         }
 
         // Graphics settings
@@ -257,12 +275,8 @@ public class VRMenuPageSettings : MonoBehaviour
         PlayerPrefs.SetInt("SmoothTurn", value ? 1 : 0);
         PlayerPrefs.Save();
 
-        // Apply to VR player controller if available (smooth turn = NOT snap turn)
-        var playerController = FindFirstObjectByType<VRPlayerController>();
-        if (playerController != null)
-        {
-            playerController.useSnapTurn = !value; // Invert: smooth turn ON = snap turn OFF
-        }
+        // Smooth turn ON = snap turn OFF (inverse)
+        ApplyTurnMode(!value);
 
         Debug.Log($"[Settings] Smooth turn: {value}");
     }
@@ -272,10 +286,10 @@ public class VRMenuPageSettings : MonoBehaviour
         PlayerPrefs.SetFloat("TurnSpeed", value);
         UpdateTurnSpeedText(value);
 
-        var playerController = FindFirstObjectByType<VRPlayerController>();
-        if (playerController != null)
+        var continuousTurn = FindFirstObjectByType<ContinuousTurnProvider>();
+        if (continuousTurn != null)
         {
-            playerController.smoothTurnSpeed = value;
+            continuousTurn.turnSpeed = value;
         }
     }
 
@@ -292,13 +306,33 @@ public class VRMenuPageSettings : MonoBehaviour
         PlayerPrefs.SetInt("SnapTurn", value ? 1 : 0);
         PlayerPrefs.Save();
 
-        var playerController = FindFirstObjectByType<VRPlayerController>();
-        if (playerController != null)
-        {
-            playerController.useSnapTurn = value;
-        }
+        ApplyTurnMode(value);
 
         Debug.Log($"[Settings] Snap turn: {value}");
+    }
+
+    void ApplyTurnMode(bool useSnapTurn)
+    {
+        var snapTurn = FindFirstObjectByType<SnapTurnProvider>(FindObjectsInactive.Include);
+        var continuousTurn = FindFirstObjectByType<ContinuousTurnProvider>(FindObjectsInactive.Include);
+
+        if (snapTurn != null)
+        {
+            snapTurn.enabled = useSnapTurn;
+        }
+
+        if (continuousTurn != null)
+        {
+            continuousTurn.enabled = !useSnapTurn;
+        }
+
+        // Sync both toggles
+        if (snapTurnToggle != null)
+            snapTurnToggle.SetIsOnWithoutNotify(useSnapTurn);
+        if (smoothTurnToggle != null)
+            smoothTurnToggle.SetIsOnWithoutNotify(!useSnapTurn);
+
+        Debug.Log($"[Settings] Turn mode: {(useSnapTurn ? "Snap" : "Smooth")}");
     }
 
     void OnSnapAngleChanged(float value)
@@ -306,10 +340,10 @@ public class VRMenuPageSettings : MonoBehaviour
         PlayerPrefs.SetFloat("SnapAngle", value);
         UpdateSnapAngleText(value);
 
-        var playerController = FindFirstObjectByType<VRPlayerController>();
-        if (playerController != null)
+        var snapTurn = FindFirstObjectByType<SnapTurnProvider>(FindObjectsInactive.Include);
+        if (snapTurn != null)
         {
-            playerController.snapTurnAngle = value;
+            snapTurn.turnAmount = value;
         }
     }
 

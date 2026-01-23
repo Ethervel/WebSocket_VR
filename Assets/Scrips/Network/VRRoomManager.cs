@@ -356,6 +356,41 @@ public class VRRoomManager : MonoBehaviour
         return new Dictionary<string, RoomInfo>(_availableRooms);
     }
 
+    // Kicks a player from the room (host only)
+    public void KickPlayer(string playerId)
+    {
+        if (!IsInRoom || !IsHost)
+        {
+            Debug.LogWarning("[VRRoom] Only the host can kick players.");
+            return;
+        }
+
+        if (playerId == VRNetworkManager.LocalId)
+        {
+            Debug.LogWarning("[VRRoom] Cannot kick yourself.");
+            return;
+        }
+
+        if (!_players.ContainsKey(playerId))
+        {
+            Debug.LogWarning($"[VRRoom] Player {playerId} not found in room.");
+            return;
+        }
+
+        VRNetworkManager.Instance.Send("kick-player", new KickPlayerData
+        {
+            roomId = CurrentRoomId,
+            playerId = playerId,
+            hostId = VRNetworkManager.LocalId
+        });
+
+        // Remove player locally
+        _players.Remove(playerId);
+        OnPlayerLeft?.Invoke(playerId);
+
+        Debug.Log($"[VRRoom] Kicked player: {playerId}");
+    }
+
     // Updates local player name and notifies others if in a room
     public void SetPlayerName(string name)
     {
@@ -419,6 +454,10 @@ public class VRRoomManager : MonoBehaviour
 
             case "avatar-update":
                 HandleAvatarUpdate(msg);
+                break;
+
+            case "kick-player":
+                HandleKickPlayer(msg);
                 break;
         }
     }
@@ -625,6 +664,36 @@ public class VRRoomManager : MonoBehaviour
 
             // Notify listeners (VRGameManager will update visuals)
             OnAvatarUpdated?.Invoke(playerData);
+        }
+    }
+
+    // Called when this player is kicked from the room
+    void HandleKickPlayer(NetworkMessage msg)
+    {
+        var data = TryDeserialize<KickPlayerData>(msg.data, "kick-player");
+        if (data == null || string.IsNullOrEmpty(data.roomId)) return;
+
+        // Only process if targeted at us and we're in that room
+        if (data.playerId != VRNetworkManager.LocalId) return;
+        if (!IsInRoom || data.roomId != CurrentRoomId) return;
+
+        Debug.Log($"[VRRoom] You have been kicked from room {CurrentRoomId} by host.");
+
+        // Reset local room state (same as LeaveRoom but without sending room-leave)
+        CurrentRoomId = null;
+        CurrentRoomName = null;
+        IsInRoom = false;
+        IsHost = false;
+        CurrentRoomType = RoomType.Lobby;
+        _players.Clear();
+
+        OnRoomLeft?.Invoke();
+        OnRoomTypeChanged?.Invoke(RoomType.Lobby);
+
+        // Teleport player back to lobby
+        if (VRGameManager.Instance != null)
+        {
+            VRGameManager.Instance.TeleportLocalPlayer(RoomType.Lobby);
         }
     }
 
@@ -849,6 +918,15 @@ public class PlayerNameUpdate
     public string roomId;
     public string playerId;
     public string playerName;
+}
+
+// Payload for kicking a player from the room
+[Serializable]
+public class KickPlayerData
+{
+    public string roomId;
+    public string playerId;
+    public string hostId;
 }
 
 #endregion
