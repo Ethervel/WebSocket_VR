@@ -10,7 +10,8 @@ public class WhiteboardEraser : MonoBehaviour
 {
     [Header("Configuration")]
     public Transform eraserTip;
-    public int eraserSize = 50;
+    public int eraserSizeX = 80;
+    public int eraserSizeY = 40;
     public LayerMask drawingSurfaceLayer;
 
     [Header("Touch Detection")]
@@ -74,7 +75,7 @@ public class WhiteboardEraser : MonoBehaviour
         _tipHeight = eraserTip.localScale.y;
         ApplyEraserColor();
 
-        Debug.Log($"[WhiteboardEraser] Initialisé, taille={eraserSize}");
+        Debug.Log($"[WhiteboardEraser] Initialisé, taille={eraserSizeX}x{eraserSizeY}");
     }
 
     void SubscribeToGrabEvents()
@@ -145,20 +146,23 @@ public class WhiteboardEraser : MonoBehaviour
 
     void Erase()
     {
-        // Raycast dans plusieurs directions pour détecter la surface
-        bool hit = Physics.Raycast(eraserTip.position, transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+        // Raycast depuis le centre de l'effaceur pour centrer l'effacement
+        Vector3 center = eraserTip.position;
+        float rayDist = _tipHeight * 2f;
+
+        bool hit = Physics.Raycast(center, eraserTip.up, out _touch, rayDist, drawingSurfaceLayer);
 
         if (!hit)
         {
-            hit = Physics.Raycast(eraserTip.position, transform.forward, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+            hit = Physics.Raycast(center, eraserTip.forward, out _touch, rayDist, drawingSurfaceLayer);
         }
         if (!hit)
         {
-            hit = Physics.Raycast(eraserTip.position, -transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+            hit = Physics.Raycast(center, -eraserTip.up, out _touch, rayDist, drawingSurfaceLayer);
         }
         if (!hit)
         {
-            hit = Physics.Raycast(eraserTip.position, -transform.forward, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+            hit = Physics.Raycast(center, -eraserTip.forward, out _touch, rayDist, drawingSurfaceLayer);
         }
 
         if (!hit)
@@ -205,11 +209,11 @@ public class WhiteboardEraser : MonoBehaviour
             return;
         }
 
-        int maxX = (int)surface.textureSize.x - eraserSize;
-        int maxY = (int)surface.textureSize.y - eraserSize;
+        int maxX = (int)surface.textureSize.x - eraserSizeX;
+        int maxY = (int)surface.textureSize.y - eraserSizeY;
 
-        int x = Mathf.Clamp((int)(uv.x * surface.textureSize.x - eraserSize / 2), 0, maxX);
-        int y = Mathf.Clamp((int)(uv.y * surface.textureSize.y - eraserSize / 2), 0, maxY);
+        int x = Mathf.Clamp((int)(uv.x * surface.textureSize.x - eraserSizeX / 2), 0, maxX);
+        int y = Mathf.Clamp((int)(uv.y * surface.textureSize.y - eraserSizeY / 2), 0, maxY);
 
         if (_touchedLastFrame)
         {
@@ -217,18 +221,19 @@ public class WhiteboardEraser : MonoBehaviour
             Vector2 end = new Vector2(x, y);
             float dist = Vector2.Distance(start, end);
 
-            int steps = Mathf.Max(1, Mathf.CeilToInt(dist / (eraserSize * 0.5f)));
+            int minSize = Mathf.Min(eraserSizeX, eraserSizeY);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(dist / (minSize * 0.5f)));
             for (int i = 0; i <= steps; i++)
             {
                 float t = steps > 0 ? (float)i / steps : 0;
                 int lerpX = Mathf.Clamp((int)Mathf.Lerp(start.x, end.x, t), 0, maxX);
                 int lerpY = Mathf.Clamp((int)Mathf.Lerp(start.y, end.y, t), 0, maxY);
-                targetTexture.SetPixels(lerpX, lerpY, eraserSize, eraserSize, _colors);
+                targetTexture.SetPixels(lerpX, lerpY, eraserSizeX, eraserSizeY, _colors);
             }
         }
         else
         {
-            targetTexture.SetPixels(x, y, eraserSize, eraserSize, _colors);
+            targetTexture.SetPixels(x, y, eraserSizeX, eraserSizeY, _colors);
         }
 
         _textureDirty = true;
@@ -305,7 +310,8 @@ public class WhiteboardEraser : MonoBehaviour
             g = _eraserColor.g,
             b = _eraserColor.b,
             a = _eraserColor.a,
-            penSize = eraserSize,
+            penSize = eraserSizeX,
+            penSizeY = eraserSizeY,
             isNewStroke = _isNewStroke,
             pointsFlat = pointsToSend.ToArray()
         };
@@ -331,16 +337,18 @@ public class WhiteboardEraser : MonoBehaviour
         _pendingPointsFlat.Clear();
     }
 
-    private int _lastEraserSize = -1;
+    private int _lastEraserSizeX = -1;
+    private int _lastEraserSizeY = -1;
 
     void ApplyEraserColor()
     {
-        int pixelCount = eraserSize * eraserSize;
+        int pixelCount = eraserSizeX * eraserSizeY;
 
-        if (_colors == null || _lastEraserSize != eraserSize)
+        if (_colors == null || _lastEraserSizeX != eraserSizeX || _lastEraserSizeY != eraserSizeY)
         {
             _colors = new Color[pixelCount];
-            _lastEraserSize = eraserSize;
+            _lastEraserSizeX = eraserSizeX;
+            _lastEraserSizeY = eraserSizeY;
         }
 
         for (int i = 0; i < pixelCount; i++)

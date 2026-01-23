@@ -248,7 +248,10 @@ public class VRMenuPageRoom : MonoBehaviour
         {
             Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(playerListContainer as RectTransform);
-            StartCoroutine(DelayedLayoutRebuild());
+            if (gameObject.activeInHierarchy)
+            {
+                StartCoroutine(DelayedLayoutRebuild());
+            }
         }
     }
 

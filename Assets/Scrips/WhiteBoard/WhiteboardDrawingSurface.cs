@@ -335,8 +335,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             {
                 float lastU = packet.pointsFlat[packet.pointsFlat.Length - 2];
                 float lastV = packet.pointsFlat[packet.pointsFlat.Length - 1];
-                int lastX = Mathf.Clamp((int)(lastU * textureSize.x - packet.penSize / 2), 0, (int)textureSize.x - packet.penSize);
-                int lastY = Mathf.Clamp((int)(lastV * textureSize.y - packet.penSize / 2), 0, (int)textureSize.y - packet.penSize);
+                int sizeX = packet.penSize;
+                int sizeY = packet.penSizeY > 0 ? packet.penSizeY : packet.penSize;
+                int lastX = Mathf.Clamp((int)(lastU * textureSize.x - sizeX / 2), 0, (int)textureSize.x - sizeX);
+                int lastY = Mathf.Clamp((int)(lastV * textureSize.y - sizeY / 2), 0, (int)textureSize.y - sizeY);
                 _lastReceivedPoint = new Vector2(lastX, lastY);
             }
         }
@@ -355,7 +357,10 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         Color col = new Color(packet.r, packet.g, packet.b, packet.a);
 
-        int pixelCount = packet.penSize * packet.penSize;
+        int sizeX = packet.penSize;
+        int sizeY = packet.penSizeY > 0 ? packet.penSizeY : packet.penSize;
+
+        int pixelCount = sizeX * sizeY;
         Color[] paintPixels = new Color[pixelCount];
         for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
 
@@ -370,8 +375,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             float u = packet.pointsFlat[i];
             float v = packet.pointsFlat[i + 1];
 
-            int x = Mathf.Clamp((int)(u * textureSize.x - packet.penSize / 2), 0, (int)textureSize.x - packet.penSize);
-            int y = Mathf.Clamp((int)(v * textureSize.y - packet.penSize / 2), 0, (int)textureSize.y - packet.penSize);
+            int x = Mathf.Clamp((int)(u * textureSize.x - sizeX / 2), 0, (int)textureSize.x - sizeX);
+            int y = Mathf.Clamp((int)(v * textureSize.y - sizeY / 2), 0, (int)textureSize.y - sizeY);
 
             Vector2 currentPoint = new Vector2(x, y);
 
@@ -382,18 +387,18 @@ public class WhiteboardDrawingSurface : MonoBehaviour
                 // Ne pas interpoler si les points sont trop éloignés (nouveau trait)
                 if (dist <= maxInterpolationDistance)
                 {
-                    InterpolatePoints(lastPoint.Value, currentPoint, paintPixels, packet.penSize);
+                    InterpolatePoints(lastPoint.Value, currentPoint, paintPixels, sizeX, sizeY);
                 }
                 else
                 {
                     // Points trop éloignés = nouveau trait
                     _lastReceivedPoint = null;
-                    drawingTexture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
+                    drawingTexture.SetPixels(x, y, sizeX, sizeY, paintPixels);
                 }
             }
             else
             {
-                drawingTexture.SetPixels(x, y, packet.penSize, packet.penSize, paintPixels);
+                drawingTexture.SetPixels(x, y, sizeX, sizeY, paintPixels);
             }
 
             lastPoint = currentPoint;
@@ -403,7 +408,7 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             drawingTexture.Apply();
     }
 
-    void InterpolatePoints(Vector2 start, Vector2 end, Color[] paintPixels, int penSize)
+    void InterpolatePoints(Vector2 start, Vector2 end, Color[] paintPixels, int sizeX, int sizeY)
     {
         float dist = Vector2.Distance(start, end);
         int steps = Mathf.Max(1, Mathf.CeilToInt(dist));
@@ -411,9 +416,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         for (int i = 0; i <= steps; i++)
         {
             float t = steps > 0 ? (float)i / steps : 0;
-            int lerpX = Mathf.Clamp((int)Mathf.Lerp(start.x, end.x, t), 0, (int)textureSize.x - penSize);
-            int lerpY = Mathf.Clamp((int)Mathf.Lerp(start.y, end.y, t), 0, (int)textureSize.y - penSize);
-            drawingTexture.SetPixels(lerpX, lerpY, penSize, penSize, paintPixels);
+            int lerpX = Mathf.Clamp((int)Mathf.Lerp(start.x, end.x, t), 0, (int)textureSize.x - sizeX);
+            int lerpY = Mathf.Clamp((int)Mathf.Lerp(start.y, end.y, t), 0, (int)textureSize.y - sizeY);
+            drawingTexture.SetPixels(lerpX, lerpY, sizeX, sizeY, paintPixels);
         }
     }
 
