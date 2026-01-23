@@ -4150,7 +4150,7 @@ Transform:
   m_GameObject: {fileID: 158797903}
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: -25.762869, y: 1.2785714, z: -23.765713}
+  m_LocalPosition: {x: -17.985, y: 0.883, z: -16.683}
   m_LocalScale: {x: 1.4285711, y: 1.4285713, z: 1.4285715}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -4173,7 +4173,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WhiteboardEraser
   eraserTip: {fileID: 5950609221776319100}
-  eraserSize: 50
+  eraserSizeX: 70
+  eraserSizeY: 140
   drawingSurfaceLayer:
     serializedVersion: 2
     m_Bits: 64

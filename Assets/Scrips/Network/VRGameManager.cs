@@ -410,9 +410,16 @@ public class VRGameManager : MonoBehaviour
             Debug.Log("[SPAWN FIX] CharacterController réactivé");
         }
 
+        // Add LaserPointer component for presentations
+        if (_localPlayer.GetComponent<LaserPointer>() == null)
+        {
+            _localPlayer.AddComponent<LaserPointer>();
+            Debug.Log("[VRGame] LaserPointer added to local player");
+        }
+
         Debug.Log($"[VRGame] Local VR player spawned at {position}");
         OnLocalPlayerSpawned?.Invoke(_localPlayer);
-        
+
         _isSpawning = false;
     }
 
@@ -1025,7 +1032,12 @@ public class VRGameManager : MonoBehaviour
                 Destroy(remote.nameTag.gameObject);
                 Debug.Log($"[VRGame] Destroyed name tag for {playerId}");
             }
-            
+
+            if (remote.laserLine != null)
+                Destroy(remote.laserLine.gameObject);
+            if (remote.laserDot != null)
+                Destroy(remote.laserDot);
+
             if (remote.gameObject != null)
                 Destroy(remote.gameObject);
 
@@ -1040,13 +1052,18 @@ public class VRGameManager : MonoBehaviour
         {
             if (remote.head != null)
                 Destroy(remote.head.gameObject);
-            
+
             if (remote.leftHand != null)
                 Destroy(remote.leftHand.gameObject);
-            
+
             if (remote.rightHand != null)
                 Destroy(remote.rightHand.gameObject);
-            
+
+            if (remote.laserLine != null)
+                Destroy(remote.laserLine.gameObject);
+            if (remote.laserDot != null)
+                Destroy(remote.laserDot);
+
             if (remote.gameObject != null)
                 Destroy(remote.gameObject);
         }
@@ -1206,6 +1223,12 @@ public class VRGameManager : MonoBehaviour
 
     void HandleNetworkMessage(NetworkMessage msg)
     {
+        if (msg.type == "laser-pointer")
+        {
+            HandleLaserPointerMessage(msg);
+            return;
+        }
+
         if (msg.type != "vr-position")
             return;
 
@@ -1378,6 +1401,115 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    #region Laser Pointer (Remote)
+
+    void HandleLaserPointerMessage(NetworkMessage msg)
+    {
+        if (string.IsNullOrEmpty(msg.data)) return;
+
+        LaserPointerData data;
+        try
+        {
+            data = JsonUtility.FromJson<LaserPointerData>(msg.data);
+            if (data == null || string.IsNullOrEmpty(data.roomId)) return;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[VRGame] JSON parse error for laser-pointer: {e.Message}");
+            return;
+        }
+
+        if (VRRoomManager.Instance == null || data.roomId != VRRoomManager.Instance.CurrentRoomId)
+            return;
+
+        if (!_remotePlayers.TryGetValue(msg.senderId, out var remote))
+            return;
+
+        if (data.isActive)
+        {
+            // Create or show laser visuals
+            EnsureRemoteLaserVisuals(remote, data);
+
+            Vector3 origin = new Vector3(data.originX, data.originY, data.originZ);
+            Vector3 hitPoint = new Vector3(data.hitX, data.hitY, data.hitZ);
+            Color color = new Color(data.colorR, data.colorG, data.colorB, 1f);
+
+            // Update line
+            if (remote.laserLine != null)
+            {
+                remote.laserLine.startColor = color;
+                remote.laserLine.endColor = color;
+                remote.laserLine.SetPosition(0, origin);
+                remote.laserLine.SetPosition(1, hitPoint);
+                remote.laserLine.enabled = true;
+            }
+
+            // Update dot
+            if (remote.laserDot != null)
+            {
+                remote.laserDot.transform.position = hitPoint;
+                remote.laserDot.SetActive(true);
+
+                var dotRenderer = remote.laserDot.GetComponent<MeshRenderer>();
+                if (dotRenderer != null)
+                {
+                    dotRenderer.material.color = color;
+                }
+            }
+
+            remote.laserActive = true;
+        }
+        else
+        {
+            // Hide laser
+            if (remote.laserLine != null) remote.laserLine.enabled = false;
+            if (remote.laserDot != null) remote.laserDot.SetActive(false);
+            remote.laserActive = false;
+        }
+    }
+
+    void EnsureRemoteLaserVisuals(VRRemotePlayer remote, LaserPointerData data)
+    {
+        if (remote.laserLine != null) return; // Already created
+
+        Color color = new Color(data.colorR, data.colorG, data.colorB, 1f);
+
+        // Create LineRenderer
+        GameObject lineObj = new GameObject($"LaserBeam_{remote.playerId.Substring(0, 6)}");
+        lineObj.transform.SetParent(_detachedPartsContainer);
+        remote.laserLine = lineObj.AddComponent<LineRenderer>();
+        remote.laserLine.positionCount = 2;
+        remote.laserLine.startWidth = 0.005f;
+        remote.laserLine.endWidth = 0.005f;
+        remote.laserLine.material = new Material(Shader.Find("Sprites/Default"));
+        remote.laserLine.startColor = color;
+        remote.laserLine.endColor = color;
+        remote.laserLine.receiveShadows = false;
+        remote.laserLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+        // Create dot
+        remote.laserDot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        remote.laserDot.name = $"LaserDot_{remote.playerId.Substring(0, 6)}";
+        remote.laserDot.transform.SetParent(_detachedPartsContainer);
+        remote.laserDot.transform.localScale = Vector3.one * 0.03f;
+
+        var col = remote.laserDot.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+
+        var renderer = remote.laserDot.GetComponent<MeshRenderer>();
+        if (renderer != null)
+        {
+            renderer.material = new Material(Shader.Find("Sprites/Default"));
+            renderer.material.color = color;
+            renderer.receiveShadows = false;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        Debug.Log($"[VRGame] Created laser visuals for remote player {remote.playerName}");
+    }
+
+    #endregion
+
     #endregion
 
     #region Spawn Points
@@ -1456,6 +1588,11 @@ public class VRRemotePlayer
     public Transform leftHand;
     public Transform rightHand;
     public Transform nameTag;
+
+    // Laser pointer
+    public LineRenderer laserLine;
+    public GameObject laserDot;
+    public bool laserActive;
 
     public Vector3 targetPosition;
     public Quaternion targetRotation;

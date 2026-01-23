@@ -102,6 +102,18 @@ public class VRMenuPageAvatar : MonoBehaviour
     {
         LoadCurrentSettings();
         UpdatePreview();
+        BindXRKeyboard();
+    }
+
+    void BindXRKeyboard()
+    {
+        if (usernameInput == null) return;
+
+        var keyboardBind = FindFirstObjectByType<GlobalKeyboardAutoBind>();
+        if (keyboardBind != null)
+        {
+            keyboardBind.SetupInputField(usernameInput);
+        }
     }
 
     void LoadCurrentSettings()
@@ -278,7 +290,7 @@ public class VRMenuPageAvatar : MonoBehaviour
 
     public void ApplyChanges()
     {
-        // Save username
+        // Save username and color
         PlayerPrefs.SetString("PlayerName", _currentUsername);
         PlayerPrefs.SetInt("PlayerColorIndex", _selectedColorIndex);
         PlayerPrefs.Save();
@@ -289,10 +301,11 @@ public class VRMenuPageAvatar : MonoBehaviour
             AvatarCustomization.Instance.SetColor(availableColors[_selectedColorIndex]);
         }
 
-        // Update name via VRRoomManager (which broadcasts the update)
+        // Broadcast full avatar update (name + color) to all players in room
         if (VRRoomManager.Instance != null)
         {
             VRRoomManager.Instance.SetPlayerName(_currentUsername);
+            VRRoomManager.Instance.BroadcastAvatarUpdate();
         }
 
         Debug.Log($"[VRMenuPageAvatar] Applied: Name={_currentUsername}, ColorIndex={_selectedColorIndex}");

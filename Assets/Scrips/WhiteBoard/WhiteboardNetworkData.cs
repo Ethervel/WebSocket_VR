@@ -21,6 +21,7 @@ public class WhiteboardPacket
     public string roomId; // NOUVEAU: ID de la room
     public float r, g, b, a;
     public int penSize;
+    public int penSizeY; // 0 = square (use penSize for both), >0 = rectangular
 
     // Indique si c'est un nouveau trait (stylo levé puis reposé)
     // Si true, ne pas interpoler depuis le dernier point du batch précédent
