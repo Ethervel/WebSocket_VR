@@ -1,83 +1,92 @@
-/**
- * WebSocket Server for VR Meeting Rooms Application
- * Version avec FILTRAGE PAR ROOM pour sync objets et whiteboard
- * 
- * Installation:
- *   npm init -y
- *   npm install ws uuid
- * 
- * Execution:
- *   node server.js
- */
+
 
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
-const { registerUser, loginUser, updateUserProfile } = require('./auth');
 
-// File Presentation module (optional - for PDF conversion)
+// CONFIGURATION
+
+
+const PORT = process.env.PORT || 8080;
+const HEARTBEAT_INTERVAL = 30000;  // 30 seconds
+const PDF_CACHE_TTL = 30 * 60 * 1000;  // 30 minutes
+
+// GLOBAL STATE
+
+const clients = new Map();  // clientId -> { ws, roomId, playerName, lastHeartbeat }
+const rooms = new Map();    // roomId -> RoomInfo
+const pdfCache = new Map(); // fileId -> { pages, totalPages, timestamp }
+
+// Presentation module (optional)
 let filePresentation = null;
 try {
     filePresentation = require('./filePresentation');
-    console.log(`[SERVER] File presentation module loaded (pdf-poppler: ${filePresentation.pdfPoppler ? 'available' : 'not installed'})`);
+    console.log('[Server] filePresentation module loaded');
 } catch (e) {
-    console.log('[SERVER] File presentation module not loaded');
+    console.log('[Server] filePresentation module not available');
 }
 
-const PORT = process.env.PORT || 8080;
-const HEARTBEAT_INTERVAL = 30000;
-
-const clients = new Map(); // clientId -> { ws, roomId, playerName }
-const rooms = new Map();   // roomId -> RoomInfo
+// SERVER STARTUP
 
 const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`[SERVER] WebSocket server started on port ${PORT}`);
+console.log('============================================');
+console.log('  VR MEETING ROOMS - WebSocket Server');
+console.log('============================================');
+console.log(`  Port: ${PORT}`);
+console.log(`  Heartbeat: ${HEARTBEAT_INTERVAL / 1000}s`);
+console.log('============================================');
 
-// ========================================
-// CONNECTION
-// ========================================
+// CONNECTION HANDLING
 
 wss.on('connection', (ws) => {
     const clientId = uuidv4();
-    
+
+    // Register the client
     clients.set(clientId, {
         ws: ws,
         roomId: null,
         playerName: 'Player',
         lastHeartbeat: Date.now()
     });
-    
-    console.log(`[SERVER] Client connected: ${clientId}`);
-    
+
+    console.log(`[Connect] Client ${clientId.substring(0, 8)}...`);
+
+    // Send welcome message
     sendToClient(ws, {
         type: 'welcome',
         senderId: clientId
     });
-    
+
+    // Notify other clients
     broadcast({
         type: 'peer-connected',
         senderId: clientId
     }, clientId);
-    
+
+    // Send room list
     sendRoomList(ws);
-    
+
+    // Message handling
     ws.on('message', (data) => {
         try {
             const message = JSON.parse(data.toString());
             handleMessage(clientId, message);
         } catch (e) {
-            console.error(`[SERVER] Parse error: ${e.message}`);
+            console.error(`[Error] Parse: ${e.message}`);
         }
     });
-    
+
+    // Disconnection handling
     ws.on('close', () => {
         handleDisconnect(clientId);
     });
-    
+
+    // Error handling
     ws.on('error', (error) => {
-        console.error(`[SERVER] Client error (${clientId}): ${error.message}`);
+        console.error(`[Error] Client ${clientId.substring(0, 8)}: ${error.message}`);
     });
-    
+
+    // Heartbeat
     ws.on('pong', () => {
         const client = clients.get(clientId);
         if (client) {
@@ -86,173 +95,124 @@ wss.on('connection', (ws) => {
     });
 });
 
-// ========================================
 // MESSAGE ROUTING
-// ========================================
 
 function handleMessage(clientId, message) {
-    const { type, senderId, data } = message;
+    const { type, data } = message;
     message.senderId = clientId;
-    
-    console.log(`[SERVER] Message from ${clientId}: ${type}`);
-    
+
     switch (type) {
-        // === ROOM LIFECYCLE ===
+        // --- Room Management ---
         case 'room-available':
             handleRoomAvailable(clientId, data);
             break;
-            
         case 'room-closed':
             handleRoomClosed(clientId, data);
             break;
-            
         case 'room-join':
             handleRoomJoin(clientId, data);
             break;
-            
         case 'room-leave':
             handleRoomLeave(clientId, data);
             break;
-            
         case 'room-list-request':
             sendRoomList(clients.get(clientId)?.ws);
             break;
-            
         case 'room-update':
             handleRoomUpdate(clientId, data);
             break;
-            
-        // === VR POSITION (PAR ROOM) ===
+
+        // --- VR Position Sync ---
         case 'vr-position':
         case 'position':
             broadcastToRoom(clientId, message);
             break;
-            
-        // === OBJETS INTERACTIFS (PAR ROOM) ===
+
+        // --- Interactive Objects ---
         case 'obj-sync':
         case 'obj-state':
             broadcastToRoom(clientId, message);
             break;
-            
-        // === WHITEBOARD (PAR ROOM) ===
+
+        // --- Whiteboard ---
         case 'whiteboard-draw':
         case 'whiteboard-batch':
         case 'whiteboard-clear':
-            broadcastToRoom(clientId, message);
-            break;
-            
-        // === WHITEBOARD STATE (POINT-TO-POINT) ===
         case 'whiteboard-request':
-            // Relayer à toute la room pour que quelqu'un réponde
             broadcastToRoom(clientId, message);
             break;
-            
         case 'whiteboard-state':
-            // Envoyer seulement à celui qui a demandé
-            // (géré dans handleWhiteboardState)
             handleWhiteboardState(clientId, data);
             break;
-            
-        // === ROOM STATE (GLOBAL) ===
+
+        // --- Room State ---
         case 'room-welcome':
         case 'room-teleport':
         case 'player-name-update':
             broadcastToRoom(clientId, message);
             break;
 
-        // === WEBRTC SIGNALING (POINT-TO-POINT) ===
+        // --- WebRTC Voice Chat ---
         case 'webrtc-offer':
             handleWebRTCOffer(clientId, data);
             break;
-
         case 'webrtc-answer':
             handleWebRTCAnswer(clientId, data);
             break;
-
         case 'webrtc-ice-candidate':
             handleWebRTCIceCandidate(clientId, data);
             break;
 
-        // === SCREEN SHARING (PAR ROOM) ===
+        // --- Screen Sharing ---
         case 'screen-share-start':
         case 'screen-share-stop':
         case 'screen-share-frame':
         case 'screen-share-request':
         case 'screen-share-state':
-            console.log(`[ScreenShare] ${type} from ${clientId}`);
             broadcastToRoom(clientId, message);
             break;
-
-        // === SCREEN SHARING WEBRTC (POINT-TO-POINT) ===
         case 'screen-video-offer':
             handleScreenVideoOffer(clientId, data);
             break;
-
         case 'screen-video-answer':
             handleScreenVideoAnswer(clientId, data);
             break;
-
         case 'screen-video-ice':
             handleScreenVideoIce(clientId, data);
             break;
 
-        // === FILE SHARING (PAR ROOM) ===
+        // --- File Sharing ---
         case 'file-announce':
         case 'file-chunk':
         case 'file-complete':
         case 'file-request':
         case 'file-list-request':
-            console.log(`[FileShare] ${type} from ${clientId}`);
             broadcastToRoom(clientId, message);
             break;
-
         case 'file-list-response':
             handleFileListResponse(clientId, data);
             break;
 
-        // === FILE PRESENTATION (PAR ROOM) ===
+        // --- File Presentation ---
         case 'file-present-start':
         case 'file-present-page':
         case 'file-present-navigate':
         case 'file-present-stop':
         case 'file-present-request':
-            console.log(`[FilePresent] ${type} from ${clientId}`);
             broadcastToRoom(clientId, message);
             break;
-
         case 'file-present-state':
             handleFilePresentState(clientId, data);
             break;
-
-        // === PDF CONVERSION (POINT-TO-POINT avec serveur) ===
         case 'pdf-convert-request':
             handlePdfConvertRequest(clientId, data);
             break;
-
         case 'pdf-page-request':
             handlePdfPageRequest(clientId, data);
             break;
 
-        // === AUTHENTICATION ===
-        case 'auth-register':
-            handleAuthRegister(clientId, data);
-            break;
-
-        case 'auth-login':
-            handleAuthLogin(clientId, data);
-            break;
-
-        case 'auth-update-profile':
-            handleAuthUpdateProfile(clientId, data);
-            break;
-
-        // === VOICE TEST (DEBUG) ===
-        case 'voice-test-tone':
-            broadcastToRoom(clientId, message);
-            break;
-
+        // --- Default: Broadcast to Room ---
         default:
-            // Par défaut: broadcast à la room si le client est dans une room
             const client = clients.get(clientId);
             if (client && client.roomId) {
                 broadcastToRoom(clientId, message);
@@ -262,14 +222,12 @@ function handleMessage(clientId, message) {
     }
 }
 
-// ========================================
 // ROOM MANAGEMENT
-// ========================================
 
 function handleRoomAvailable(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        
+
         const roomInfo = {
             roomId: data.roomId,
             hostId: clientId,
@@ -279,25 +237,25 @@ function handleRoomAvailable(clientId, dataStr) {
             maxPlayers: data.maxPlayers || 10,
             createdAt: Date.now()
         };
-        
+
         rooms.set(data.roomId, roomInfo);
-        
+
         const client = clients.get(clientId);
         if (client) {
             client.roomId = data.roomId;
         }
-        
-        console.log(`[SERVER] Room created: ${data.roomId} by ${clientId}`);
-        
+
+        console.log(`[Room] Created: ${data.roomId}`);
+
         broadcastRoomList();
         broadcast({
             type: 'room-available',
             senderId: clientId,
             data: JSON.stringify(roomInfo)
         });
-        
+
     } catch (e) {
-        console.error(`[SERVER] handleRoomAvailable error: ${e.message}`);
+        console.error(`[Error] handleRoomAvailable: ${e.message}`);
     }
 }
 
@@ -305,22 +263,22 @@ function handleRoomClosed(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const room = rooms.get(data.roomId);
-        
+
         if (room && room.hostId === clientId) {
             rooms.delete(data.roomId);
-            console.log(`[SERVER] Room closed: ${data.roomId}`);
-            
+            console.log(`[Room] Closed: ${data.roomId}`);
+
             broadcast({
                 type: 'room-closed',
                 senderId: clientId,
                 data: JSON.stringify(data)
             });
-            
+
             broadcastRoomList();
         }
-        
+
     } catch (e) {
-        console.error(`[SERVER] handleRoomClosed error: ${e.message}`);
+        console.error(`[Error] handleRoomClosed: ${e.message}`);
     }
 }
 
@@ -328,38 +286,37 @@ function handleRoomJoin(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const room = rooms.get(data.roomId);
-        
+
         if (!room) {
             sendError(clientId, `Room ${data.roomId} not found`);
             return;
         }
-        
+
         if (room.playerCount >= room.maxPlayers) {
             sendError(clientId, 'Room is full');
             return;
         }
-        
+
         const client = clients.get(clientId);
         if (client) {
             client.roomId = data.roomId;
             client.playerName = data.playerName || 'Player';
         }
-        
+
         room.playerCount++;
-        
-        console.log(`[SERVER] Player ${clientId} joined room ${data.roomId}`);
-        
-        // Broadcast SEULEMENT à cette room
+
+        console.log(`[Room] Join: ${clientId.substring(0, 8)} -> ${data.roomId}`);
+
         broadcastToRoom(clientId, {
             type: 'room-join',
             senderId: clientId,
             data: JSON.stringify(data)
         });
-        
+
         broadcastRoomList();
-        
+
     } catch (e) {
-        console.error(`[SERVER] handleRoomJoin error: ${e.message}`);
+        console.error(`[Error] handleRoomJoin: ${e.message}`);
     }
 }
 
@@ -367,28 +324,28 @@ function handleRoomLeave(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const room = rooms.get(data.roomId);
-        
+
         if (room) {
             room.playerCount = Math.max(0, room.playerCount - 1);
         }
-        
+
         const client = clients.get(clientId);
         if (client) {
             client.roomId = null;
         }
-        
-        console.log(`[SERVER]  Player ${clientId} left room ${data.roomId}`);
-        
+
+        console.log(`[Room] Leave: ${clientId.substring(0, 8)} <- ${data.roomId}`);
+
         broadcastToRoom(clientId, {
             type: 'room-leave',
             senderId: clientId,
             data: JSON.stringify(data)
         });
-        
+
         broadcastRoomList();
-        
+
     } catch (e) {
-        console.error(`[SERVER] handleRoomLeave error: ${e.message}`);
+        console.error(`[Error] handleRoomLeave: ${e.message}`);
     }
 }
 
@@ -396,25 +353,25 @@ function handleRoomUpdate(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const room = rooms.get(data.roomId);
-        
+
         if (room && room.hostId === clientId) {
             room.playerCount = data.playerCount || room.playerCount;
             room.roomName = data.roomName || room.roomName;
             broadcastRoomList();
         }
-        
+
     } catch (e) {
-        console.error(`[SERVER] handleRoomUpdate error: ${e.message}`);
+        console.error(`[Error] handleRoomUpdate: ${e.message}`);
     }
 }
 
 function handleDisconnect(clientId) {
     const client = clients.get(clientId);
-    
+
     if (client) {
         if (client.roomId) {
             const room = rooms.get(client.roomId);
-            
+
             if (room) {
                 if (room.hostId === clientId) {
                     rooms.delete(client.roomId);
@@ -427,8 +384,7 @@ function handleDisconnect(clientId) {
                     room.playerCount = Math.max(0, room.playerCount - 1);
                 }
             }
-            
-            // Notifier SEULEMENT la room du départ
+
             broadcastToRoom(clientId, {
                 type: 'room-leave',
                 senderId: clientId,
@@ -439,28 +395,25 @@ function handleDisconnect(clientId) {
             });
         }
     }
-    
+
     clients.delete(clientId);
-    
+
     broadcast({
         type: 'peer-disconnected',
         senderId: clientId
     });
-    
+
     broadcastRoomList();
-    
-    console.log(`[SERVER]  Client disconnected: ${clientId}`);
+
+    console.log(`[Disconnect] Client ${clientId.substring(0, 8)}...`);
 }
 
-// ========================================
-// WHITEBOARD HANDLERS
-// ========================================
+// WHITEBOARD
 
 function handleWhiteboardState(clientId, dataStr) {
     try {
         const stateData = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        
-        // Si targetId est spécifié, envoyer seulement à ce client
+
         if (stateData.targetId) {
             const targetClient = clients.get(stateData.targetId);
             if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
@@ -469,47 +422,38 @@ function handleWhiteboardState(clientId, dataStr) {
                     senderId: clientId,
                     data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
                 });
-                
-                const sizeKB = stateData.textureData ? 
-                    (stateData.textureData.length * 0.75 / 1024).toFixed(2) : '0';
-                
-                console.log(`[Whiteboard] State sent ${clientId} → ${stateData.targetId} (${sizeKB} KB)`);
             }
         } else {
-            // Sinon, broadcast à toute la room
             broadcastToRoom(clientId, {
                 type: 'whiteboard-state',
                 senderId: clientId,
                 data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
             });
         }
-        
+
     } catch (e) {
-        console.error(`[Whiteboard] handleWhiteboardState error: ${e.message}`);
+        console.error(`[Error] handleWhiteboardState: ${e.message}`);
     }
 }
 
-// ========================================
-// WEBRTC SIGNALING
-// ========================================
+// WEBRTC SIGNALING (Voice Chat)
 
 function handleWebRTCOffer(senderId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const { targetId, sdp } = data;
-        
+
         const targetClient = clients.get(targetId);
         if (!targetClient) return;
-        
+
         sendToClient(targetClient.ws, {
             type: 'webrtc-offer',
             senderId: senderId,
             data: JSON.stringify({ sdp })
         });
-        
-        console.log(`[WebRTC] Offer: ${senderId} → ${targetId}`);
+
     } catch (e) {
-        console.error(`[WebRTC] handleWebRTCOffer error: ${e.message}`);
+        console.error(`[Error] handleWebRTCOffer: ${e.message}`);
     }
 }
 
@@ -517,19 +461,18 @@ function handleWebRTCAnswer(senderId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const { targetId, sdp } = data;
-        
+
         const targetClient = clients.get(targetId);
         if (!targetClient) return;
-        
+
         sendToClient(targetClient.ws, {
             type: 'webrtc-answer',
             senderId: senderId,
             data: JSON.stringify({ sdp })
         });
-        
-        console.log(`[WebRTC] Answer: ${senderId} → ${targetId}`);
+
     } catch (e) {
-        console.error(`[WebRTC] handleWebRTCAnswer error: ${e.message}`);
+        console.error(`[Error] handleWebRTCAnswer: ${e.message}`);
     }
 }
 
@@ -537,24 +480,22 @@ function handleWebRTCIceCandidate(senderId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const { targetId, candidate, sdpMid, sdpMLineIndex } = data;
-        
+
         const targetClient = clients.get(targetId);
         if (!targetClient) return;
-        
+
         sendToClient(targetClient.ws, {
             type: 'webrtc-ice-candidate',
             senderId: senderId,
             data: JSON.stringify({ candidate, sdpMid, sdpMLineIndex })
         });
-        
+
     } catch (e) {
-        console.error(`[WebRTC] handleWebRTCIceCandidate error: ${e.message}`);
+        console.error(`[Error] handleWebRTCIceCandidate: ${e.message}`);
     }
 }
 
-// ========================================
-// SCREEN SHARING WEBRTC SIGNALING
-// ========================================
+// SCREEN SHARING WEBRTC
 
 function handleScreenVideoOffer(senderId, dataStr) {
     try {
@@ -562,10 +503,7 @@ function handleScreenVideoOffer(senderId, dataStr) {
         const { targetId, sdp } = data;
 
         const targetClient = clients.get(targetId);
-        if (!targetClient) {
-            console.log(`[ScreenVideo] Target ${targetId} not found for offer`);
-            return;
-        }
+        if (!targetClient) return;
 
         sendToClient(targetClient.ws, {
             type: 'screen-video-offer',
@@ -573,9 +511,8 @@ function handleScreenVideoOffer(senderId, dataStr) {
             data: JSON.stringify({ sdp })
         });
 
-        console.log(`[ScreenVideo] Offer: ${senderId} → ${targetId}`);
     } catch (e) {
-        console.error(`[ScreenVideo] handleScreenVideoOffer error: ${e.message}`);
+        console.error(`[Error] handleScreenVideoOffer: ${e.message}`);
     }
 }
 
@@ -585,10 +522,7 @@ function handleScreenVideoAnswer(senderId, dataStr) {
         const { targetId, sdp } = data;
 
         const targetClient = clients.get(targetId);
-        if (!targetClient) {
-            console.log(`[ScreenVideo] Target ${targetId} not found for answer`);
-            return;
-        }
+        if (!targetClient) return;
 
         sendToClient(targetClient.ws, {
             type: 'screen-video-answer',
@@ -596,9 +530,8 @@ function handleScreenVideoAnswer(senderId, dataStr) {
             data: JSON.stringify({ sdp })
         });
 
-        console.log(`[ScreenVideo] Answer: ${senderId} → ${targetId}`);
     } catch (e) {
-        console.error(`[ScreenVideo] handleScreenVideoAnswer error: ${e.message}`);
+        console.error(`[Error] handleScreenVideoAnswer: ${e.message}`);
     }
 }
 
@@ -617,19 +550,16 @@ function handleScreenVideoIce(senderId, dataStr) {
         });
 
     } catch (e) {
-        console.error(`[ScreenVideo] handleScreenVideoIce error: ${e.message}`);
+        console.error(`[Error] handleScreenVideoIce: ${e.message}`);
     }
 }
 
-// ========================================
-// FILE SHARING HANDLERS
-// ========================================
+// FILE SHARING
 
 function handleFileListResponse(senderId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
 
-        // Si targetId est spécifié, envoyer seulement à ce client
         if (data.targetId) {
             const targetClient = clients.get(data.targetId);
             if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
@@ -638,11 +568,8 @@ function handleFileListResponse(senderId, dataStr) {
                     senderId: senderId,
                     data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
                 });
-
-                console.log(`[FileShare] List response: ${senderId} → ${data.targetId}`);
             }
         } else {
-            // Sinon, broadcast à toute la room
             broadcastToRoom(senderId, {
                 type: 'file-list-response',
                 senderId: senderId,
@@ -651,19 +578,16 @@ function handleFileListResponse(senderId, dataStr) {
         }
 
     } catch (e) {
-        console.error(`[FileShare] handleFileListResponse error: ${e.message}`);
+        console.error(`[Error] handleFileListResponse: ${e.message}`);
     }
 }
 
-// ========================================
-// FILE PRESENTATION HANDLERS
-// ========================================
+// FILE PRESENTATION
 
 function handleFilePresentState(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
 
-        // Si targetId est spécifié, envoyer seulement à ce client
         if (data.targetId) {
             const targetClient = clients.get(data.targetId);
             if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
@@ -672,11 +596,8 @@ function handleFilePresentState(clientId, dataStr) {
                     senderId: clientId,
                     data: typeof dataStr === 'string' ? dataStr : JSON.stringify(dataStr)
                 });
-
-                console.log(`[FilePresent] State sent ${clientId} → ${data.targetId}`);
             }
         } else {
-            // Sinon, broadcast à toute la room
             broadcastToRoom(clientId, {
                 type: 'file-present-state',
                 senderId: clientId,
@@ -685,55 +606,41 @@ function handleFilePresentState(clientId, dataStr) {
         }
 
     } catch (e) {
-        console.error(`[FilePresent] handleFilePresentState error: ${e.message}`);
+        console.error(`[Error] handleFilePresentState: ${e.message}`);
     }
 }
 
-// ========================================
-// PDF CONVERSION HANDLERS
-// ========================================
-
-// Cache pour les PDFs convertis: fileId -> { pages: [base64...], totalPages, timestamp }
-const pdfCache = new Map();
-const PDF_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+// PDF CONVERSION
 
 async function handlePdfConvertRequest(clientId, dataStr) {
     try {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { roomId, fileId, fileDataBase64, requesterId } = data;
+        const { roomId, fileId, requesterId } = data;
 
-        console.log(`[PDFConvert] Request from ${requesterId} for file ${fileId}`);
-
-        // Utiliser le module filePresentation si disponible
+        // Use filePresentation module if available
         if (filePresentation && filePresentation.pdfPoppler) {
             await filePresentation.handlePdfConvertRequest(clientId, data, clients, sendToClient);
             return;
         }
 
-        // Vérifier le cache local (fallback)
+        // Check cache
         if (pdfCache.has(fileId)) {
             const cached = pdfCache.get(fileId);
             sendPdfConvertResponse(requesterId, fileId, roomId, {
                 success: true,
                 totalPages: cached.totalPages
             });
-            console.log(`[PDFConvert] Cache hit for ${fileId}`);
             return;
         }
 
-        // pdf-poppler non disponible
+        // Module not available
         sendPdfConvertResponse(requesterId, fileId, roomId, {
             success: false,
-            error: 'PDF conversion not available. Install pdf-poppler: npm install pdf-poppler'
+            error: 'PDF conversion not available'
         });
 
     } catch (e) {
-        console.error(`[PDFConvert] Error: ${e.message}`);
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        sendPdfConvertResponse(data.requesterId, data.fileId, data.roomId, {
-            success: false,
-            error: e.message
-        });
+        console.error(`[Error] handlePdfConvertRequest: ${e.message}`);
     }
 }
 
@@ -742,18 +649,13 @@ function handlePdfPageRequest(clientId, dataStr) {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const { roomId, fileId, pageNumber, requesterId } = data;
 
-        // Utiliser le module filePresentation si disponible
         if (filePresentation && filePresentation.pdfPoppler) {
             filePresentation.handlePdfPageRequest(clientId, data, clients, sendToClient);
             return;
         }
 
-        // Fallback vers le cache local
         const cached = pdfCache.get(fileId);
-        if (!cached || pageNumber >= cached.pages.length) {
-            console.log(`[PDFPage] Page ${pageNumber} not found for ${fileId}`);
-            return;
-        }
+        if (!cached || pageNumber >= cached.pages.length) return;
 
         const targetClient = clients.get(requesterId);
         if (!targetClient) return;
@@ -772,10 +674,8 @@ function handlePdfPageRequest(clientId, dataStr) {
             })
         });
 
-        console.log(`[PDFPage] Sent page ${pageNumber} of ${fileId} to ${requesterId}`);
-
     } catch (e) {
-        console.error(`[PDFPage] Error: ${e.message}`);
+        console.error(`[Error] handlePdfPageRequest: ${e.message}`);
     }
 }
 
@@ -797,144 +697,23 @@ function sendPdfConvertResponse(targetId, fileId, roomId, result) {
     });
 }
 
-// Nettoyage du cache PDF
-setInterval(() => {
-    const now = Date.now();
-    for (const [fileId, entry] of pdfCache) {
-        if (now - entry.timestamp > PDF_CACHE_TTL) {
-            pdfCache.delete(fileId);
-            console.log(`[PDFCache] Expired: ${fileId}`);
-        }
-    }
-}, 5 * 60 * 1000); // Vérifier toutes les 5 minutes
+// COMMUNICATION UTILITIES
 
-// ========================================
-// AUTHENTICATION HANDLERS
-// ========================================
-
-async function handleAuthRegister(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { username, email, password, displayName } = data;
-
-        if (!username || !email || !password) {
-            sendAuthResponse(clientId, 'auth-register-response', {
-                success: false,
-                error: 'Missing required fields'
-            });
-            return;
-        }
-
-        const result = await registerUser(username, email, password, displayName);
-
-        sendAuthResponse(clientId, 'auth-register-response', result);
-
-        if (result.success) {
-            const client = clients.get(clientId);
-            if (client) {
-                client.userId = result.userId;
-                client.playerName = result.displayName;
-            }
-        }
-
-    } catch (e) {
-        console.error('[Auth] handleAuthRegister error:', e.message);
-        sendAuthResponse(clientId, 'auth-register-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-async function handleAuthLogin(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { username, password } = data;
-
-        if (!username || !password) {
-            sendAuthResponse(clientId, 'auth-login-response', {
-                success: false,
-                error: 'Missing credentials'
-            });
-            return;
-        }
-
-        const result = await loginUser(username, password);
-
-        sendAuthResponse(clientId, 'auth-login-response', result);
-
-        if (result.success) {
-            const client = clients.get(clientId);
-            if (client) {
-                client.userId = result.userId;
-                client.playerName = result.displayName;
-            }
-        }
-
-    } catch (e) {
-        console.error('[Auth] handleAuthLogin error:', e.message);
-        sendAuthResponse(clientId, 'auth-login-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-async function handleAuthUpdateProfile(clientId, dataStr) {
-    try {
-        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-        const { displayName, avatarColor } = data;
-
-        const client = clients.get(clientId);
-        if (!client || !client.userId) {
-            sendAuthResponse(clientId, 'auth-update-response', {
-                success: false,
-                error: 'Not authenticated'
-            });
-            return;
-        }
-
-        const result = await updateUserProfile(client.userId, displayName, avatarColor);
-
-        if (result.success && displayName) {
-            client.playerName = displayName;
-        }
-
-        sendAuthResponse(clientId, 'auth-update-response', result);
-
-    } catch (e) {
-        console.error('[Auth] handleAuthUpdateProfile error:', e.message);
-        sendAuthResponse(clientId, 'auth-update-response', {
-            success: false,
-            error: 'Server error'
-        });
-    }
-}
-
-function sendAuthResponse(clientId, type, data) {
-    const client = clients.get(clientId);
-    if (client) {
-        sendToClient(client.ws, {
-            type: type,
-            senderId: 'server',
-            data: JSON.stringify(data)
-        });
-    }
-}
-
-// ========================================
-// BROADCAST UTILITIES
-// ========================================
-
+/**
+ * Sends a message to a specific client
+ */
 function sendToClient(ws, message) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(message));
     }
 }
 
+/**
+ * Broadcasts a message to all clients (except one)
+ */
 function broadcast(message, exceptClientId = null) {
     const messageStr = JSON.stringify(message);
-    
+
     clients.forEach((client, clientId) => {
         if (clientId !== exceptClientId && client.ws.readyState === WebSocket.OPEN) {
             client.ws.send(messageStr);
@@ -943,43 +722,32 @@ function broadcast(message, exceptClientId = null) {
 }
 
 /**
- *  FONCTION CRITIQUE: Broadcast SEULEMENT aux clients de la même room
+ * Broadcasts a message only to clients in the same room
  */
 function broadcastToRoom(senderId, message) {
     const sender = clients.get(senderId);
-    if (!sender || !sender.roomId) {
-        return;
-    }
-    
+    if (!sender || !sender.roomId) return;
+
     const roomId = sender.roomId;
     const messageStr = JSON.stringify(message);
-    
-    let recipientCount = 0;
-    
+
     clients.forEach((client, clientId) => {
-        // Envoyer SEULEMENT si:
-        // 1. Ce n'est pas l'expéditeur
-        // 2. Le client est dans la MÊME room
-        // 3. La connexion est ouverte
-        if (clientId !== senderId && 
-            client.roomId === roomId && 
+        if (clientId !== senderId &&
+            client.roomId === roomId &&
             client.ws.readyState === WebSocket.OPEN) {
             client.ws.send(messageStr);
-            recipientCount++;
         }
     });
-    
-    // Log détaillé pour debug
-    if (message.type && (message.type.includes('whiteboard') || message.type.includes('obj-'))) {
-        console.log(`[Room:${roomId}] ${message.type} from ${senderId} → ${recipientCount} clients`);
-    }
 }
 
+/**
+ * Sends the room list to a client
+ */
 function sendRoomList(ws) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    
+
     const roomList = Array.from(rooms.values());
-    
+
     sendToClient(ws, {
         type: 'room-list',
         senderId: 'server',
@@ -987,9 +755,12 @@ function sendRoomList(ws) {
     });
 }
 
+/**
+ * Broadcasts the room list to all clients
+ */
 function broadcastRoomList() {
     const roomList = Array.from(rooms.values());
-    
+
     broadcast({
         type: 'room-list',
         senderId: 'server',
@@ -997,6 +768,9 @@ function broadcastRoomList() {
     });
 }
 
+/**
+ * Sends an error message to a client
+ */
 function sendError(clientId, errorMessage) {
     const client = clients.get(clientId);
     if (client) {
@@ -1008,46 +782,56 @@ function sendError(clientId, errorMessage) {
     }
 }
 
-// ========================================
 // SERVER MAINTENANCE
-// ========================================
 
+// Heartbeat to detect disconnected clients
 const heartbeatInterval = setInterval(() => {
     const now = Date.now();
-    
+
     wss.clients.forEach((ws) => {
         if (ws.readyState === WebSocket.OPEN) {
             ws.ping();
         }
     });
-    
+
     clients.forEach((client, clientId) => {
         if (now - client.lastHeartbeat > HEARTBEAT_INTERVAL * 2) {
-            console.log(`[SERVER] Client timeout: ${clientId}`);
+            console.log(`[Timeout] Client ${clientId.substring(0, 8)}...`);
             client.ws.terminate();
             handleDisconnect(clientId);
         }
     });
-    
+
 }, HEARTBEAT_INTERVAL);
 
+// PDF cache cleanup
+setInterval(() => {
+    const now = Date.now();
+    for (const [fileId, entry] of pdfCache) {
+        if (now - entry.timestamp > PDF_CACHE_TTL) {
+            pdfCache.delete(fileId);
+        }
+    }
+}, 5 * 60 * 1000);
+
+// Periodic status log
+setInterval(() => {
+    const roomCount = rooms.size;
+    const clientCount = clients.size;
+    console.log(`[Status] ${clientCount} clients | ${roomCount} rooms`);
+}, 60000);
+
+// Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\n[SERVER] Shutting down...');
+    console.log('\n[Server] Shutting down...');
     clearInterval(heartbeatInterval);
-    
+
     wss.clients.forEach((ws) => {
         ws.close();
     });
-    
+
     wss.close(() => {
-        console.log('[SERVER] Server closed');
+        console.log('[Server] Goodbye!');
         process.exit(0);
     });
 });
-
-setInterval(() => {
-    const roomDetails = Array.from(rooms.values())
-        .map(r => `${r.roomId}(${r.playerCount})`)
-        .join(', ');
-    console.log(`[SERVER]  ${clients.size} clients | Rooms: ${roomDetails || 'none'}`);
-}, 60000);

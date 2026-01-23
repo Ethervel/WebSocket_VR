@@ -850,31 +850,57 @@ public class VRGameManager : MonoBehaviour
 
     void ApplyAvatarColor(VRRemotePlayer remote, Color color)
     {
-        // Apply to head
-        if (remote.head != null)
+        // Vérifier si l'avatar utilise le système AvatarColorTarget (ciblé)
+        bool usesTargetSystem = false;
+
+        // Check body
+        if (remote.gameObject != null && AvatarColorTarget.HasColorTargets(remote.gameObject))
         {
-            ApplyColorToRenderers(remote.head.gameObject, color);
+            AvatarColorTarget.ApplyColorToAll(remote.gameObject, color);
+            usesTargetSystem = true;
         }
 
-        // Apply to left hand
-        if (remote.leftHand != null)
+        // Check head
+        if (remote.head != null && AvatarColorTarget.HasColorTargets(remote.head.gameObject))
         {
-            ApplyColorToRenderers(remote.leftHand.gameObject, color);
+            AvatarColorTarget.ApplyColorToAll(remote.head.gameObject, color);
+            usesTargetSystem = true;
         }
 
-        // Apply to right hand
-        if (remote.rightHand != null)
+        // Check hands
+        if (remote.leftHand != null && AvatarColorTarget.HasColorTargets(remote.leftHand.gameObject))
         {
-            ApplyColorToRenderers(remote.rightHand.gameObject, color);
+            AvatarColorTarget.ApplyColorToAll(remote.leftHand.gameObject, color);
+            usesTargetSystem = true;
         }
 
-        // Apply to body (main gameObject)
-        if (remote.gameObject != null)
+        if (remote.rightHand != null && AvatarColorTarget.HasColorTargets(remote.rightHand.gameObject))
         {
-            ApplyColorToRenderers(remote.gameObject, color);
+            AvatarColorTarget.ApplyColorToAll(remote.rightHand.gameObject, color);
+            usesTargetSystem = true;
         }
 
-        Debug.Log($"[VRGame] Applied avatar color {color} to {remote.playerName}");
+        // Fallback: si pas de AvatarColorTarget, utiliser l'ancien système (tout colorer)
+        if (!usesTargetSystem)
+        {
+            if (remote.head != null)
+                ApplyColorToRenderers(remote.head.gameObject, color);
+
+            if (remote.leftHand != null)
+                ApplyColorToRenderers(remote.leftHand.gameObject, color);
+
+            if (remote.rightHand != null)
+                ApplyColorToRenderers(remote.rightHand.gameObject, color);
+
+            if (remote.gameObject != null)
+                ApplyColorToRenderers(remote.gameObject, color);
+
+            Debug.Log($"[VRGame] Applied avatar color {color} to {remote.playerName} (fallback mode - all renderers)");
+        }
+        else
+        {
+            Debug.Log($"[VRGame] Applied avatar color {color} to {remote.playerName} (targeted mode)");
+        }
     }
 
     // IMPORTANT FIX: Cached MaterialPropertyBlock to avoid memory allocations
