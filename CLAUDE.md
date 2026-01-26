@@ -19,9 +19,11 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | Feature | Description | Status |
 |---------|-------------|--------|
 | **Spatial Audio** | 3D positional audio for natural conversations | Implemented |
-| **Presentation Tools** | Screen sharing, slides, media playback | In Progress |
+| **Presentation Tools** | Screen sharing, slides, laser pointer, file presentation | Implemented |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
-| **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
+| **Laser Pointer** | VR/Desktop laser pointer visible to all, network-synced | Implemented |
+| **File Presentation** | Present images/PDFs on whiteboard with navigation | Implemented |
+| **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Partial (basic interactable) |
 | **Avatar Customization** | Name + color selection, synced across network | Implemented |
 | **File Sharing** | Upload/download files with VR browser | Implemented (Testing) |
 | **Desktop Mode** | Non-VR FPS-style controls (WASD + mouse) | Implemented |
@@ -65,9 +67,10 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 
 **Phase 2 - Collaboration (In Progress)**
 - [x] Screen sharing (VR + Desktop, optimized 854x480 @ 3fps)
+- [x] Laser pointer (VR: A button, Desktop: L key, network-synced @ 10Hz)
+- [x] File presentation (images + PDF on whiteboard, navigation, zoom/pan)
 - [~] File sharing (implemented, requires testing)
-- [ ] 3D object manipulation (basic networked interactable exists)
-- [ ] Presentation mode (slide navigation, laser pointer)
+- [~] 3D object manipulation (basic networked interactable exists)
 - [ ] Note-taking system
 
 **Phase 3 - Enterprise**
@@ -177,12 +180,17 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   ├── WhiteboardNetworkData.cs  # Classes sérialisables réseau
 │   ├── WhiteboardUIManager.cs    # UI (couleurs, clear)
 │   └── WhiteboardUISetup.cs      # Editor tool for UI configuration
+├── Interaction/
+│   ├── LaserPointer.cs           # Local laser pointer (VR: A button, Desktop: L key)
+│   └── LaserPointerData.cs       # Network serialization for laser sync
 ├── Sharing/
 │   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
 │   ├── ScreenShareData.cs        # Classes sérialisables pour messages réseau
 │   ├── FileShareManager.cs       # Upload/download files, validation, network sync
 │   ├── FileShareData.cs          # FileMetadata, upload/download serialization
 │   ├── FileSharingUI.cs          # File list, download path, preview panel
+│   ├── FilePresentationManager.cs # Present files (images/PDF) on whiteboard
+│   ├── FilePresentationData.cs   # Network serialization for presentation sync
 │   ├── VRFileBrowser.cs          # In-VR file navigation, folder browsing
 │   └── WindowCapture.cs          # Desktop window enumeration (Windows native)
 ├── Avatar/
@@ -190,7 +198,8 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── UI/
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
-│   └── VRMenuUi.cs
+│   ├── VRMenuUi.cs
+│   └── FilePresentationUI.cs     # Presentation controls (prev/next/stop, page info)
 └── Testing/
     └── VRNetworkedInteractable.cs # Shared object sync, grab ownership
 
@@ -213,12 +222,12 @@ Assets/Prefabs/Unity/
 
 | Metric | Value |
 |--------|-------|
-| **Total Scripts** | 34 |
-| **Total Lines of Code** | ~14,000 |
+| **Total Scripts** | 51 |
+| **Total Lines of Code** | ~17,000 |
 | **Commits** | 103+ |
 | **Scenes** | 2 (Bootstrap + Meet) |
 | **Prefabs** | 8 |
-| **Network Message Types** | 20+ |
+| **Network Message Types** | 30+ |
 
 ## Architecture
 
@@ -281,8 +290,11 @@ public class NetworkMessage {
 | VR Sync | `vr-position` (30Hz, optimized with movement threshold) |
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
+| Laser Pointer | `laser-pointer` (10Hz when active) |
 | Screen Share | `screen-share-start`, `screen-share-stop`, `screen-share-frame`, `screen-share-request`, `screen-share-state` |
 | File Share | `file-share-upload`, `file-share-download`, `file-share-list`, `file-share-request`, `file-share-delete` |
+| File Present | `file-present-start`, `file-present-stop`, `file-present-page`, `file-present-navigate`, `file-present-zoom-pan`, `file-present-request`, `file-present-state` |
+| PDF Convert | `pdf-convert-request`, `pdf-convert-response`, `pdf-page-request`, `pdf-page-response` |
 | Auth | `auth-register`, `auth-login`, `auth-profile-update`, `auth-response` |
 
 ### Room System
@@ -535,6 +547,113 @@ FileShareManager.Instance.DeleteFile(fileId)     // Remove shared file (host onl
 - Select file for upload directly in VR
 - Recent commit fixes: `aa2d325` (fix vr file sharing)
 
+## Laser Pointer (`Assets/Scrips/Interaction/`)
+
+### Architecture
+- **LaserPointer.cs** - Component on local player, creates and syncs laser
+- **LaserPointerData.cs** - Serializable data for network transmission
+- **VRGameManager.cs** - Receives `laser-pointer` messages, creates remote laser visuals
+
+### Controls
+| Mode | Toggle | Origin |
+|------|--------|--------|
+| VR | A button (right controller) | Right hand controller |
+| Desktop | L key | Camera center |
+
+### Visual Components
+- **LineRenderer** - Red beam from origin to hit point
+- **Sphere (dot)** - Small sphere at hit point, oriented to surface normal
+- **Color:** Red by default, synced over network
+
+### Network Sync
+- **Sync rate:** 10 updates/second when active
+- **Data synced:** `isActive`, origin position, hit point position, color
+- **Room-scoped:** Only visible to players in same room
+- **Deactivation:** Sends `isActive=false` on toggle off, disable, or destroy
+
+### LaserPointerData
+```csharp
+[Serializable]
+public class LaserPointerData {
+    public string roomId;
+    public bool isActive;
+    public float originX, originY, originZ;
+    public float hitX, hitY, hitZ;
+    public float colorR, colorG, colorB;
+}
+```
+
+### Remote Laser Display (VRGameManager.cs)
+- Creates `LineRenderer` and dot sphere for each remote player with active laser
+- Updates positions in real-time from network messages
+- Cleanup on player disconnect or laser deactivation
+- Stored in `VRRemotePlayer`: `laserLine`, `laserDot`, `laserActive`
+
+## File Presentation (`Assets/Scrips/Sharing/`)
+
+### Architecture
+- **FilePresentationManager.cs** - Singleton, handles presentation logic and network sync
+- **FilePresentationData.cs** - Serializable classes for all presentation messages
+- **FilePresentationUI.cs** - UI controls (prev/next/stop buttons, page counter)
+
+### Supported File Types
+| Type | Handling |
+|------|----------|
+| PNG, JPG, JPEG, GIF | Direct display on whiteboard |
+| PDF | Server-side conversion to images (requires server support) |
+
+### Features
+- **Multi-page navigation:** Previous/Next page buttons
+- **Zoom:** 0.5x to 4x (step 0.25x)
+- **Pan:** Move view when zoomed in
+- **Late joiner sync:** Automatic state request and display
+- **Room-scoped:** Presentation visible only in current room
+
+### API publique
+```csharp
+FilePresentationManager.Instance.CanPresentFile(fileId)     // Check if file can be presented
+FilePresentationManager.Instance.StartPresentation(fileId, whiteboard)
+FilePresentationManager.Instance.StopPresentation()
+FilePresentationManager.Instance.NextPage()
+FilePresentationManager.Instance.PreviousPage()
+FilePresentationManager.Instance.NavigateToPage(pageNumber)
+FilePresentationManager.Instance.ZoomIn() / ZoomOut()
+FilePresentationManager.Instance.SetZoom(level)
+FilePresentationManager.Instance.Pan(delta)
+FilePresentationManager.Instance.ResetZoomPan()
+```
+
+### Events
+```csharp
+FilePresentationManager.OnPresentationStarted(wbId, fileId, presenterId, presenterName)
+FilePresentationManager.OnPresentationStopped(wbId, presenterId)
+FilePresentationManager.OnPageChanged(fileId, currentPage, totalPages)
+FilePresentationManager.OnPresentationError(context, error)
+FilePresentationManager.OnZoomPanChanged(zoomLevel, panOffset)
+```
+
+### Network Flow
+1. Presenter calls `StartPresentation(fileId, whiteboard)`
+2. Whiteboard enters presentation mode via `EnterPresentationMode()`
+3. `file-present-start` broadcast to room with metadata
+4. Image/PDF page sent via `file-present-page` (JPEG Base64)
+5. Navigation via `file-present-navigate`, zoom/pan via `file-present-zoom-pan`
+6. Late joiners request state via `file-present-request`, receive `file-present-state`
+7. Presenter calls `StopPresentation()` → `file-present-stop` broadcast
+
+### PDF Conversion (Server Required)
+For PDF files, the client sends `pdf-convert-request` with Base64 PDF content.
+Server must respond with `pdf-convert-response` containing total pages.
+Individual pages requested via `pdf-page-request`, returned as JPEG images.
+
+### Whiteboard Integration
+```csharp
+whiteboard.EnterPresentationMode(presenterName)  // Save drawing, show presenter name
+whiteboard.UpdatePresentationTexture(texture)    // Display presentation frame
+whiteboard.SetPresentationZoomPan(zoom, pan)     // Apply zoom/pan from network
+whiteboard.ExitPresentationMode()                // Restore drawing
+```
+
 ## Avatar Customization (`Assets/Scrips/Avatar/`)
 
 ### AvatarCustomization.cs
@@ -559,6 +678,7 @@ AvatarCustomization.GetLocalName()
 - **Look:** Right-click + mouse drag
 - **Sprint:** Hold Shift (2x speed multiplier)
 - **Whiteboard:** Left-click to draw (via DesktopWhiteboardDrawer)
+- **Laser Pointer:** L key to toggle (via LaserPointer.cs)
 
 ### Implementation
 - Uses Unity Input System
