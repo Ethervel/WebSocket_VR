@@ -449,8 +449,8 @@ public class VRMenuUI : MonoBehaviour
             var text = item.GetComponentInChildren<TextMeshProUGUI>();
             if (text != null)
             {
-                string prefix = player.isHost ? "★ " : "• ";
-                string suffix = player.playerId == VRNetworkManager.LocalId ? " (Vous)" : "";
+                string prefix = player.isHost ? "[Host] " : "";
+                string suffix = player.playerId == VRNetworkManager.LocalId ? " (You)" : "";
                 text.text = $"{prefix}{player.playerName}{suffix}";
             }
         }
