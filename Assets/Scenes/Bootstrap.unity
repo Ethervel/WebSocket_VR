@@ -2679,11 +2679,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::VRGameManager
   localPlayerPrefab: {fileID: 8908293723328796534, guid: af1b22c8ed7ffca40adc2001bccf35de, type: 3}
   remotePlayerPrefab: {fileID: 5232367662914237843, guid: 6252c5e4f617c3e4286ec89b76e64ec5, type: 3}
+  remotePlayerHeadPrefab: {fileID: 3485602547620327627, guid: da544d156b10c2348981ca1a278733d2, type: 3}
+  remotePlayerLeftHandPrefab: {fileID: 7220149390102612399, guid: 1de64d1ced9ed62418f77aaeb7a688a2, type: 3}
+  remotePlayerRightHandPrefab: {fileID: 5529299475361426395, guid: 1769ffa6d6c352a4f902f5f61322a76e, type: 3}
   lobbySpawnPoint: {fileID: 1958996470}
-  roomASpawnPoint: {fileID: 0}
-  roomAAdditionalSpawns: []
-  roomBSpawnPoint: {fileID: 0}
-  roomBAdditionalSpawns: []
   syncRate: 30
   interpolationSpeed: 15
   syncHands: 1
