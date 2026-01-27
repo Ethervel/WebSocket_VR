@@ -11,7 +11,8 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 ### Tech Stack
 - **Engine:** Unity 6000.2.14f1
 - **Multiplayer:** WebSocket (NativeWebSocket) + WebRTC
-- **Database:** MariaDB (user data, sessions, meetings persistence)
+- **Database:** Not implemented (clean slate for future implementation)
+- **Authentication:** Not implemented (clean slate for future implementation)
 - **Platforms:** Cross-platform hybrid (VR headsets, Desktop, potentially Web)
 
 ### Core Features
@@ -27,6 +28,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | **Avatar Customization** | Name + color selection, synced across network | Implemented |
 | **File Sharing** | Upload/download files with VR browser | Implemented (Testing) |
 | **Desktop Mode** | Non-VR FPS-style controls (WASD + mouse) | Implemented |
+| **Main Menu UI** | Start/Options/Quit, settings, loading screen | Implemented |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
 | **Screen Sharing** | Share desktop/window/VR view to Whiteboard | Implemented |
@@ -63,7 +65,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [x] Avatar customization (name + color)
 - [x] Whiteboard (collaborative drawing)
 - [x] Desktop mode (FPS-style: WASD + mouse look)
-- [ ] MariaDB integration
+- [x] Main menu UI (Start/Options/Quit, settings, loading screen)
 
 **Phase 2 - Collaboration (In Progress)**
 - [x] Screen sharing (VR + Desktop, optimized 854x480 @ 3fps)
@@ -74,6 +76,8 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [ ] Note-taking system
 
 **Phase 3 - Enterprise**
+- [ ] Database integration (new implementation required)
+- [ ] User authentication system (new implementation required)
 - [ ] SSO authentication
 - [ ] End-to-end encryption
 - [ ] GDPR compliance tools
@@ -162,8 +166,7 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── Network/
 │   ├── VRNetworkManager.cs       # WebSocket hub, message routing, auto-reconnect
 │   ├── VRRoomManager.cs          # Room lifecycle, player roster, zone tracking
-│   ├── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
-│   └── AuthManager.cs            # Registration, login, profile updates
+│   └── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
 ├── VR/
 │   ├── BootstrapManager.cs       # Additive scene loading, persistent EventSystem setup
 │   ├── VRPlayerController.cs     # Locomotion, snap/smooth turn, gravity
@@ -196,6 +199,11 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── Avatar/
 │   └── AvatarCustomization.cs    # Color selection, username input, PlayerPrefs
 ├── UI/
+│   ├── MainMenu/
+│   │   ├── MainMenuManager.cs    # Menu principal, panels, transitions, game loading
+│   │   ├── MainMenuSettings.cs   # Settings UI (audio, graphics, controls)
+│   │   └── Editor/
+│   │       └── MainMenuUISetup.cs # Editor tool for UI configuration
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
 │   ├── VRMenuUi.cs
@@ -222,8 +230,8 @@ Assets/Prefabs/Unity/
 
 | Metric | Value |
 |--------|-------|
-| **Total Scripts** | 51 |
-| **Total Lines of Code** | ~17,000 |
+| **Total Scripts** | 53 |
+| **Total Lines of Code** | ~21,500 |
 | **Commits** | 103+ |
 | **Scenes** | 2 (Bootstrap + Meet) |
 | **Prefabs** | 8 |
@@ -295,7 +303,6 @@ public class NetworkMessage {
 | File Share | `file-share-upload`, `file-share-download`, `file-share-list`, `file-share-request`, `file-share-delete` |
 | File Present | `file-present-start`, `file-present-stop`, `file-present-page`, `file-present-navigate`, `file-present-zoom-pan`, `file-present-request`, `file-present-state` |
 | PDF Convert | `pdf-convert-request`, `pdf-convert-response`, `pdf-page-request`, `pdf-page-response` |
-| Auth | `auth-register`, `auth-login`, `auth-profile-update`, `auth-response` |
 
 ### Room System
 
@@ -670,6 +677,81 @@ AvatarCustomization.Instance.SetPlayerName(name)
 AvatarCustomization.GetLocalColor()
 AvatarCustomization.GetLocalName()
 ```
+
+## Main Menu System (`Assets/Scrips/UI/MainMenu/`)
+
+### Architecture
+- **Location:** Bootstrap scene (World Space Canvas)
+- **VR/Desktop auto-detection:** Uses XRGeneralSettings to detect mode
+- **Flow:** MainMenu → Loading → Meet scene (additively loaded)
+- **Cleanup:** Menu environment, canvas, and cameras destroyed after loading
+
+### MainMenuManager.cs
+Singleton managing panels, transitions, and game loading sequence.
+
+**Panels:**
+- `mainPanel` - Start/Options/Quit buttons
+- `optionsPanel` - Settings UI
+- `loadingPanel` - Progress bar during scene loading
+- `quitDialog` - Confirmation dialog
+
+**Events:**
+```csharp
+MainMenuManager.OnMenuShown          // Main panel displayed
+MainMenuManager.OnGameStarting       // Loading sequence started
+MainMenuManager.OnGameStarted        // Meet scene loaded, menu destroyed
+```
+
+**Loading Sequence:**
+1. Show loading panel
+2. Wait for server connection (with timeout)
+3. Load Meet scene via BootstrapManager
+4. Cleanup menu elements
+5. Fire OnGameStarted event
+
+### MainMenuSettings.cs
+Settings manager with PlayerPrefs persistence.
+
+**Audio Settings:**
+- Master Volume (`MasterVolume`, default: 1.0)
+- Voice Volume (`VoiceVolume`, default: 1.0)
+- Microphone selection
+
+**Graphics Settings:**
+- Quality Level (`QualityLevel`)
+- Resolution (`ResolutionIndex`)
+- Fullscreen (`IsFullscreen`, default: true)
+
+**VR Controls:**
+- Turn Mode (`TurnMode`: 0=Snap, 1=Smooth)
+- Snap Angle (`SnapAngle`, default: 45°)
+- Smooth Turn Speed (`SmoothTurnSpeed`, default: 90°/s)
+
+**Desktop Controls:**
+- Mouse Sensitivity (`MouseSensitivity`, default: 2.0)
+- Invert Y (`InvertY`, default: false)
+
+**Static API:**
+```csharp
+MainMenuSettings.GetMasterVolume()
+MainMenuSettings.GetVoiceVolume()
+MainMenuSettings.GetQualityLevel()
+MainMenuSettings.GetTurnMode()        // 0=Snap, 1=Smooth
+MainMenuSettings.GetSnapAngle()
+MainMenuSettings.GetMouseSensitivity()
+MainMenuSettings.GetInvertY()
+```
+
+### MainMenuUISetup.cs (Editor Tool)
+`Tools > VR Meeting > Setup Main Menu UI`
+
+Creates complete UI structure:
+- World Space Canvas (positioned for VR)
+- Main Panel with Start/Options/Quit buttons
+- Options Panel with settings controls
+- Loading Panel with progress bar
+- Quit Dialog with Yes/No buttons
+- Auto-links all references to MainMenuManager
 
 ## Desktop Mode (`Assets/Scrips/VR/DesktopPlayerController.cs`)
 

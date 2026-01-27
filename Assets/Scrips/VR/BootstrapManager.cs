@@ -17,15 +17,16 @@ public class BootstrapManager : MonoBehaviour
 
     [Header("Scene Settings")]
     [Tooltip("Nom de la scène principale à charger")]
-    public string mainSceneName = "MainScene";
+    public string mainSceneName = "Meet";
 
-    [Tooltip("Charger la scène principale au démarrage")]
-    public bool loadMainSceneOnStart = true;
+    [Tooltip("Charger la scène principale au démarrage (false = afficher menu principal d'abord)")]
+    public bool loadMainSceneOnStart = false;
 
     [Tooltip("Délai avant de charger la scène principale (secondes)")]
     public float loadDelay = 0.5f;
 
-    [Header("Loading UI (Optionnel)")]
+    [Header("Loading UI (Géré par MainMenuManager si présent)")]
+    [Tooltip("Écran de chargement - utilisé si MainMenuManager n'est pas présent")]
     public GameObject loadingScreen;
     public UnityEngine.UI.Slider progressBar;
     public TMPro.TextMeshProUGUI loadingText;
@@ -33,6 +34,7 @@ public class BootstrapManager : MonoBehaviour
     // État
     private bool _isLoading = false;
     private string _currentLoadedScene = "";
+    private float _loadingProgress = 0f;
 
     // Référence à l'EventSystem persistant
     private EventSystem _persistentEventSystem;
@@ -141,16 +143,18 @@ public class BootstrapManager : MonoBehaviour
 
         while (!loadOp.isDone)
         {
-            float progress = Mathf.Clamp01(loadOp.progress / 0.9f);
+            _loadingProgress = Mathf.Clamp01(loadOp.progress / 0.9f);
 
             if (progressBar != null)
-                progressBar.value = progress;
+                progressBar.value = _loadingProgress;
 
             if (loadingText != null)
-                loadingText.text = $"Loading... {(progress * 100):F0}%";
+                loadingText.text = $"Loading... {(_loadingProgress * 100):F0}%";
 
             yield return null;
         }
+
+        _loadingProgress = 1f;
 
         _currentLoadedScene = sceneName;
 
@@ -200,4 +204,5 @@ public class BootstrapManager : MonoBehaviour
     }
 
     public bool IsLoading => _isLoading;
+    public float LoadingProgress => _loadingProgress;
 }

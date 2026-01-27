@@ -146,23 +146,10 @@ public class VRGameManager : MonoBehaviour
     {
         if (spawnPlayerOnStart)
         {
-            // Vérifier si Bootstrap est en train de charger une scène
-            if (BootstrapManager.Instance != null && BootstrapManager.Instance.IsLoading)
-            {
-                Debug.Log("[VRGame] Scene is loading, waiting for OnSceneReady before spawning player...");
-                // Le spawn sera déclenché par OnSceneReady
-            }
-            else if (BootstrapManager.Instance != null && !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName()))
-            {
-                // La scène est déjà chargée
-                Debug.Log("[VRGame] Scene already loaded, spawning player now");
-                SpawnLocalPlayer(RoomType.Lobby);
-            }
-            else
-            {
-                // Pas de BootstrapManager ou première fois, attendre OnSceneReady
-                Debug.Log("[VRGame] Waiting for scene to load before spawning player...");
-            }
+            // Spawn player immediately in Bootstrap scene
+            // This allows VR controllers to work in the main menu
+            Debug.Log("[VRGame] Spawning local player immediately in Bootstrap");
+            SpawnLocalPlayer(RoomType.Lobby);
         }
     }
 
@@ -212,14 +199,30 @@ public class VRGameManager : MonoBehaviour
 
     /// <summary>
     /// Appelé quand la scène principale est complètement chargée et prête.
-    /// C'est ici qu'on spawn le joueur pour éviter qu'il tombe dans le vide.
+    /// Téléporte le joueur au spawn point de la scène.
     /// </summary>
     void OnMainSceneReady(string sceneName)
     {
-        Debug.Log($"[VRGame] Scene '{sceneName}' is ready, checking if player needs to spawn...");
+        Debug.Log($"[VRGame] Scene '{sceneName}' is ready");
 
-        if (spawnPlayerOnStart && _localPlayer == null && !_isSpawning)
+        if (_localPlayer != null)
         {
+            // Player already exists (spawned in Bootstrap), teleport to new scene's spawn point
+            Debug.Log("[VRGame] Teleporting player to scene spawn point");
+
+            // Invalidate caches to find new spawn points
+            _teleportCacheValid = false;
+            _canvasCacheValid = false;
+
+            // Setup teleportation for the new scene
+            SetupTeleportation();
+
+            // Teleport to lobby spawn point
+            TeleportLocalPlayer(RoomType.Lobby);
+        }
+        else if (spawnPlayerOnStart && !_isSpawning)
+        {
+            // Fallback: spawn player if not already spawned
             Debug.Log("[VRGame] Spawning local player now that scene is ready");
             SpawnLocalPlayer(RoomType.Lobby);
         }
@@ -728,16 +731,42 @@ public class VRGameManager : MonoBehaviour
 
         StartCoroutine(TeleportAfterFrame(position, rotation, characterController));
     }
-    
+
     private System.Collections.IEnumerator TeleportAfterFrame(Vector3 position, Quaternion rotation, CharacterController controller)
     {
         yield return null;
-        
-        _localPlayer.transform.SetPositionAndRotation(position, rotation);
-        Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
-        
+
+        // Use XROrigin.MoveCameraToWorldLocation for proper VR teleportation
+        if (_localXrOrigin != null)
+        {
+            // First set rotation
+            _localXrOrigin.transform.rotation = rotation;
+
+            // Use built-in method to move camera to exact world position
+            // This handles the camera offset automatically
+            if (_localXrOrigin.MoveCameraToWorldLocation(position))
+            {
+                Debug.Log($"[SPAWN FIX] XROrigin.MoveCameraToWorldLocation -> {position}");
+            }
+            else
+            {
+                // Fallback: manual calculation
+                Vector3 cameraOffset = _localHead != null
+                    ? _localHead.position - _localXrOrigin.transform.position
+                    : Vector3.zero;
+                cameraOffset.y = 0;
+                _localXrOrigin.transform.position = position - cameraOffset;
+                Debug.Log($"[SPAWN FIX] Fallback teleport à {position - cameraOffset}");
+            }
+        }
+        else
+        {
+            _localPlayer.transform.SetPositionAndRotation(position, rotation);
+            Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
+        }
+
         yield return null;
-        
+
         if (controller != null)
         {
             controller.enabled = true;
@@ -1606,19 +1635,36 @@ public class VRGameManager : MonoBehaviour
 
     void GetSpawnPoint(RoomType roomType, bool isLocalPlayer, out Vector3 position, out Quaternion rotation)
     {
-        // Utilise toujours le lobbySpawnPoint (seul spawn point disponible)
+        // Check if a game scene is loaded (Meet, etc.) via BootstrapManager
+        bool gameSceneLoaded = BootstrapManager.Instance != null &&
+                               !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName());
+
+        // Use lobbySpawnPoint for game scenes (Meet, etc.)
         Transform spawnPoint = lobbySpawnPoint;
 
-        if (spawnPoint != null)
+        if (gameSceneLoaded && spawnPoint != null && spawnPoint.gameObject.scene.isLoaded)
         {
             position = spawnPoint.position;
             rotation = spawnPoint.rotation;
+            Debug.Log($"[VRGame] Using game scene spawn point: {position}");
         }
         else
         {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            Debug.LogWarning($"[VRGame] No spawn point assigned!");
+            // Try to find MenuSpawnPoint in Bootstrap scene
+            var menuSpawnPoint = GameObject.Find("MenuSpawnPoint");
+            if (menuSpawnPoint != null)
+            {
+                position = menuSpawnPoint.transform.position;
+                rotation = menuSpawnPoint.transform.rotation;
+                Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
+            }
+            else
+            {
+                // Fallback hardcoded position
+                position = new Vector3(0f, 0.1f, 3f);
+                rotation = Quaternion.Euler(0f, 180f, 0f);
+                Debug.Log($"[VRGame] Using fallback Bootstrap spawn point: {position}");
+            }
         }
     }
 
