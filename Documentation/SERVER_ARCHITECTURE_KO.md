@@ -2,6 +2,16 @@
 
 이 문서는 WebSocket 서버의 작동 방식, Unity 프로젝트와의 연결 방법, 교환되는 메시지, 원격 서버 배포 방법을 설명합니다.
 
+> **빠른 배포가 필요하신가요?** 단계별 배포를 위해 [기업 배포 가이드](./GUIDE_DEPLOIEMENT_ENTREPRISE.md)를 참조하세요. (프랑스어)
+
+## 관련 문서
+
+| 문서 | 설명 |
+|------|------|
+| [GUIDE_DEPLOIEMENT_ENTREPRISE.md](./GUIDE_DEPLOIEMENT_ENTREPRISE.md) | 기업 서버 배포를 위한 단계별 가이드 |
+| [SERVER_ARCHITECTURE.md](./SERVER_ARCHITECTURE.md) | 서버 아키텍처 (프랑스어) |
+| [NETWORKING_CODE_EXPLAINED.md](./NETWORKING_CODE_EXPLAINED.md) | 네트워크 코드 상세 설명 |
+
 ## 목차
 
 1. [개요](#개요)

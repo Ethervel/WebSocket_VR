@@ -15,19 +15,17 @@ public class VRGameManager : MonoBehaviour
     [Tooltip("Prefab du joueur local (XR Rig)")]
     public GameObject localPlayerPrefab;
 
-    [Tooltip("Prefab des joueurs distants (avatar VR)")]
+    [Tooltip("Prefab des joueurs distants (avatar VR) - ancien système avec tout intégré")]
     public GameObject remotePlayerPrefab;
 
-    [Header("Spawn Points - Lobby")]
+    [Header("Remote Player Separate Prefabs (nouveau système)")]
+    [Tooltip("Si assignés, ces prefabs seront utilisés à la place du remotePlayerPrefab unique")]
+    public GameObject remotePlayerHeadPrefab;
+    public GameObject remotePlayerLeftHandPrefab;
+    public GameObject remotePlayerRightHandPrefab;
+
+    [Header("Spawn Points")]
     public Transform lobbySpawnPoint;
-
-    [Header("Spawn Points - Meeting Room A")]
-    public Transform roomASpawnPoint;
-    public Transform[] roomAAdditionalSpawns;
-
-    [Header("Spawn Points - Meeting Room B")]
-    public Transform roomBSpawnPoint;
-    public Transform[] roomBAdditionalSpawns;
 
     [Header("Sync Settings")]
     [Tooltip("Fréquence de synchronisation (updates par seconde)")]
@@ -148,23 +146,10 @@ public class VRGameManager : MonoBehaviour
     {
         if (spawnPlayerOnStart)
         {
-            // Vérifier si Bootstrap est en train de charger une scène
-            if (BootstrapManager.Instance != null && BootstrapManager.Instance.IsLoading)
-            {
-                Debug.Log("[VRGame] Scene is loading, waiting for OnSceneReady before spawning player...");
-                // Le spawn sera déclenché par OnSceneReady
-            }
-            else if (BootstrapManager.Instance != null && !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName()))
-            {
-                // La scène est déjà chargée
-                Debug.Log("[VRGame] Scene already loaded, spawning player now");
-                SpawnLocalPlayer(RoomType.Lobby);
-            }
-            else
-            {
-                // Pas de BootstrapManager ou première fois, attendre OnSceneReady
-                Debug.Log("[VRGame] Waiting for scene to load before spawning player...");
-            }
+            // Spawn player immediately in Bootstrap scene
+            // This allows VR controllers to work in the main menu
+            Debug.Log("[VRGame] Spawning local player immediately in Bootstrap");
+            SpawnLocalPlayer(RoomType.Lobby);
         }
     }
 
@@ -214,14 +199,30 @@ public class VRGameManager : MonoBehaviour
 
     /// <summary>
     /// Appelé quand la scène principale est complètement chargée et prête.
-    /// C'est ici qu'on spawn le joueur pour éviter qu'il tombe dans le vide.
+    /// Téléporte le joueur au spawn point de la scène.
     /// </summary>
     void OnMainSceneReady(string sceneName)
     {
-        Debug.Log($"[VRGame] Scene '{sceneName}' is ready, checking if player needs to spawn...");
+        Debug.Log($"[VRGame] Scene '{sceneName}' is ready");
 
-        if (spawnPlayerOnStart && _localPlayer == null && !_isSpawning)
+        if (_localPlayer != null)
         {
+            // Player already exists (spawned in Bootstrap), teleport to new scene's spawn point
+            Debug.Log("[VRGame] Teleporting player to scene spawn point");
+
+            // Invalidate caches to find new spawn points
+            _teleportCacheValid = false;
+            _canvasCacheValid = false;
+
+            // Setup teleportation for the new scene
+            SetupTeleportation();
+
+            // Teleport to lobby spawn point
+            TeleportLocalPlayer(RoomType.Lobby);
+        }
+        else if (spawnPlayerOnStart && !_isSpawning)
+        {
+            // Fallback: spawn player if not already spawned
             Debug.Log("[VRGame] Spawning local player now that scene is ready");
             SpawnLocalPlayer(RoomType.Lobby);
         }
@@ -730,16 +731,42 @@ public class VRGameManager : MonoBehaviour
 
         StartCoroutine(TeleportAfterFrame(position, rotation, characterController));
     }
-    
+
     private System.Collections.IEnumerator TeleportAfterFrame(Vector3 position, Quaternion rotation, CharacterController controller)
     {
         yield return null;
-        
-        _localPlayer.transform.SetPositionAndRotation(position, rotation);
-        Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
-        
+
+        // Use XROrigin.MoveCameraToWorldLocation for proper VR teleportation
+        if (_localXrOrigin != null)
+        {
+            // First set rotation
+            _localXrOrigin.transform.rotation = rotation;
+
+            // Use built-in method to move camera to exact world position
+            // This handles the camera offset automatically
+            if (_localXrOrigin.MoveCameraToWorldLocation(position))
+            {
+                Debug.Log($"[SPAWN FIX] XROrigin.MoveCameraToWorldLocation -> {position}");
+            }
+            else
+            {
+                // Fallback: manual calculation
+                Vector3 cameraOffset = _localHead != null
+                    ? _localHead.position - _localXrOrigin.transform.position
+                    : Vector3.zero;
+                cameraOffset.y = 0;
+                _localXrOrigin.transform.position = position - cameraOffset;
+                Debug.Log($"[SPAWN FIX] Fallback teleport à {position - cameraOffset}");
+            }
+        }
+        else
+        {
+            _localPlayer.transform.SetPositionAndRotation(position, rotation);
+            Debug.Log($"[SPAWN FIX] Local player téléporté à {position}");
+        }
+
         yield return null;
-        
+
         if (controller != null)
         {
             controller.enabled = true;
@@ -756,90 +783,161 @@ public class VRGameManager : MonoBehaviour
         if (_remotePlayers.ContainsKey(playerData.playerId))
             return;
 
-        if (remotePlayerPrefab == null)
+        // Vérifier si on utilise le nouveau système (prefabs séparés) ou l'ancien (prefab unique)
+        bool useSeparatePrefabs = remotePlayerHeadPrefab != null ||
+                                   remotePlayerLeftHandPrefab != null ||
+                                   remotePlayerRightHandPrefab != null;
+
+        if (!useSeparatePrefabs && remotePlayerPrefab == null)
         {
-            Debug.LogWarning("[VRGame] remotePlayerPrefab not assigned!");
+            Debug.LogWarning("[VRGame] Aucun prefab remote player assigné! Assigne soit remotePlayerPrefab, soit les prefabs séparés (Head/LeftHand/RightHand).");
             return;
         }
 
         GetSpawnPoint(playerData.roomType, false, out var position, out var rotation);
 
-        var go = Instantiate(remotePlayerPrefab, Vector3.zero, Quaternion.identity);
-        go.name = $"RemotePlayer_{playerData.playerName}_{playerData.playerId.Substring(0, 6)}";
-        
-        var charController = go.GetComponent<CharacterController>();
-        bool hadCharController = charController != null;
-        if (hadCharController)
+        string shortId = playerData.playerId.Substring(0, Mathf.Min(6, playerData.playerId.Length));
+        GameObject bodyGo = null;
+        VRRemotePlayer remote;
+
+        if (useSeparatePrefabs)
         {
-            charController.enabled = false;
+            // NOUVEAU SYSTÈME: Prefabs séparés pour tête et mains (pas de body)
+            Debug.Log($"[VRGame] Utilisation du système de prefabs séparés pour {playerData.playerName}");
+
+            // Créer un GameObject vide comme conteneur pour la référence
+            bodyGo = new GameObject($"RemotePlayer_{playerData.playerName}_{shortId}");
+            bodyGo.transform.SetPositionAndRotation(position, rotation);
+
+            remote = new VRRemotePlayer
+            {
+                playerId = playerData.playerId,
+                playerName = playerData.playerName,
+                gameObject = bodyGo,
+                targetPosition = position,
+                targetRotation = rotation,
+                hasReceivedData = false
+            };
+
+            // Instancier la tête comme prefab séparé
+            if (remotePlayerHeadPrefab != null)
+            {
+                var headGo = Instantiate(remotePlayerHeadPrefab, position, Quaternion.identity);
+                headGo.name = $"Head_{shortId}";
+                headGo.transform.SetParent(_detachedPartsContainer);
+                remote.head = headGo.transform;
+                // Stocker la rotation du prefab comme offset
+                remote.headRotationOffset = remotePlayerHeadPrefab.transform.rotation;
+                CleanupRemotePlayerComponents(headGo);
+                Debug.Log($"[VRGame] Spawned separate head prefab for {playerData.playerName}, rotation offset: {remote.headRotationOffset.eulerAngles}");
+            }
+
+            // Instancier la main gauche comme prefab séparé
+            if (remotePlayerLeftHandPrefab != null)
+            {
+                var leftHandGo = Instantiate(remotePlayerLeftHandPrefab, position, Quaternion.identity);
+                leftHandGo.name = $"LeftHand_{shortId}";
+                leftHandGo.transform.SetParent(_detachedPartsContainer);
+                remote.leftHand = leftHandGo.transform;
+                // Stocker la rotation du prefab comme offset
+                remote.leftHandRotationOffset = remotePlayerLeftHandPrefab.transform.rotation;
+                CleanupRemotePlayerComponents(leftHandGo);
+                Debug.Log($"[VRGame] Spawned separate left hand prefab for {playerData.playerName}, rotation offset: {remote.leftHandRotationOffset.eulerAngles}");
+            }
+
+            // Instancier la main droite comme prefab séparé
+            if (remotePlayerRightHandPrefab != null)
+            {
+                var rightHandGo = Instantiate(remotePlayerRightHandPrefab, position, Quaternion.identity);
+                rightHandGo.name = $"RightHand_{shortId}";
+                rightHandGo.transform.SetParent(_detachedPartsContainer);
+                remote.rightHand = rightHandGo.transform;
+                // Stocker la rotation du prefab comme offset
+                remote.rightHandRotationOffset = remotePlayerRightHandPrefab.transform.rotation;
+                CleanupRemotePlayerComponents(rightHandGo);
+                Debug.Log($"[VRGame] Spawned separate right hand prefab for {playerData.playerName}, rotation offset: {remote.rightHandRotationOffset.eulerAngles}");
+            }
         }
-        
-        go.transform.SetPositionAndRotation(position, rotation);
-        Debug.Log($"[SPAWN FIX] Remote player {playerData.playerName} positionné à {position}");
-
-        foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
-        foreach (var al in go.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
-
-        var vrController = go.GetComponent<VRPlayerController>();
-        if (vrController != null) Destroy(vrController);
-
-        if (charController != null)
+        else
         {
-            Destroy(charController);
-            Debug.Log("[SPAWN FIX] CharacterController détruit sur remote player");
-        }
+            // ANCIEN SYSTÈME: Prefab unique avec tête et mains enfants
+            Debug.Log($"[VRGame] Utilisation de l'ancien système (prefab unique) pour {playerData.playerName}");
 
-        var remote = new VRRemotePlayer
-        {
-            playerId = playerData.playerId,
-            playerName = playerData.playerName,
-            gameObject = go,
-            targetPosition = position,
-            targetRotation = rotation,
-            hasReceivedData = false
-        };
+            bodyGo = Instantiate(remotePlayerPrefab, Vector3.zero, Quaternion.identity);
+            bodyGo.name = $"RemotePlayer_{playerData.playerName}_{shortId}";
 
-        remote.head = FindChildRecursive(go.transform, "Head");
-        remote.leftHand = FindChildRecursive(go.transform, "LeftHand");
-        remote.rightHand = FindChildRecursive(go.transform, "RightHand");
+            var charController = bodyGo.GetComponent<CharacterController>();
+            bool hadCharController = charController != null;
+            if (hadCharController)
+            {
+                charController.enabled = false;
+            }
 
-        if (remote.leftHand == null)
-        {
-            remote.leftHand = FindChildRecursive(go.transform, "Left Controller");
+            bodyGo.transform.SetPositionAndRotation(position, rotation);
+
+            foreach (var cam in bodyGo.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
+            foreach (var al in bodyGo.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
+
+            var vrController = bodyGo.GetComponent<VRPlayerController>();
+            if (vrController != null) Destroy(vrController);
+
+            if (charController != null)
+            {
+                Destroy(charController);
+            }
+
+            remote = new VRRemotePlayer
+            {
+                playerId = playerData.playerId,
+                playerName = playerData.playerName,
+                gameObject = bodyGo,
+                targetPosition = position,
+                targetRotation = rotation,
+                hasReceivedData = false
+            };
+
+            remote.head = FindChildRecursive(bodyGo.transform, "Head");
+            remote.leftHand = FindChildRecursive(bodyGo.transform, "LeftHand");
+            remote.rightHand = FindChildRecursive(bodyGo.transform, "RightHand");
+
             if (remote.leftHand == null)
-                remote.leftHand = FindChildRecursive(go.transform, "LeftHandAnchor");
-        }
+            {
+                remote.leftHand = FindChildRecursive(bodyGo.transform, "Left Controller");
+                if (remote.leftHand == null)
+                    remote.leftHand = FindChildRecursive(bodyGo.transform, "LeftHandAnchor");
+            }
 
-        if (remote.rightHand == null)
-        {
-            remote.rightHand = FindChildRecursive(go.transform, "Right Controller");
             if (remote.rightHand == null)
-                remote.rightHand = FindChildRecursive(go.transform, "RightHandAnchor");
+            {
+                remote.rightHand = FindChildRecursive(bodyGo.transform, "Right Controller");
+                if (remote.rightHand == null)
+                    remote.rightHand = FindChildRecursive(bodyGo.transform, "RightHandAnchor");
+            }
+
+            // CRITICAL: Détacher tête et mains pour qu'ils suivent les positions world
+            if (remote.head != null)
+            {
+                remote.head.SetParent(_detachedPartsContainer);
+                remote.head.name = $"Head_{shortId}";
+                Debug.Log($"[VRGame] Detached head for {playerData.playerName}");
+            }
+
+            if (remote.leftHand != null)
+            {
+                remote.leftHand.SetParent(_detachedPartsContainer);
+                remote.leftHand.name = $"LeftHand_{shortId}";
+                Debug.Log($"[VRGame] Detached left hand for {playerData.playerName}");
+            }
+
+            if (remote.rightHand != null)
+            {
+                remote.rightHand.SetParent(_detachedPartsContainer);
+                remote.rightHand.name = $"RightHand_{shortId}";
+                Debug.Log($"[VRGame] Detached right hand for {playerData.playerName}");
+            }
         }
 
-        // CRITICAL: Détacher tête et mains pour qu'ils suivent les positions world
-        // P0 FIX: Parent to persistent container instead of using DontDestroyOnLoad individually
-        // This prevents memory leaks - objects are now tracked and cleaned up properly
-        if (remote.head != null)
-        {
-            remote.head.SetParent(_detachedPartsContainer);
-            remote.head.name = $"Head_{playerData.playerId.Substring(0, 6)}";
-            Debug.Log($"[VRGame] Detached head for {playerData.playerName} (parented to container)");
-        }
-
-        if (remote.leftHand != null)
-        {
-            remote.leftHand.SetParent(_detachedPartsContainer);
-            remote.leftHand.name = $"LeftHand_{playerData.playerId.Substring(0, 6)}";
-            Debug.Log($"[VRGame] Detached left hand for {playerData.playerName} (parented to container)");
-        }
-
-        if (remote.rightHand != null)
-        {
-            remote.rightHand.SetParent(_detachedPartsContainer);
-            remote.rightHand.name = $"RightHand_{playerData.playerId.Substring(0, 6)}";
-            Debug.Log($"[VRGame] Detached right hand for {playerData.playerName} (parented to container)");
-        }
+        Debug.Log($"[SPAWN FIX] Remote player {playerData.playerName} positionné à {position}");
 
         // Create or update name tag above head
         remote.nameTag = CreateOrUpdateNameTag(remote, playerData.playerName);
@@ -852,7 +950,22 @@ public class VRGameManager : MonoBehaviour
 
         Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} - " +
                   $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}, Color: {avatarColor}");
-        OnRemotePlayerSpawned?.Invoke(playerData.playerId, go);
+        OnRemotePlayerSpawned?.Invoke(playerData.playerId, bodyGo);
+    }
+
+    /// <summary>
+    /// Nettoie les composants indésirables sur un prefab de joueur distant
+    /// </summary>
+    void CleanupRemotePlayerComponents(GameObject go)
+    {
+        foreach (var cam in go.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
+        foreach (var al in go.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
+
+        var vrController = go.GetComponent<VRPlayerController>();
+        if (vrController != null) Destroy(vrController);
+
+        var charController = go.GetComponent<CharacterController>();
+        if (charController != null) Destroy(charController);
     }
 
     void ApplyAvatarColor(VRRemotePlayer remote, Color color)
@@ -1337,7 +1450,7 @@ public class VRGameManager : MonoBehaviour
                 t
             );
 
-            // Tête : WORLD
+            // Tête : WORLD (avec offset de rotation du prefab)
             if (remote.head != null)
             {
                 remote.head.position = Vector3.Lerp(
@@ -1345,9 +1458,11 @@ public class VRGameManager : MonoBehaviour
                     remote.targetHeadPosition,
                     t
                 );
+                // Appliquer l'offset de rotation du prefab
+                Quaternion targetHeadRot = remote.targetHeadRotation * remote.headRotationOffset;
                 remote.head.rotation = Quaternion.Slerp(
                     remote.head.rotation,
-                    remote.targetHeadRotation,
+                    targetHeadRot,
                     t
                 );
 
@@ -1367,7 +1482,7 @@ public class VRGameManager : MonoBehaviour
                 }
             }
 
-            // Mains : WORLD
+            // Mains : WORLD (avec offset de rotation des prefabs)
             if (syncHands)
             {
                 if (remote.leftHand != null)
@@ -1377,9 +1492,11 @@ public class VRGameManager : MonoBehaviour
                         remote.targetLeftHandPosition,
                         t
                     );
+                    // Appliquer l'offset de rotation du prefab
+                    Quaternion targetLeftRot = remote.targetLeftHandRotation * remote.leftHandRotationOffset;
                     remote.leftHand.rotation = Quaternion.Slerp(
                         remote.leftHand.rotation,
-                        remote.targetLeftHandRotation,
+                        targetLeftRot,
                         t
                     );
                 }
@@ -1391,9 +1508,11 @@ public class VRGameManager : MonoBehaviour
                         remote.targetRightHandPosition,
                         t
                     );
+                    // Appliquer l'offset de rotation du prefab
+                    Quaternion targetRightRot = remote.targetRightHandRotation * remote.rightHandRotationOffset;
                     remote.rightHand.rotation = Quaternion.Slerp(
                         remote.rightHand.rotation,
-                        remote.targetRightHandRotation,
+                        targetRightRot,
                         t
                     );
                 }
@@ -1516,37 +1635,36 @@ public class VRGameManager : MonoBehaviour
 
     void GetSpawnPoint(RoomType roomType, bool isLocalPlayer, out Vector3 position, out Quaternion rotation)
     {
-        Transform spawnPoint = null;
+        // Check if a game scene is loaded (Meet, etc.) via BootstrapManager
+        bool gameSceneLoaded = BootstrapManager.Instance != null &&
+                               !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName());
 
-        switch (roomType)
-        {
-            case RoomType.Lobby:
-                spawnPoint = lobbySpawnPoint;
-                break;
+        // Use lobbySpawnPoint for game scenes (Meet, etc.)
+        Transform spawnPoint = lobbySpawnPoint;
 
-            case RoomType.MeetingRoomA:
-                spawnPoint = (isLocalPlayer || roomAAdditionalSpawns == null || roomAAdditionalSpawns.Length == 0)
-                    ? roomASpawnPoint
-                    : roomAAdditionalSpawns[UnityEngine.Random.Range(0, roomAAdditionalSpawns.Length)];
-                break;
-
-            case RoomType.MeetingRoomB:
-                spawnPoint = (isLocalPlayer || roomBAdditionalSpawns == null || roomBAdditionalSpawns.Length == 0)
-                    ? roomBSpawnPoint
-                    : roomBAdditionalSpawns[UnityEngine.Random.Range(0, roomBAdditionalSpawns.Length)];
-                break;
-        }
-
-        if (spawnPoint != null)
+        if (gameSceneLoaded && spawnPoint != null && spawnPoint.gameObject.scene.isLoaded)
         {
             position = spawnPoint.position;
             rotation = spawnPoint.rotation;
+            Debug.Log($"[VRGame] Using game scene spawn point: {position}");
         }
         else
         {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            Debug.LogWarning($"[VRGame] No spawn point found for {roomType}");
+            // Try to find MenuSpawnPoint in Bootstrap scene
+            var menuSpawnPoint = GameObject.Find("MenuSpawnPoint");
+            if (menuSpawnPoint != null)
+            {
+                position = menuSpawnPoint.transform.position;
+                rotation = menuSpawnPoint.transform.rotation;
+                Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
+            }
+            else
+            {
+                // Fallback hardcoded position
+                position = new Vector3(0f, 0.1f, 3f);
+                rotation = Quaternion.Euler(0f, 180f, 0f);
+                Debug.Log($"[VRGame] Using fallback Bootstrap spawn point: {position}");
+            }
         }
     }
 
@@ -1588,6 +1706,11 @@ public class VRRemotePlayer
     public Transform leftHand;
     public Transform rightHand;
     public Transform nameTag;
+
+    // Rotation offsets from prefabs (pour garder l'angle des prefabs)
+    public Quaternion headRotationOffset = Quaternion.identity;
+    public Quaternion leftHandRotationOffset = Quaternion.identity;
+    public Quaternion rightHandRotationOffset = Quaternion.identity;
 
     // Laser pointer
     public LineRenderer laserLine;

@@ -48,7 +48,8 @@
       "mcp__filesystem__edit_file",
       "Bash(mkdir:*)",
       "Bash(head:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(wc:*)"
     ]
   }
 }

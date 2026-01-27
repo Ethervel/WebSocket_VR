@@ -1,17 +1,6 @@
 # Architecture Serveur WebSocket - VR Meeting Rooms
 
-Ce document explique le fonctionnement du serveur WebSocket, comment il est connecte au projet Unity, les messages echanges, et comment le deployer sur un serveur distant.
-
-## Table des Matieres
-
-1. [Vue d'Ensemble](#vue-densemble)
-2. [Architecture du Serveur](#architecture-du-serveur)
-3. [Connexion Unity <-> Serveur](#connexion-unity---serveur)
-4. [Protocole de Messages](#protocole-de-messages)
-5. [Traitement des Messages](#traitement-des-messages)
-6. [Deploiement en Production](#deploiement-en-production)
-7. [Securite](#securite)
-8. [Depannage](#depannage)
+Description technique du serveur WebSocket et de son integration avec le client Unity.
 
 ---
 
@@ -29,108 +18,133 @@ Ce document explique le fonctionnement du serveur WebSocket, comment il est conn
         |                                                        |
         v                                                        v
 +------------------+                                     +------------------+
-| VRRoomManager    |                                     | MariaDB          |
-| VRGameManager    |                                     | (auth.js/db.js)  |
-| VoiceChatManager |                                     |                  |
+| VRRoomManager    |                                     | Modules          |
+| VRGameManager    |                                     | (non connectes)  |
+| VoiceChatManager |                                     | auth.js, db.js   |
 +------------------+                                     +------------------+
 ```
 
 ### Stack Technique
 
-| Composant | Technologie | Fichier(s) |
-|-----------|-------------|------------|
-| Serveur WebSocket | Node.js + ws@8.14.2 | `server.js` |
-| Client WebSocket | NativeWebSocket (Unity) | `VRNetworkManager.cs` |
-| Authentification | bcrypt + MariaDB | `auth.js`, `db.js` |
-| Voix (WebRTC) | Unity.WebRTC | `VoiceChatManager.cs` |
+| Composant | Technologie | Version | Fichier |
+|-----------|-------------|---------|---------|
+| Serveur WebSocket | Node.js + ws | 8.14.2 | `server.js` |
+| Client WebSocket | NativeWebSocket | Unity Package | `VRNetworkManager.cs` |
+| Voix (WebRTC) | Unity.WebRTC | 3.0.0 | `VoiceChatManager.cs` |
+| Authentification | bcrypt + MariaDB | - | `auth.js` (NON CONNECTE) |
 
 ---
 
-## Architecture du Serveur
+## Structure du Serveur
 
-### Structure des Fichiers Serveur
+### Fichiers
 
 ```
 Server/
-├── server.js           # Serveur principal WebSocket (1047 lignes)
-├── auth.js             # Gestion authentification (bcrypt)
-├── db.js               # Pool de connexions MariaDB
-├── filePresentation.js # Conversion PDF (optionnel)
-├── package.json        # Dependances npm
-└── server.test.js      # Tests unitaires
+├── server.js           # Serveur principal (888 lignes)
+├── package.json        # Dependances: ws, uuid, pdf-poppler
+├── auth.js             # Authentification (NON CONNECTE)
+├── db.js               # Pool MariaDB (NON CONNECTE)
+└── filePresentation.js # Conversion PDF (optionnel)
 ```
 
-### server.js - Composants Principaux
+### Composants server.js
 
-#### 1. Initialisation (lignes 1-35)
+| Composant | Lignes | Description |
+|-----------|--------|-------------|
+| Configuration | 1-27 | Imports, constantes, state global |
+| Connection handling | 41-96 | Welcome, peer events, handlers |
+| Message routing | 100-228 | Switch principal, dispatch |
+| Room management | 232-416 | Create, join, leave, close, kick |
+| Whiteboard | 463-487 | State sync point-to-point |
+| WebRTC signaling | 491-605 | Voice + screen share |
+| File sharing | 609-661 | List response, present state |
+| PDF conversion | 665-748 | Cache, page requests |
+| Utilities | 752-833 | sendToClient, broadcast, broadcastToRoom |
+| Maintenance | 838-887 | Heartbeat, cleanup, shutdown |
+
+### State Global
 
 ```javascript
-const WebSocket = require('ws');
-const { v4: uuidv4 } = require('uuid');
-
-const PORT = process.env.PORT || 8080;
-const HEARTBEAT_INTERVAL = 30000;  // 30 secondes
-
-// Stockage en memoire
 const clients = new Map();  // clientId -> { ws, roomId, playerName, lastHeartbeat }
 const rooms = new Map();    // roomId -> RoomInfo
+const pdfCache = new Map(); // fileId -> { pages, totalPages, timestamp }
 ```
 
-#### 2. Gestion des Connexions (lignes 40-87)
+### Configuration
 
-Quand un client se connecte :
-1. Genere un UUID unique (`clientId`)
-2. Stocke le client dans `clients` Map
-3. Envoie message `welcome` avec l'ID assigne
-4. Broadcast `peer-connected` aux autres
-5. Envoie la liste des rooms disponibles
+| Constante | Valeur | Description |
+|-----------|--------|-------------|
+| `PORT` | 8080 | Port d'ecoute (env configurable) |
+| `HEARTBEAT_INTERVAL` | 30000 ms | Intervalle ping |
+| `PDF_CACHE_TTL` | 30 min | Duree cache PDF |
+
+---
+
+## Gestion des Connexions
+
+### Flux de Connexion
+
+```
+Client                              Serveur
+   |                                   |
+   |-------- WebSocket Connect ------->|
+   |                                   | Genere UUID
+   |                                   | Stocke dans clients Map
+   |<------- welcome {senderId} -------|
+   |                                   |
+   |                                   |--- peer-connected (broadcast) --->
+   |<------- room-list ----------------|
+   |                                   |
+```
+
+### Structure Client (Map)
 
 ```javascript
-wss.on('connection', (ws) => {
-    const clientId = uuidv4();
-
-    clients.set(clientId, {
-        ws: ws,
-        roomId: null,
-        playerName: 'Player',
-        lastHeartbeat: Date.now()
-    });
-
-    // Message d'accueil avec ID assigne
-    sendToClient(ws, {
-        type: 'welcome',
-        senderId: clientId
-    });
-
-    // Notifier les autres clients
-    broadcast({
-        type: 'peer-connected',
-        senderId: clientId
-    }, clientId);
-
-    // Envoyer la liste des rooms
-    sendRoomList(ws);
-});
+{
+    ws: WebSocket,           // Instance socket
+    roomId: null | string,   // Room actuelle
+    playerName: 'Player',    // Nom affiche
+    lastHeartbeat: Date.now() // Timestamp dernier pong
+}
 ```
 
-#### 3. Routage des Messages (lignes 93-263)
+### Structure Room (Map)
 
-Le `switch` principal route chaque type de message vers son handler :
+```javascript
+{
+    roomId: string,          // Code 6 caracteres
+    hostId: string,          // UUID du createur
+    roomName: string,        // Nom affiche
+    roomType: number,        // 0=Lobby, 1=RoomA, 2=RoomB
+    playerCount: number,     // Joueurs actuels
+    maxPlayers: number,      // Limite (defaut: 10)
+    createdAt: number        // Timestamp creation
+}
+```
 
-| Categorie | Types de Messages | Action |
-|-----------|-------------------|--------|
-| **Room Lifecycle** | `room-available`, `room-closed`, `room-join`, `room-leave`, `room-update` | CRUD rooms |
-| **Position VR** | `vr-position`, `position` | Broadcast a la room |
-| **Objets** | `obj-sync`, `obj-state` | Broadcast a la room |
-| **Whiteboard** | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request/state` | Broadcast ou point-a-point |
-| **WebRTC Voice** | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` | Point-a-point |
-| **Screen Share** | `screen-share-start/stop/frame` | Broadcast a la room |
-| **File Share** | `file-announce`, `file-chunk`, `file-complete` | Broadcast a la room |
-| **Auth** | `auth-register`, `auth-login`, `auth-update-profile` | Handler specifique |
+---
 
-#### 4. Fonction Critique : `broadcastToRoom` (lignes 948-976)
+## Routage des Messages
 
-Cette fonction est ESSENTIELLE - elle filtre les messages par room :
+### Switch Principal
+
+| Categorie | Types | Handler |
+|-----------|-------|---------|
+| Room Lifecycle | `room-available`, `room-closed`, `room-join`, `room-leave`, `room-update` | Fonctions dediees |
+| Position VR | `vr-position`, `position` | `broadcastToRoom()` |
+| Objets | `obj-sync`, `obj-state` | `broadcastToRoom()` |
+| Whiteboard | `whiteboard-draw`, `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request` | `broadcastToRoom()` |
+| Whiteboard State | `whiteboard-state` | `handleWhiteboardState()` |
+| Room State | `room-welcome`, `room-teleport`, `player-name-update` | `broadcastToRoom()` |
+| Admin | `kick-player` | `handleKickPlayer()` |
+| WebRTC Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` | Point-to-point |
+| Screen Share | `screen-share-*`, `screen-video-*` | Mixte |
+| File Share | `file-announce`, `file-chunk`, `file-complete`, `file-request` | `broadcastToRoom()` |
+| PDF | `pdf-convert-request`, `pdf-page-request` | Fonctions dediees |
+| Default | Autres | Room si dans room, sinon global |
+
+### Fonction broadcastToRoom
 
 ```javascript
 function broadcastToRoom(senderId, message) {
@@ -141,10 +155,6 @@ function broadcastToRoom(senderId, message) {
     const messageStr = JSON.stringify(message);
 
     clients.forEach((client, clientId) => {
-        // Envoyer SEULEMENT si:
-        // 1. Ce n'est pas l'expediteur
-        // 2. Le client est dans la MEME room
-        // 3. La connexion est ouverte
         if (clientId !== senderId &&
             client.roomId === roomId &&
             client.ws.readyState === WebSocket.OPEN) {
@@ -154,175 +164,85 @@ function broadcastToRoom(senderId, message) {
 }
 ```
 
-#### 5. Heartbeat et Timeout (lignes 1015-1032)
-
-```javascript
-const heartbeatInterval = setInterval(() => {
-    const now = Date.now();
-
-    // Envoyer ping a tous les clients
-    wss.clients.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.ping();
-        }
-    });
-
-    // Deconnecter les clients en timeout (60s)
-    clients.forEach((client, clientId) => {
-        if (now - client.lastHeartbeat > HEARTBEAT_INTERVAL * 2) {
-            console.log(`[SERVER] Client timeout: ${clientId}`);
-            client.ws.terminate();
-            handleDisconnect(clientId);
-        }
-    });
-}, HEARTBEAT_INTERVAL);  // Toutes les 30 secondes
-```
-
----
-
-## Connexion Unity <-> Serveur
-
-### Cote Unity : VRNetworkManager.cs
-
-#### Configuration (Inspector Unity)
-
-| Parametre | Defaut | Description |
-|-----------|--------|-------------|
-| `serverUrl` | `ws://localhost:8080` | URL du serveur WebSocket |
-| `enforceSecureConnection` | `false` | Forcer wss:// en production |
-| `autoReconnect` | `true` | Reconnexion automatique |
-| `welcomeTimeout` | `5s` | Timeout pour message welcome |
-| `maxMessagesPerSecond` | `60` | Rate limiting |
-
-#### Flux de Connexion
-
-```
-Unity                                       Serveur
-  |                                           |
-  |-------- WebSocket Connect ---------------->|
-  |                                           |
-  |<------- welcome {senderId: "uuid"} -------|
-  |                                           |
-  |-------- room-available {roomId, name} --->|
-  |                                           |
-  |<------- room-list {rooms: [...]} ---------|
-  |                                           |
-  |-------- vr-position (30Hz) --------------->|
-  |                                           |
-```
-
-#### Gestion des Erreurs (Exponential Backoff)
-
-```csharp
-// VRNetworkManager.cs - lignes 176-188
-if (_isReconnecting && autoReconnect)
-{
-    _reconnectTimer -= Time.deltaTime;
-    if (_reconnectTimer <= 0f)
-    {
-        _isReconnecting = false;
-        _reconnectAttempts++;
-        ConnectAsync();
-    }
-}
-
-// Calcul du delai : 1s -> 2s -> 4s -> 8s -> ... -> 30s max
-_currentReconnectDelay = Mathf.Min(
-    _currentReconnectDelay * backoffMultiplier,
-    maxReconnectDelay
-);
-```
-
 ---
 
 ## Protocole de Messages
 
 ### Format Standard
 
-Tous les messages suivent ce format JSON :
-
 ```json
 {
     "type": "message-type",
-    "senderId": "client-uuid",
-    "data": "{\"json\": \"serialized\"}"
+    "senderId": "uuid-client",
+    "data": "{\"json\":\"serialise\"}"
 }
 ```
 
-### Messages par Categorie
+### Messages Connexion
 
-#### 1. Connexion
+| Type | Direction | Contenu |
+|------|-----------|---------|
+| `welcome` | Serveur -> Client | senderId = ID assigne |
+| `peer-connected` | Serveur -> All | senderId = nouveau peer |
+| `peer-disconnected` | Serveur -> All | senderId = peer parti |
 
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
-| `welcome` | Serveur -> Client | `null` (senderId = ID assigne) |
-| `peer-connected` | Serveur -> All | `null` (senderId = nouveau peer) |
-| `peer-disconnected` | Serveur -> All | `null` (senderId = peer parti) |
+### Messages Room
 
-#### 2. Gestion des Rooms
-
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
+| Type | Direction | Data |
+|------|-----------|------|
 | `room-available` | Client -> Serveur | `{roomId, roomName, roomType, maxPlayers}` |
 | `room-join` | Client -> Serveur | `{roomId, playerId, playerName, colorR/G/B}` |
 | `room-welcome` | Host -> Room | `{roomId, roomType, players: [...]}` |
 | `room-leave` | Client -> Room | `{roomId, playerId}` |
 | `room-list` | Serveur -> Client | `{rooms: [RoomInfo...]}` |
 | `room-closed` | Host -> All | `{roomId}` |
+| `kick-player` | Host -> Target | `{roomId, playerId, reason}` |
 
-#### 3. Synchronisation VR (30Hz)
+### Messages Position VR (30Hz)
 
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
-| `vr-position` | Client -> Room | Voir structure VRPositionData |
-
-```csharp
-// VRPositionData (VRGameManager.cs)
+```json
 {
     "roomId": "ABC123",
-    "roomType": 1,  // 0=Lobby, 1=RoomA, 2=RoomB
-    // Corps
+    "roomType": 1,
     "posX": 1.234, "posY": 0.0, "posZ": -5.678,
     "rotY": 45.0,
-    // Tete (world space)
     "headPosX": 1.234, "headPosY": 1.7, "headPosZ": -5.678,
     "headRotX": 0.0, "headRotY": 0.707, "headRotZ": 0.0, "headRotW": 0.707,
-    // Mains (world space) - zeros = mode Desktop
     "leftHandPosX": ..., "leftHandRotX": ...,
     "rightHandPosX": ..., "rightHandRotX": ...
 }
 ```
 
-#### 4. WebRTC Signaling (Point-a-Point)
+### Messages WebRTC (Point-to-Point)
 
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
-| `webrtc-offer` | Client -> Client | `{targetId, sdp}` |
-| `webrtc-answer` | Client -> Client | `{targetId, sdp}` |
-| `webrtc-ice-candidate` | Client -> Client | `{targetId, candidate, sdpMid, sdpMLineIndex}` |
+| Type | Data |
+|------|------|
+| `webrtc-offer` | `{targetId, sdp}` |
+| `webrtc-answer` | `{targetId, sdp}` |
+| `webrtc-ice-candidate` | `{targetId, candidate, sdpMid, sdpMLineIndex}` |
 
-#### 5. Whiteboard
+### Messages Whiteboard
 
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
-| `whiteboard-batch` | Client -> Room | `{whiteboardId, roomId, r/g/b/a, penSize, pointsFlat: [u,v,...]}` |
-| `whiteboard-clear` | Client -> Room | `{whiteboardId, roomId}` |
-| `whiteboard-request` | Client -> Room | `{whiteboardId, roomId}` |
-| `whiteboard-state` | Client -> Client | `{targetId, textureData (base64 PNG)}` |
+| Type | Data |
+|------|------|
+| `whiteboard-batch` | `{whiteboardId, roomId, r/g/b/a, penSize, pointsFlat: [u,v,...]}` |
+| `whiteboard-clear` | `{whiteboardId, roomId}` |
+| `whiteboard-request` | `{whiteboardId, roomId}` |
+| `whiteboard-state` | `{targetId, textureData (base64 PNG)}` |
 
-#### 6. Screen Share
+### Messages Screen Share
 
-| Type | Direction | Contenu `data` |
-|------|-----------|----------------|
-| `screen-share-start` | Client -> Room | `{sharerId, sharerName}` |
-| `screen-share-frame` | Client -> Room | `{imageData (base64 JPEG)}` |
-| `screen-share-stop` | Client -> Room | `{sharerId}` |
+| Type | Data |
+|------|------|
+| `screen-share-start` | `{sharerId, sharerName}` |
+| `screen-share-frame` | `{imageData (base64 JPEG)}` |
+| `screen-share-stop` | `{sharerId}` |
 
 ---
 
-## Traitement des Messages
+## Flux de Donnees
 
-### Exemple Complet : Rejoindre une Room
+### Rejoindre une Room
 
 ```
 Joueur A (Host)                 Serveur                    Joueur B
@@ -338,290 +258,154 @@ Joueur A (Host)                 Serveur                    Joueur B
      |                             |--- room-welcome --------->|
      |                             |                           |
      |<======= vr-position (30Hz bidirectionnel) =============>|
-     |                             |                           |
 ```
 
-### Handler `room-join` (server.js:327-364)
+### Kick Player
+
+```
+Host                            Serveur                    Target
+  |                                |                          |
+  |-- kick-player {playerId} ----->|                          |
+  |                                | Verifie hostId           |
+  |                                |--- kick-player --------->|
+  |                                | Update room.playerCount  |
+  |<-- room-leave -----------------|--- room-leave (autres)-->|
+  |                                |--- room-list (broadcast) |
+```
+
+---
+
+## Heartbeat et Timeout
+
+### Mecanisme
 
 ```javascript
-function handleRoomJoin(clientId, dataStr) {
-    const data = JSON.parse(dataStr);
-    const room = rooms.get(data.roomId);
+const heartbeatInterval = setInterval(() => {
+    const now = Date.now();
 
-    // Verifications
-    if (!room) {
-        sendError(clientId, `Room ${data.roomId} not found`);
-        return;
-    }
-
-    if (room.playerCount >= room.maxPlayers) {
-        sendError(clientId, 'Room is full');
-        return;
-    }
-
-    // Mettre a jour l'etat du client
-    const client = clients.get(clientId);
-    client.roomId = data.roomId;
-    client.playerName = data.playerName;
-
-    room.playerCount++;
-
-    // Broadcast a la room SEULEMENT
-    broadcastToRoom(clientId, {
-        type: 'room-join',
-        senderId: clientId,
-        data: JSON.stringify(data)
+    // Ping tous les clients
+    wss.clients.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.ping();
+        }
     });
 
-    // Mettre a jour la liste globale des rooms
-    broadcastRoomList();
-}
+    // Timeout clients morts (60s sans pong)
+    clients.forEach((client, clientId) => {
+        if (now - client.lastHeartbeat > HEARTBEAT_INTERVAL * 2) {
+            client.ws.terminate();
+            handleDisconnect(clientId);
+        }
+    });
+}, HEARTBEAT_INTERVAL);
 ```
+
+### Timing
+
+| Evenement | Delai |
+|-----------|-------|
+| Ping serveur | Toutes les 30s |
+| Pong client | Automatique (WebSocket) |
+| Timeout | 60s sans pong |
 
 ---
 
-## Deploiement en Production
+## Deconnexion
 
-### Prerequis
+### Flux handleDisconnect
 
-- Node.js 18+ LTS
-- MariaDB 10.5+ (pour l'authentification)
-- Certificat SSL (pour wss://)
-- Serveur avec IP publique
+1. Recuperer le client de la Map
+2. Si dans une room :
+   - Si host : supprimer la room, broadcast `room-closed`
+   - Sinon : decrementer `playerCount`
+   - Broadcast `room-leave` a la room
+3. Supprimer de `clients` Map
+4. Broadcast `peer-disconnected` global
+5. Broadcast `room-list` mis a jour
 
-### Etape 1 : Preparation du Serveur
+---
 
-```bash
-# Sur le serveur (Linux)
-sudo apt update
-sudo apt install nodejs npm mariadb-server nginx
+## Securite Implementee
 
-# Cloner le projet
-git clone <votre-repo>
-cd WebSocket_VR/Server
+| Aspect | Implementation |
+|--------|----------------|
+| ID force | `message.senderId = clientId` dans handleMessage |
+| Isolation rooms | `broadcastToRoom` filtre par roomId |
+| Kick authority | Verification `room.hostId === clientId` |
+| Timeout | Deconnexion automatique apres 60s |
 
-# Installer les dependances
-npm install
+---
+
+## Logs Serveur
+
+### Format
+
+```
+[Connect] Client a1b2c3d4...
+[Room] Created: XYZ789
+[Room] Join: e5f6g7h8 -> XYZ789
+[Room] Leave: e5f6g7h8 <- XYZ789
+[Room] Closed: XYZ789
+[Kick] Host a1b2c3d4 kicked e5f6g7h8 from XYZ789
+[Timeout] Client a1b2c3d4...
+[Disconnect] Client a1b2c3d4...
+[Status] 3 clients | 2 rooms
+[Error] handleRoomJoin: ...
 ```
 
-### Etape 2 : Configuration Base de Donnees
+### Periodicite
 
-```sql
--- Creer la base de donnees
-CREATE DATABASE vr_meeting;
-USE vr_meeting;
+| Log | Frequence |
+|-----|-----------|
+| Status | 60 secondes |
+| Connect/Disconnect | Temps reel |
+| Room events | Temps reel |
+| Errors | Temps reel |
 
--- Table utilisateurs
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    display_name VARCHAR(50),
-    avatar_color VARCHAR(20),
-    last_login DATETIME,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+---
 
--- Creer un utilisateur dedie
-CREATE USER 'vr_app'@'localhost' IDENTIFIED BY 'votre_mot_de_passe_fort';
-GRANT ALL PRIVILEGES ON vr_meeting.* TO 'vr_app'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-### Etape 3 : Variables d'Environnement
-
-Creer un fichier `.env` :
-
-```bash
-# Server
-PORT=8080
-
-# Database
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=vr_app
-DB_PASSWORD=votre_mot_de_passe_fort
-DB_NAME=vr_meeting
-```
-
-Modifier le script pour charger `.env` :
+## Graceful Shutdown
 
 ```javascript
-// Ajouter en haut de server.js
-require('dotenv').config();
-```
+process.on('SIGINT', () => {
+    console.log('\n[Server] Shutting down...');
+    clearInterval(heartbeatInterval);
 
-### Etape 4 : Configuration SSL avec Nginx (Reverse Proxy)
+    wss.clients.forEach((ws) => {
+        ws.close();
+    });
 
-```nginx
-# /etc/nginx/sites-available/vr-meeting
-server {
-    listen 443 ssl;
-    server_name votre-domaine.com;
-
-    ssl_certificate /etc/letsencrypt/live/votre-domaine.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/votre-domaine.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-    }
-}
-
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    server_name votre-domaine.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-```bash
-# Activer le site
-sudo ln -s /etc/nginx/sites-available/vr-meeting /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-
-# Obtenir certificat SSL (Let's Encrypt)
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d votre-domaine.com
-```
-
-### Etape 5 : Service Systemd
-
-```ini
-# /etc/systemd/system/vr-meeting.service
-[Unit]
-Description=VR Meeting WebSocket Server
-After=network.target mariadb.service
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/chemin/vers/WebSocket_VR/Server
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=10
-Environment=NODE_ENV=production
-EnvironmentFile=/chemin/vers/WebSocket_VR/Server/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable vr-meeting
-sudo systemctl start vr-meeting
-sudo systemctl status vr-meeting
-```
-
-### Etape 6 : Configuration Unity
-
-Dans Unity, modifier `VRNetworkManager` :
-
-```csharp
-// Changez serverUrl dans l'Inspector
-serverUrl = "wss://votre-domaine.com";
-
-// Activez la securite
-enforceSecureConnection = true;
+    wss.close(() => {
+        console.log('[Server] Goodbye!');
+        process.exit(0);
+    });
+});
 ```
 
 ---
 
-## Securite
+## Modules Non Connectes
 
-### Checklist Production
+### auth.js
 
-| Element | Status | Action |
-|---------|--------|--------|
-| TLS/SSL | REQUIS | Utiliser `wss://` avec certificat valide |
-| Mots de passe DB | REQUIS | Changer les valeurs par defaut |
-| TURN server | RECOMMANDE | Utiliser serveur TURN prive (Twilio/Xirsys) |
-| Rate limiting | INCLUS | 60 msg/s par client (configurable) |
-| Validation JSON | INCLUS | `TryDeserialize` avec gestion erreurs |
+| Fonction | Parametres | Retour |
+|----------|------------|--------|
+| `registerUser` | username, email, password, displayName | `{success, userId, error}` |
+| `loginUser` | username, password | `{success, userId, username, email, displayName, avatarColor, error}` |
+| `updateUserProfile` | userId, displayName, avatarColor | `{success, error}` |
 
-### Configuration TURN Prive (VoiceChatManager.cs)
+### db.js
 
-```csharp
-// Dans l'Inspector Unity
-useCustomTurnServer = true;
-customTurnUrl = "turn:votre-turn.com:3478";
-customTurnUsername = "votre_user";
-customTurnCredential = "votre_secret";
-enableTurnTcp = true;  // Pour firewalls restrictifs
-```
+| Config | Valeur |
+|--------|--------|
+| Host | localhost |
+| Port | 3306 |
+| Database | vr_meeting |
+| Pool size | 10 connexions |
 
 ---
 
-## Depannage
+## References
 
-### Problemes Courants
-
-| Symptome | Cause Probable | Solution |
-|----------|----------------|----------|
-| "Welcome timeout" | Serveur non accessible | Verifier URL, port, firewall |
-| Deconnexions frequentes | Heartbeat timeout | Verifier stabilite reseau |
-| Pas d'audio entre joueurs | TURN server manquant | Ajouter serveur TURN |
-| Messages non recus | Mauvais roomId | Verifier filtrage `broadcastToRoom` |
-
-### Logs Serveur
-
-```bash
-# Voir les logs en temps reel
-sudo journalctl -u vr-meeting -f
-
-# Logs typiques
-[SERVER] WebSocket server started on port 8080
-[SERVER] Client connected: abc-123-def-456
-[SERVER] Room created: XYZ789 by abc-123-def-456
-[Room:XYZ789] whiteboard-batch from abc-123 -> 2 clients
-```
-
-### Test de Connexion
-
-```javascript
-// Test rapide avec wscat
-npm install -g wscat
-wscat -c ws://localhost:8080
-
-// Envoyer un message de test
-> {"type":"room-list-request","data":""}
-< {"type":"room-list","senderId":"server","data":"{\"rooms\":[]}"}
-```
-
----
-
-## Monitoring Serveur
-
-Le serveur affiche des statistiques toutes les 60 secondes :
-
-```
-[SERVER] 3 clients | Rooms: ABC123(2), XYZ789(1)
-```
-
-Pour un monitoring avance, considerez :
-- PM2 (`pm2 monit`)
-- Prometheus + Grafana
-- Uptime monitoring (UptimeRobot, Pingdom)
-
----
-
-## Resume
-
-1. **Le serveur** est un hub WebSocket qui route les messages entre clients
-2. **Les rooms** isolent les messages (whiteboard, position, screen share)
-3. **WebRTC** est peer-to-peer mais le signaling passe par le serveur
-4. **En production** : SSL obligatoire, TURN prive recommande, monitoring actif
-
-Pour toute question, consultez le code source :
-- Serveur : `Server/server.js`
-- Client : `Assets/Scrips/Network/VRNetworkManager.cs`
+- [GUIDE_DEPLOIEMENT_ENTREPRISE.md](./GUIDE_DEPLOIEMENT_ENTREPRISE.md) - Etat actuel du deploiement
+- [NETWORKING_CODE_EXPLAINED.md](./NETWORKING_CODE_EXPLAINED.md) - Code annote ligne par ligne

@@ -11,7 +11,8 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 ### Tech Stack
 - **Engine:** Unity 6000.2.14f1
 - **Multiplayer:** WebSocket (NativeWebSocket) + WebRTC
-- **Database:** MariaDB (user data, sessions, meetings persistence)
+- **Database:** Not implemented (clean slate for future implementation)
+- **Authentication:** Not implemented (clean slate for future implementation)
 - **Platforms:** Cross-platform hybrid (VR headsets, Desktop, potentially Web)
 
 ### Core Features
@@ -19,12 +20,15 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | Feature | Description | Status |
 |---------|-------------|--------|
 | **Spatial Audio** | 3D positional audio for natural conversations | Implemented |
-| **Presentation Tools** | Screen sharing, slides, media playback | In Progress |
+| **Presentation Tools** | Screen sharing, slides, laser pointer, file presentation | Implemented |
 | **Interactive Whiteboard** | Real-time collaborative drawing, network-synced | Implemented |
-| **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Planned |
+| **Laser Pointer** | VR/Desktop laser pointer visible to all, network-synced | Implemented |
+| **File Presentation** | Present images/PDFs on whiteboard with navigation | Implemented |
+| **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Partial (basic interactable) |
 | **Avatar Customization** | Name + color selection, synced across network | Implemented |
 | **File Sharing** | Upload/download files with VR browser | Implemented (Testing) |
 | **Desktop Mode** | Non-VR FPS-style controls (WASD + mouse) | Implemented |
+| **Main Menu UI** | Start/Options/Quit, settings, loading screen | Implemented |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
 | **Note-taking & Export** | In-meeting notes with PDF/text export | Planned |
 | **Screen Sharing** | Share desktop/window/VR view to Whiteboard | Implemented |
@@ -61,16 +65,19 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [x] Avatar customization (name + color)
 - [x] Whiteboard (collaborative drawing)
 - [x] Desktop mode (FPS-style: WASD + mouse look)
-- [ ] MariaDB integration
+- [x] Main menu UI (Start/Options/Quit, settings, loading screen)
 
 **Phase 2 - Collaboration (In Progress)**
 - [x] Screen sharing (VR + Desktop, optimized 854x480 @ 3fps)
+- [x] Laser pointer (VR: A button, Desktop: L key, network-synced @ 10Hz)
+- [x] File presentation (images + PDF on whiteboard, navigation, zoom/pan)
 - [~] File sharing (implemented, requires testing)
-- [ ] 3D object manipulation (basic networked interactable exists)
-- [ ] Presentation mode (slide navigation, laser pointer)
+- [~] 3D object manipulation (basic networked interactable exists)
 - [ ] Note-taking system
 
 **Phase 3 - Enterprise**
+- [ ] Database integration (new implementation required)
+- [ ] User authentication system (new implementation required)
 - [ ] SSO authentication
 - [ ] End-to-end encryption
 - [ ] GDPR compliance tools
@@ -159,8 +166,7 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── Network/
 │   ├── VRNetworkManager.cs       # WebSocket hub, message routing, auto-reconnect
 │   ├── VRRoomManager.cs          # Room lifecycle, player roster, zone tracking
-│   ├── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
-│   └── AuthManager.cs            # Registration, login, profile updates
+│   └── VRGameManager.cs          # Player spawning, VR pose sync (30Hz), interpolation
 ├── VR/
 │   ├── BootstrapManager.cs       # Additive scene loading, persistent EventSystem setup
 │   ├── VRPlayerController.cs     # Locomotion, snap/smooth turn, gravity
@@ -177,20 +183,31 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   ├── WhiteboardNetworkData.cs  # Classes sérialisables réseau
 │   ├── WhiteboardUIManager.cs    # UI (couleurs, clear)
 │   └── WhiteboardUISetup.cs      # Editor tool for UI configuration
+├── Interaction/
+│   ├── LaserPointer.cs           # Local laser pointer (VR: A button, Desktop: L key)
+│   └── LaserPointerData.cs       # Network serialization for laser sync
 ├── Sharing/
 │   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
 │   ├── ScreenShareData.cs        # Classes sérialisables pour messages réseau
 │   ├── FileShareManager.cs       # Upload/download files, validation, network sync
 │   ├── FileShareData.cs          # FileMetadata, upload/download serialization
 │   ├── FileSharingUI.cs          # File list, download path, preview panel
+│   ├── FilePresentationManager.cs # Present files (images/PDF) on whiteboard
+│   ├── FilePresentationData.cs   # Network serialization for presentation sync
 │   ├── VRFileBrowser.cs          # In-VR file navigation, folder browsing
 │   └── WindowCapture.cs          # Desktop window enumeration (Windows native)
 ├── Avatar/
 │   └── AvatarCustomization.cs    # Color selection, username input, PlayerPrefs
 ├── UI/
+│   ├── MainMenu/
+│   │   ├── MainMenuManager.cs    # Menu principal, panels, transitions, game loading
+│   │   ├── MainMenuSettings.cs   # Settings UI (audio, graphics, controls)
+│   │   └── Editor/
+│   │       └── MainMenuUISetup.cs # Editor tool for UI configuration
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
-│   └── VRMenuUi.cs
+│   ├── VRMenuUi.cs
+│   └── FilePresentationUI.cs     # Presentation controls (prev/next/stop, page info)
 └── Testing/
     └── VRNetworkedInteractable.cs # Shared object sync, grab ownership
 
@@ -213,12 +230,12 @@ Assets/Prefabs/Unity/
 
 | Metric | Value |
 |--------|-------|
-| **Total Scripts** | 34 |
-| **Total Lines of Code** | ~14,000 |
+| **Total Scripts** | 53 |
+| **Total Lines of Code** | ~21,500 |
 | **Commits** | 103+ |
 | **Scenes** | 2 (Bootstrap + Meet) |
 | **Prefabs** | 8 |
-| **Network Message Types** | 20+ |
+| **Network Message Types** | 30+ |
 
 ## Architecture
 
@@ -281,9 +298,11 @@ public class NetworkMessage {
 | VR Sync | `vr-position` (30Hz, optimized with movement threshold) |
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
+| Laser Pointer | `laser-pointer` (10Hz when active) |
 | Screen Share | `screen-share-start`, `screen-share-stop`, `screen-share-frame`, `screen-share-request`, `screen-share-state` |
 | File Share | `file-share-upload`, `file-share-download`, `file-share-list`, `file-share-request`, `file-share-delete` |
-| Auth | `auth-register`, `auth-login`, `auth-profile-update`, `auth-response` |
+| File Present | `file-present-start`, `file-present-stop`, `file-present-page`, `file-present-navigate`, `file-present-zoom-pan`, `file-present-request`, `file-present-state` |
+| PDF Convert | `pdf-convert-request`, `pdf-convert-response`, `pdf-page-request`, `pdf-page-response` |
 
 ### Room System
 
@@ -535,6 +554,113 @@ FileShareManager.Instance.DeleteFile(fileId)     // Remove shared file (host onl
 - Select file for upload directly in VR
 - Recent commit fixes: `aa2d325` (fix vr file sharing)
 
+## Laser Pointer (`Assets/Scrips/Interaction/`)
+
+### Architecture
+- **LaserPointer.cs** - Component on local player, creates and syncs laser
+- **LaserPointerData.cs** - Serializable data for network transmission
+- **VRGameManager.cs** - Receives `laser-pointer` messages, creates remote laser visuals
+
+### Controls
+| Mode | Toggle | Origin |
+|------|--------|--------|
+| VR | A button (right controller) | Right hand controller |
+| Desktop | L key | Camera center |
+
+### Visual Components
+- **LineRenderer** - Red beam from origin to hit point
+- **Sphere (dot)** - Small sphere at hit point, oriented to surface normal
+- **Color:** Red by default, synced over network
+
+### Network Sync
+- **Sync rate:** 10 updates/second when active
+- **Data synced:** `isActive`, origin position, hit point position, color
+- **Room-scoped:** Only visible to players in same room
+- **Deactivation:** Sends `isActive=false` on toggle off, disable, or destroy
+
+### LaserPointerData
+```csharp
+[Serializable]
+public class LaserPointerData {
+    public string roomId;
+    public bool isActive;
+    public float originX, originY, originZ;
+    public float hitX, hitY, hitZ;
+    public float colorR, colorG, colorB;
+}
+```
+
+### Remote Laser Display (VRGameManager.cs)
+- Creates `LineRenderer` and dot sphere for each remote player with active laser
+- Updates positions in real-time from network messages
+- Cleanup on player disconnect or laser deactivation
+- Stored in `VRRemotePlayer`: `laserLine`, `laserDot`, `laserActive`
+
+## File Presentation (`Assets/Scrips/Sharing/`)
+
+### Architecture
+- **FilePresentationManager.cs** - Singleton, handles presentation logic and network sync
+- **FilePresentationData.cs** - Serializable classes for all presentation messages
+- **FilePresentationUI.cs** - UI controls (prev/next/stop buttons, page counter)
+
+### Supported File Types
+| Type | Handling |
+|------|----------|
+| PNG, JPG, JPEG, GIF | Direct display on whiteboard |
+| PDF | Server-side conversion to images (requires server support) |
+
+### Features
+- **Multi-page navigation:** Previous/Next page buttons
+- **Zoom:** 0.5x to 4x (step 0.25x)
+- **Pan:** Move view when zoomed in
+- **Late joiner sync:** Automatic state request and display
+- **Room-scoped:** Presentation visible only in current room
+
+### API publique
+```csharp
+FilePresentationManager.Instance.CanPresentFile(fileId)     // Check if file can be presented
+FilePresentationManager.Instance.StartPresentation(fileId, whiteboard)
+FilePresentationManager.Instance.StopPresentation()
+FilePresentationManager.Instance.NextPage()
+FilePresentationManager.Instance.PreviousPage()
+FilePresentationManager.Instance.NavigateToPage(pageNumber)
+FilePresentationManager.Instance.ZoomIn() / ZoomOut()
+FilePresentationManager.Instance.SetZoom(level)
+FilePresentationManager.Instance.Pan(delta)
+FilePresentationManager.Instance.ResetZoomPan()
+```
+
+### Events
+```csharp
+FilePresentationManager.OnPresentationStarted(wbId, fileId, presenterId, presenterName)
+FilePresentationManager.OnPresentationStopped(wbId, presenterId)
+FilePresentationManager.OnPageChanged(fileId, currentPage, totalPages)
+FilePresentationManager.OnPresentationError(context, error)
+FilePresentationManager.OnZoomPanChanged(zoomLevel, panOffset)
+```
+
+### Network Flow
+1. Presenter calls `StartPresentation(fileId, whiteboard)`
+2. Whiteboard enters presentation mode via `EnterPresentationMode()`
+3. `file-present-start` broadcast to room with metadata
+4. Image/PDF page sent via `file-present-page` (JPEG Base64)
+5. Navigation via `file-present-navigate`, zoom/pan via `file-present-zoom-pan`
+6. Late joiners request state via `file-present-request`, receive `file-present-state`
+7. Presenter calls `StopPresentation()` → `file-present-stop` broadcast
+
+### PDF Conversion (Server Required)
+For PDF files, the client sends `pdf-convert-request` with Base64 PDF content.
+Server must respond with `pdf-convert-response` containing total pages.
+Individual pages requested via `pdf-page-request`, returned as JPEG images.
+
+### Whiteboard Integration
+```csharp
+whiteboard.EnterPresentationMode(presenterName)  // Save drawing, show presenter name
+whiteboard.UpdatePresentationTexture(texture)    // Display presentation frame
+whiteboard.SetPresentationZoomPan(zoom, pan)     // Apply zoom/pan from network
+whiteboard.ExitPresentationMode()                // Restore drawing
+```
+
 ## Avatar Customization (`Assets/Scrips/Avatar/`)
 
 ### AvatarCustomization.cs
@@ -552,6 +678,81 @@ AvatarCustomization.GetLocalColor()
 AvatarCustomization.GetLocalName()
 ```
 
+## Main Menu System (`Assets/Scrips/UI/MainMenu/`)
+
+### Architecture
+- **Location:** Bootstrap scene (World Space Canvas)
+- **VR/Desktop auto-detection:** Uses XRGeneralSettings to detect mode
+- **Flow:** MainMenu → Loading → Meet scene (additively loaded)
+- **Cleanup:** Menu environment, canvas, and cameras destroyed after loading
+
+### MainMenuManager.cs
+Singleton managing panels, transitions, and game loading sequence.
+
+**Panels:**
+- `mainPanel` - Start/Options/Quit buttons
+- `optionsPanel` - Settings UI
+- `loadingPanel` - Progress bar during scene loading
+- `quitDialog` - Confirmation dialog
+
+**Events:**
+```csharp
+MainMenuManager.OnMenuShown          // Main panel displayed
+MainMenuManager.OnGameStarting       // Loading sequence started
+MainMenuManager.OnGameStarted        // Meet scene loaded, menu destroyed
+```
+
+**Loading Sequence:**
+1. Show loading panel
+2. Wait for server connection (with timeout)
+3. Load Meet scene via BootstrapManager
+4. Cleanup menu elements
+5. Fire OnGameStarted event
+
+### MainMenuSettings.cs
+Settings manager with PlayerPrefs persistence.
+
+**Audio Settings:**
+- Master Volume (`MasterVolume`, default: 1.0)
+- Voice Volume (`VoiceVolume`, default: 1.0)
+- Microphone selection
+
+**Graphics Settings:**
+- Quality Level (`QualityLevel`)
+- Resolution (`ResolutionIndex`)
+- Fullscreen (`IsFullscreen`, default: true)
+
+**VR Controls:**
+- Turn Mode (`TurnMode`: 0=Snap, 1=Smooth)
+- Snap Angle (`SnapAngle`, default: 45°)
+- Smooth Turn Speed (`SmoothTurnSpeed`, default: 90°/s)
+
+**Desktop Controls:**
+- Mouse Sensitivity (`MouseSensitivity`, default: 2.0)
+- Invert Y (`InvertY`, default: false)
+
+**Static API:**
+```csharp
+MainMenuSettings.GetMasterVolume()
+MainMenuSettings.GetVoiceVolume()
+MainMenuSettings.GetQualityLevel()
+MainMenuSettings.GetTurnMode()        // 0=Snap, 1=Smooth
+MainMenuSettings.GetSnapAngle()
+MainMenuSettings.GetMouseSensitivity()
+MainMenuSettings.GetInvertY()
+```
+
+### MainMenuUISetup.cs (Editor Tool)
+`Tools > VR Meeting > Setup Main Menu UI`
+
+Creates complete UI structure:
+- World Space Canvas (positioned for VR)
+- Main Panel with Start/Options/Quit buttons
+- Options Panel with settings controls
+- Loading Panel with progress bar
+- Quit Dialog with Yes/No buttons
+- Auto-links all references to MainMenuManager
+
 ## Desktop Mode (`Assets/Scrips/VR/DesktopPlayerController.cs`)
 
 ### Controls
@@ -559,6 +760,7 @@ AvatarCustomization.GetLocalName()
 - **Look:** Right-click + mouse drag
 - **Sprint:** Hold Shift (2x speed multiplier)
 - **Whiteboard:** Left-click to draw (via DesktopWhiteboardDrawer)
+- **Laser Pointer:** L key to toggle (via LaserPointer.cs)
 
 ### Implementation
 - Uses Unity Input System
