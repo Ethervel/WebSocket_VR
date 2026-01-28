@@ -78,15 +78,15 @@ public class VRPlayerController : MonoBehaviour
     private bool _canSnapTurn = true;
     private XRInputDevice _moveDevice;
     private XRInputDevice _turnDevice;
-    
+
     // Current input values
     private Vector2 _moveInput;
     private Vector2 _turnInput;
-    
+
     void Start()
     {
         _characterController = GetComponent<CharacterController>();
-        
+
         // Find head/camera transform if not assigned
         if (headTransform == null)
         {
@@ -96,9 +96,51 @@ public class VRPlayerController : MonoBehaviour
                 headTransform = camera.transform;
             }
         }
-        
+
         // Initialize XR input devices
         UpdateInputDevices();
+
+        // Load settings
+        LoadSettings();
+    }
+
+    void OnEnable()
+    {
+        // Subscribe to settings changes
+        MainMenuSettings.OnTurnModeChanged += OnTurnModeChanged;
+        MainMenuSettings.OnSnapAngleChanged += OnSnapAngleChanged;
+        MainMenuSettings.OnSmoothTurnSpeedChanged += OnSmoothTurnSpeedChanged;
+    }
+
+    void OnDisable()
+    {
+        // Unsubscribe from settings changes
+        MainMenuSettings.OnTurnModeChanged -= OnTurnModeChanged;
+        MainMenuSettings.OnSnapAngleChanged -= OnSnapAngleChanged;
+        MainMenuSettings.OnSmoothTurnSpeedChanged -= OnSmoothTurnSpeedChanged;
+    }
+
+    void LoadSettings()
+    {
+        int turnMode = MainMenuSettings.GetTurnMode();
+        useSnapTurn = (turnMode == 0); // 0 = Snap, 1 = Smooth
+        snapTurnAngle = MainMenuSettings.GetSnapAngle();
+        smoothTurnSpeed = MainMenuSettings.GetSmoothTurnSpeed();
+    }
+
+    void OnTurnModeChanged(int value)
+    {
+        useSnapTurn = (value == 0);
+    }
+
+    void OnSnapAngleChanged(float value)
+    {
+        snapTurnAngle = value;
+    }
+
+    void OnSmoothTurnSpeedChanged(float value)
+    {
+        smoothTurnSpeed = value;
     }
     
     void Update()

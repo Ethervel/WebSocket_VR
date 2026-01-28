@@ -105,17 +105,6 @@ public partial class @MenuInputActions: IInputActionCollection2, IDisposable
             ""bindings"": [
                 {
                     ""name"": """",
-                    ""id"": ""b1c2d3e4-5678-90ab-cdef-234567890abc"",
-                    ""path"": ""<XRController>{RightHand}/secondaryButton"",
-                    ""interactions"": """",
-                    ""processors"": """",
-                    ""groups"": ""XR"",
-                    ""action"": ""Toggle"",
-                    ""isComposite"": false,
-                    ""isPartOfComposite"": false
-                },
-                {
-                    ""name"": """",
                     ""id"": ""c1d2e3f4-5678-90ab-cdef-345678901abc"",
                     ""path"": ""<XRController>{LeftHand}/secondaryButton"",
                     ""interactions"": """",

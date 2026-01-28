@@ -199,7 +199,22 @@ public class VoiceChatManager : MonoBehaviour
     
     void Start()
     {
+        // Load initial settings
+        LoadSettings();
         StartCoroutine(InitializeWebRTC());
+    }
+
+    void LoadSettings()
+    {
+        // Load voice volume from settings
+        playbackVolume = MainMenuSettings.GetVoiceVolume();
+
+        // Load microphone device from settings
+        string savedMic = MainMenuSettings.GetMicrophoneDevice();
+        if (!string.IsNullOrEmpty(savedMic))
+        {
+            _selectedMicrophone = savedMic;
+        }
     }
     
     void OnEnable()
@@ -211,8 +226,12 @@ public class VoiceChatManager : MonoBehaviour
         VRRoomManager.OnRoomLeft += OnRoomLeft;
         VRRoomManager.OnRoomJoined += OnRoomJoined;
         VRRoomManager.OnRoomCreated += OnRoomCreated;
+
+        // Settings integration
+        MainMenuSettings.OnVoiceVolumeChanged += OnVoiceVolumeChanged;
+        MainMenuSettings.OnMicrophoneChanged += OnMicrophoneDeviceChanged;
     }
-    
+
     void OnDisable()
     {
         VRNetworkManager.OnMessageReceived -= HandleNetworkMessage;
@@ -221,6 +240,30 @@ public class VoiceChatManager : MonoBehaviour
         VRRoomManager.OnRoomLeft -= OnRoomLeft;
         VRRoomManager.OnRoomJoined -= OnRoomJoined;
         VRRoomManager.OnRoomCreated -= OnRoomCreated;
+
+        // Settings integration
+        MainMenuSettings.OnVoiceVolumeChanged -= OnVoiceVolumeChanged;
+        MainMenuSettings.OnMicrophoneChanged -= OnMicrophoneDeviceChanged;
+    }
+
+    void OnVoiceVolumeChanged(float volume)
+    {
+        SetPlaybackVolume(volume);
+    }
+
+    void OnMicrophoneDeviceChanged(string device)
+    {
+        // Change microphone if currently recording
+        if (_isMicrophoneActive)
+        {
+            StopMicrophone();
+            _selectedMicrophone = string.IsNullOrEmpty(device) ? null : device;
+            StartMicrophone();
+        }
+        else
+        {
+            _selectedMicrophone = string.IsNullOrEmpty(device) ? null : device;
+        }
     }
     
     void Update()

@@ -63,6 +63,7 @@ public class VRMenuToggle : MonoBehaviour
         // Setup input action
         if (toggleAction != null && toggleAction.action != null)
         {
+            toggleAction.action.actionMap?.Enable();
             toggleAction.action.Enable();
             toggleAction.action.performed += OnTogglePerformed;
             Debug.Log("[VRMenuToggle] Input action registered");

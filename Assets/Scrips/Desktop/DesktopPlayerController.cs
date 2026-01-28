@@ -21,8 +21,8 @@ public class DesktopPlayerController : MonoBehaviour
     public float gravity = -9.81f;
 
     [Header("Mouse Look")]
-    [Tooltip("Sensibilité de la souris")]
-    public float mouseSensitivity = 0.15f;
+    [Tooltip("Sensibilité de la souris (multiplied by settings)")]
+    public float baseSensitivity = 0.1f;
 
     [Tooltip("Angle vertical minimum (regarder vers le haut)")]
     public float minPitch = -90f;
@@ -44,6 +44,10 @@ public class DesktopPlayerController : MonoBehaviour
 
     // Track if right mouse is held for camera rotation
     private bool _isLooking = false;
+
+    // Settings
+    private float _mouseSensitivity = 2f;
+    private bool _invertY = false;
 
     void Awake()
     {
@@ -69,6 +73,39 @@ public class DesktopPlayerController : MonoBehaviour
         // Cursor always visible by default for UI interaction
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        // Load settings
+        LoadSettings();
+    }
+
+    void OnEnable()
+    {
+        // Subscribe to settings changes
+        MainMenuSettings.OnMouseSensitivityChanged += OnMouseSensitivityChanged;
+        MainMenuSettings.OnInvertYChanged += OnInvertYChanged;
+    }
+
+    void OnDisable()
+    {
+        // Unsubscribe from settings changes
+        MainMenuSettings.OnMouseSensitivityChanged -= OnMouseSensitivityChanged;
+        MainMenuSettings.OnInvertYChanged -= OnInvertYChanged;
+    }
+
+    void LoadSettings()
+    {
+        _mouseSensitivity = MainMenuSettings.GetMouseSensitivity();
+        _invertY = MainMenuSettings.GetInvertY();
+    }
+
+    void OnMouseSensitivityChanged(float value)
+    {
+        _mouseSensitivity = value;
+    }
+
+    void OnInvertYChanged(bool value)
+    {
+        _invertY = value;
     }
 
     void Update()
@@ -112,8 +149,16 @@ public class DesktopPlayerController : MonoBehaviour
         {
             Vector2 mouseDelta = _mouse.delta.ReadValue();
 
-            float mouseX = mouseDelta.x * mouseSensitivity;
-            float mouseY = mouseDelta.y * mouseSensitivity;
+            // Apply sensitivity from settings
+            float sensitivity = baseSensitivity * _mouseSensitivity;
+            float mouseX = mouseDelta.x * sensitivity;
+            float mouseY = mouseDelta.y * sensitivity;
+
+            // Apply invert Y if enabled
+            if (_invertY)
+            {
+                mouseY = -mouseY;
+            }
 
             // Horizontal rotation: rotate the whole player
             transform.Rotate(Vector3.up * mouseX);
