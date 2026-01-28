@@ -395,9 +395,7 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   └── WhiteboardUISetup.cs      # Editor tool for UI configuration
 ├── Interaction/
 │   ├── LaserPointer.cs           # Local laser pointer (VR: A button, Desktop: L key)
-│   ├── LaserPointerData.cs       # Network serialization for laser sync
-│   ├── SitManager.cs             # Singleton managing sitting state and transitions
-│   └── SitPoint.cs               # XR Interactable sit points on chairs/desks
+│   └── LaserPointerData.cs       # Network serialization for laser sync
 ├── Sharing/
 │   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
 │   ├── ScreenShareData.cs        # Classes sérialisables pour messages réseau
@@ -421,6 +419,10 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   ├── VoiceChatUI.cs
 │   ├── VRMenuUi.cs
 │   └── FilePresentationUI.cs     # Presentation controls (prev/next/stop, page info)
+├── Debug/
+│   ├── DebugManager.cs           # Centralized debug log control (enable/disable per category)
+│   └── Editor/
+│       └── DebugManagerWindow.cs # Editor window (Tools > Debug Manager)
 └── Testing/
     └── VRNetworkedInteractable.cs # Shared object sync, grab ownership
 
@@ -655,6 +657,50 @@ public class NetworkMessage {
 - **Logging prefix:** `[SystemName]` (e.g., `[VRNet]`, `[VRRoom]`, `[VRGame]`)
 - **Folder typo:** `Assets/Scrips/` (not "Scripts") - preserved for consistency
 
+## Debug Manager (`Assets/Scrips/Debug/`)
+
+Système centralisé pour activer/désactiver les logs de debug par catégorie.
+
+### Accès Editor
+`Tools > Debug Manager` - Fenêtre avec toggles pour chaque catégorie
+
+### Catégories disponibles
+| Catégorie | Description |
+|-----------|-------------|
+| Network | VRNetworkManager, VRRoomManager |
+| Game | VRGameManager, spawning, sync |
+| VoiceChat | WebRTC, audio, microphone |
+| Whiteboard | Drawing, sync, presentation mode |
+| Sharing | Screen share, file share, presentation |
+| VR | Controllers, tracking, teleport |
+| UI | Menus, panels, buttons |
+| Avatar | Customization, colors, names |
+| Interaction | Laser pointer, grab, objects |
+
+### Usage dans le code
+```csharp
+// Remplacer Debug.Log par:
+DebugManager.Log("Message", DebugCategory.Network);
+DebugManager.LogWarning("Warning", DebugCategory.VoiceChat);
+DebugManager.LogError("Error", DebugCategory.Game); // Toujours affiché
+
+// Avec préfixe personnalisé
+DebugManager.Log("VRNet", "Connected to server", DebugCategory.Network);
+```
+
+### Configuration
+```csharp
+DebugManager.EnableAllLogs = true;     // Master switch
+DebugManager.DisableInBuild = true;    // Auto-disable dans les builds
+DebugManager.EnableNetwork = true;     // Toggle par catégorie
+DebugManager.EnableOnly(DebugCategory.Network); // Active uniquement une catégorie
+```
+
+### Performance
+- Les logs sont automatiquement désactivés dans les builds Release
+- Utilise `[Conditional]` pour éliminer les appels à la compilation
+- Les erreurs (`LogError`) sont toujours affichées
+
 ## Package Dependencies
 
 | Package | Version | Purpose |
@@ -808,96 +854,6 @@ public class LaserPointerData {
 - Updates positions in real-time from network messages
 - Cleanup on player disconnect or laser deactivation
 - Stored in `VRRemotePlayer`: `laserLine`, `laserDot`, `laserActive`
-
-## Sit System (`Assets/Scrips/Interaction/`)
-
-### Architecture
-- **SitManager.cs** - Singleton managing sitting state and transitions
-- **SitPoint.cs** - XR Interactable component for individual sit points
-
-### Controls
-| Mode | Action | Description |
-|------|--------|-------------|
-| VR | Select (trigger) | Click on sit point indicator to sit |
-| VR | B button (right) | Stand up from seated position |
-| Desktop | Click | Click on sit point to sit |
-| Desktop | Space key | Stand up from seated position |
-
-### SitManager.cs
-Singleton placed on a persistent GameObject (Bootstrap scene).
-
-**Settings:**
-- `sitTransitionDuration` - Transition animation time (default: 0.3s)
-- `standUpKey` - Key to stand up on Desktop (default: Space)
-- `standUpAction` - InputActionReference for VR stand up (B button right controller)
-- `disableLocomotionWhenSeated` - Disable movement when sitting (default: true)
-- `adjustVRTrackingHeight` - Adjust VR camera height when seated (default: true)
-
-**Events:**
-```csharp
-SitManager.OnSatDown(SitPoint)    // Player sat on a SitPoint
-SitManager.OnStoodUp              // Player stood up
-```
-
-**API publique:**
-```csharp
-SitManager.Instance.IsSitting              // true if currently seated
-SitManager.Instance.CurrentSitPoint        // Current SitPoint or null
-SitManager.Instance.SitDown(SitPoint)      // Sit on a specific point
-SitManager.Instance.StandUp()              // Stand up from current seat
-SitManager.Instance.RegisterSitPoint(sp)   // Register a sit point
-SitManager.Instance.UnregisterSitPoint(sp) // Unregister a sit point
-SitManager.Instance.GetNearestSitPoint(pos, maxDist) // Find nearest available seat
-SitManager.Instance.GetAvailableSitPoints() // Get all unoccupied seats
-```
-
-### SitPoint.cs
-Component to place on chairs or desks with XRSimpleInteractable.
-
-**Settings:**
-- `sitOffset` - Local position offset for seated player
-- `sitRotationY` - Y rotation angle when seated
-- `seatedCameraHeight` - Camera height when seated (default: 0.8m)
-- `showIndicator` - Show visual indicator cylinder (default: true)
-- `availableColor` - Indicator color when available (green)
-- `occupiedColor` - Indicator color when occupied (red)
-- `sitSound` / `standSound` - Optional audio clips
-
-**Properties:**
-```csharp
-sitPoint.IsOccupied    // true if someone is sitting here
-sitPoint.SitPosition   // World position for seated player
-sitPoint.SitRotation   // World rotation for seated player
-```
-
-**API:**
-```csharp
-sitPoint.TrySit()      // Attempt to sit here
-sitPoint.Vacate()      // Free this seat
-```
-
-### Visual Indicator
-- Cylinder primitive rendered at sit position
-- Green when available, red when occupied
-- Collider removed to avoid physics interference
-- Uses `Sprites/Default` shader for transparency
-
-### Transition Animation
-- Smooth easing (EaseOutCubic) for natural movement
-- CharacterController disabled during transition
-- Locomotion disabled when seated (configurable)
-- Re-enabled on stand up
-
-### Scene Setup
-1. Add `SitManager` to Bootstrap scene (persistent singleton)
-2. Add `SitPoint` component to chairs/desks in Meet scene
-3. Adjust `sitOffset` and `sitRotationY` for each chair
-4. Optionally add audio clips for sit/stand sounds
-
-### Gizmos (Editor)
-- Green sphere at sit position
-- Blue ray showing sit direction
-- Yellow sphere at camera height
 
 ## File Presentation (`Assets/Scrips/Sharing/`)
 
@@ -1238,23 +1194,3 @@ MainMenuSettings.OnInvertYChanged         → DesktopPlayerController invert Y
   - Desktop Controls: Mouse Sensitivity, Invert Y
 - **Status:** Implemented and functional
 
-### Sit System (Recent)
-- **Feature:** Interactive sit functionality for chairs and desks
-- **Files Created:**
-  - `SitManager.cs` - Singleton managing sitting state, transitions, locomotion control
-  - `SitPoint.cs` - XR Interactable component with visual indicators
-- **Features:**
-  - VR: Click sit point indicator with controller to sit
-  - VR: B button (right controller) to stand up
-  - Desktop: Click sit point to sit
-  - Desktop: Space key to stand up
-  - Smooth transition animation (EaseOutCubic)
-  - Visual indicators (green=available, red=occupied)
-  - Locomotion disabled when seated
-  - Auto-registers with SitManager
-- **Setup Required:**
-  1. Add SitManager to Bootstrap scene
-  2. Assign `standUpAction` to right controller B button InputActionReference
-  3. Change VRMenuToggle's `toggleAction` to left controller Y button
-  4. Add SitPoint components to chairs in Meet scene
-- **Status:** Scripts created, scene setup pending

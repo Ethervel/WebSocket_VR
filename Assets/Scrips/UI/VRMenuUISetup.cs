@@ -13,26 +13,99 @@ using UnityEditor;
 /// </summary>
 public class VRMenuCloseHelper : MonoBehaviour
 {
+    [Tooltip("Close button - if null, will auto-find 'CloseButton' child")]
     public Button closeButton;
+
+    private VRMenuToggle _cachedToggle;
+    private Canvas _parentCanvas;
+
+    void Awake()
+    {
+        // Auto-find close button if not assigned
+        if (closeButton == null)
+        {
+            // Try to find by name in children
+            Transform closeBtnTransform = transform.Find("CloseButton");
+            if (closeBtnTransform == null)
+            {
+                // Search recursively
+                closeBtnTransform = FindChildRecursive(transform, "CloseButton");
+            }
+
+            if (closeBtnTransform != null)
+            {
+                closeButton = closeBtnTransform.GetComponent<Button>();
+            }
+        }
+    }
 
     void Start()
     {
+        // Cache the parent canvas
+        _parentCanvas = GetComponentInParent<Canvas>();
+        if (_parentCanvas == null)
+        {
+            _parentCanvas = GetComponent<Canvas>();
+        }
+
+        // Pre-cache VRMenuToggle
+        _cachedToggle = FindFirstObjectByType<VRMenuToggle>(FindObjectsInactive.Include);
+
         if (closeButton != null)
         {
+            // Remove any existing listeners to avoid duplicates
+            closeButton.onClick.RemoveListener(CloseMenu);
             closeButton.onClick.AddListener(CloseMenu);
+            Debug.Log("[VRMenuCloseHelper] Close button listener registered");
         }
+        else
+        {
+            Debug.LogWarning("[VRMenuCloseHelper] No close button found! Make sure there's a Button named 'CloseButton'");
+        }
+    }
+
+    Transform FindChildRecursive(Transform parent, string name)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == name)
+                return child;
+
+            Transform found = FindChildRecursive(child, name);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     void CloseMenu()
     {
-        VRMenuToggle toggle = FindFirstObjectByType<VRMenuToggle>();
-        if (toggle != null)
+        Debug.Log("[VRMenuCloseHelper] Close button clicked");
+
+        // Try to find VRMenuToggle if not cached
+        if (_cachedToggle == null)
         {
-            toggle.HideMenu();
+            _cachedToggle = FindFirstObjectByType<VRMenuToggle>(FindObjectsInactive.Include);
+        }
+
+        if (_cachedToggle != null)
+        {
+            _cachedToggle.HideMenu();
+            Debug.Log("[VRMenuCloseHelper] Menu hidden via VRMenuToggle");
         }
         else
         {
-            gameObject.SetActive(false);
+            // Fallback: hide the canvas or this gameObject
+            if (_parentCanvas != null)
+            {
+                _parentCanvas.gameObject.SetActive(false);
+                Debug.Log("[VRMenuCloseHelper] Canvas hidden directly (no VRMenuToggle found)");
+            }
+            else
+            {
+                gameObject.SetActive(false);
+                Debug.Log("[VRMenuCloseHelper] GameObject hidden directly (no VRMenuToggle found)");
+            }
         }
     }
 
@@ -960,8 +1033,10 @@ public class VRMenuUISetup : MonoBehaviour
 
         Image bgImage = btnObj.AddComponent<Image>();
         bgImage.color = new Color(0.6f, 0.15f, 0.15f, 1f);
+        bgImage.raycastTarget = true; // Ensure clicks are received
 
         Button btn = btnObj.AddComponent<Button>();
+        btn.targetGraphic = bgImage; // Explicitly set target graphic
         ColorBlock colors = btn.colors;
         colors.normalColor = new Color(0.6f, 0.15f, 0.15f, 1f);
         colors.highlightedColor = new Color(0.8f, 0.2f, 0.2f, 1f);
@@ -983,6 +1058,7 @@ public class VRMenuUISetup : MonoBehaviour
         text.fontSize = 22;
         text.color = Color.white;
         text.alignment = TextAlignmentOptions.Center;
+        text.raycastTarget = false; // Don't block button clicks
         SetRectTransformStretch(textObj.GetComponent<RectTransform>());
 
         return btnObj;
