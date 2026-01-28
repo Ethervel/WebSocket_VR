@@ -6580,6 +6580,20 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: -20, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &530736178
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc1515ab76e54f068e2f2207940fab32, type: 3}
+  m_Name: Menu/Toggle
+  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.InputActionReference
+  m_Asset: {fileID: -944628639613478452, guid: d1e34933ce632cc41b4a803b5ab07f69, type: 3}
+  m_ActionId: a1b2c3d4-5678-90ab-cdef-123456789abc
 --- !u!1 &530858013
 GameObject:
   m_ObjectHideFlags: 0
@@ -13812,7 +13826,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRMenuToggle
   menuCanvas: {fileID: 1652884159}
-  toggleAction: {fileID: 1205586905}
+  toggleAction: {fileID: 530736178}
   startHidden: 1
   keyboardToggle: 9
 --- !u!4 &1089024647
@@ -15693,20 +15707,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1204813945}
   m_CullTransparentMesh: 1
---- !u!114 &1205586905
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fc1515ab76e54f068e2f2207940fab32, type: 3}
-  m_Name: Menu/Toggle
-  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.InputActionReference
-  m_Asset: {fileID: -944628639613478452, guid: d1e34933ce632cc41b4a803b5ab07f69, type: 3}
-  m_ActionId: a1b2c3d4-5678-90ab-cdef-123456789abc
 --- !u!1 &1207075897
 GameObject:
   m_ObjectHideFlags: 0
@@ -29768,7 +29768,7 @@ SceneRoots:
   - {fileID: 1652884167}
   - {fileID: 1843036563}
   - {fileID: 776903253}
+  - {fileID: 322762491}
   - {fileID: 636991968}
   - {fileID: 1168570236}
   - {fileID: 1608295116}
-  - {fileID: 322762491}

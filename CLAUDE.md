@@ -11,7 +11,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 ### Tech Stack
 - **Engine:** Unity 6000.2.14f1
 - **Multiplayer:** WebSocket (NativeWebSocket) + WebRTC
-- **Database:** Not implemented (clean slate for future implementation)
+- **Database:** MariaDB (enterprise) - via Node.js WebSocket server (never direct Unity connection)
 - **Authentication:** Not implemented (clean slate for future implementation)
 - **Platforms:** Cross-platform hybrid (VR headsets, Desktop, potentially Web)
 
@@ -26,7 +26,7 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 | **File Presentation** | Present images/PDFs on whiteboard with navigation | Implemented |
 | **3D Object Manipulation** | Grab, move, scale, rotate shared objects | Partial (basic interactable) |
 | **Avatar Customization** | Name + color selection, synced across network | Implemented |
-| **File Sharing** | Upload/download files with VR browser | Implemented (Testing) |
+| **File Sharing** | Upload/download files with VR browser | Implemented |
 | **Desktop Mode** | Non-VR FPS-style controls (WASD + mouse) | Implemented |
 | **Main Menu UI** | Start/Options/Quit, settings, loading screen | Implemented |
 | **Modular Environments** | Configurable meeting room layouts | Planned |
@@ -71,13 +71,13 @@ Unity 6000.2.14f1 VR multiplayer meeting room application using WebSockets (Nati
 - [x] Screen sharing (VR + Desktop, optimized 854x480 @ 3fps)
 - [x] Laser pointer (VR: A button, Desktop: L key, network-synced @ 10Hz)
 - [x] File presentation (images + PDF on whiteboard, navigation, zoom/pan)
-- [~] File sharing (implemented, requires testing)
+- [x] File sharing (upload/download with VR browser)
 - [~] 3D object manipulation (basic networked interactable exists)
 - [ ] Note-taking system
 
 **Phase 3 - Enterprise**
-- [ ] Database integration (new implementation required)
-- [ ] User authentication system (new implementation required)
+- [ ] Database integration (MariaDB via Node.js server - see "Database Integration" section)
+- [ ] User authentication system (bcrypt + JWT via WebSocket)
 - [ ] SSO authentication
 - [ ] End-to-end encryption
 - [ ] GDPR compliance tools
@@ -159,6 +159,216 @@ Resets to initial delay on successful connection.
 
 Use **ParrelSync** to clone the project and run multiple Unity instances simultaneously. Each clone shares the same project files but runs independently.
 
+## Database Integration (MariaDB)
+
+### Architecture Obligatoire
+
+```
+Unity Client  ←──WebSocket──→  Node.js Server  ←──mariadb──→  MariaDB
+                                    ↑
+                              (API REST optionnel)
+```
+
+**IMPORTANT:** Ne JAMAIS connecter Unity directement à MariaDB (sécurité, credentials exposés dans le build).
+
+### Configuration Serveur
+
+#### 1. Dépendances (`Server/package.json`)
+```bash
+cd Server/
+npm install mariadb dotenv bcrypt
+```
+
+#### 2. Variables d'environnement (`Server/.env`)
+```env
+DB_HOST=votre-serveur-mariadb.entreprise.com
+DB_PORT=3306
+DB_USER=vr_app_user
+DB_PASSWORD=mot_de_passe_securise
+DB_DATABASE=vr_meeting_db
+DB_CONNECTION_LIMIT=10
+```
+
+#### 3. Module de connexion (`Server/src/database.js`)
+```javascript
+const mariadb = require('mariadb');
+require('dotenv').config();
+
+const pool = mariadb.createPool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+    connectionLimit: process.env.DB_CONNECTION_LIMIT || 10
+});
+
+module.exports = {
+    query: async (sql, params) => {
+        let conn;
+        try {
+            conn = await pool.getConnection();
+            return await conn.query(sql, params);
+        } finally {
+            if (conn) conn.release();
+        }
+    },
+    pool
+};
+```
+
+### Schéma de Base de Données
+
+```sql
+-- Utilisateurs
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    avatar_color INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP NULL,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Sessions/Rooms persistantes
+CREATE TABLE rooms (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    room_code VARCHAR(6) UNIQUE NOT NULL,
+    room_name VARCHAR(100),
+    host_user_id INT,
+    room_type ENUM('Lobby', 'MeetingRoomA', 'MeetingRoomB'),
+    is_persistent BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (host_user_id) REFERENCES users(id)
+);
+
+-- Fichiers partagés (métadonnées, pas le contenu)
+CREATE TABLE shared_files (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    room_id INT,
+    uploader_id INT,
+    filename VARCHAR(255),
+    file_path VARCHAR(500),
+    file_size INT,
+    mime_type VARCHAR(100),
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploader_id) REFERENCES users(id)
+);
+
+-- Historique des meetings (GDPR: droit à l'effacement)
+CREATE TABLE meeting_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    room_id INT,
+    user_id INT,
+    action ENUM('join', 'leave', 'share_screen', 'upload_file', 'present'),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Index pour performance
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_rooms_code ON rooms(room_code);
+CREATE INDEX idx_meeting_logs_user ON meeting_logs(user_id, timestamp);
+```
+
+### Nouveaux Types de Messages WebSocket
+
+| Category | Type | Direction | Description |
+|----------|------|-----------|-------------|
+| Auth | `auth-login` | Client→Server | `{username, passwordHash}` |
+| Auth | `auth-register` | Client→Server | `{username, email, passwordHash}` |
+| Auth | `auth-response` | Server→Client | `{success, userId, token, error}` |
+| Auth | `auth-logout` | Client→Server | `{token}` |
+| User | `user-profile-get` | Client→Server | `{userId}` |
+| User | `user-profile-update` | Client→Server | `{userId, avatarColor, ...}` |
+| User | `user-profile-response` | Server→Client | `{success, profile, error}` |
+| Room | `room-save` | Client→Server | Sauvegarder room en DB |
+| Room | `room-load` | Client→Server | Charger room depuis DB |
+
+### Fichiers à Créer
+
+| Priorité | Fichier | Description |
+|----------|---------|-------------|
+| 1 | `Server/src/database.js` | Pool de connexions MariaDB |
+| 2 | `Server/src/auth.js` | Logique authentification (bcrypt hash) |
+| 3 | `Server/src/handlers/authHandler.js` | Handlers WebSocket pour auth |
+| 4 | `Assets/Scrips/Auth/AuthManager.cs` | Singleton Unity pour login/register |
+| 5 | `Assets/Scrips/Auth/AuthData.cs` | Classes sérialisables pour auth |
+| 6 | `Assets/Scrips/UI/LoginUI.cs` | Écran de connexion (MainMenu) |
+
+### Intégration Unity
+
+#### AuthManager.cs (Singleton)
+```csharp
+// Assets/Scrips/Auth/AuthManager.cs
+public class AuthManager : MonoBehaviour
+{
+    public static AuthManager Instance { get; private set; }
+
+    public static event Action<string> OnLoginSuccess;      // userId
+    public static event Action<string> OnLoginFailed;       // error message
+    public static event Action OnLogout;
+
+    public bool IsAuthenticated { get; private set; }
+    public string CurrentUserId { get; private set; }
+    public string CurrentUsername { get; private set; }
+
+    public void Login(string username, string password) { }
+    public void Register(string username, string email, string password) { }
+    public void Logout() { }
+}
+```
+
+#### Messages Handler (Server)
+```javascript
+// Server/src/handlers/authHandler.js
+const db = require('../database');
+const bcrypt = require('bcrypt');
+
+async function handleLogin(ws, data) {
+    const { username, password } = JSON.parse(data);
+    const users = await db.query(
+        'SELECT id, password_hash FROM users WHERE username = ?',
+        [username]
+    );
+
+    if (users.length === 0) {
+        return { success: false, error: 'User not found' };
+    }
+
+    const valid = await bcrypt.compare(password, users[0].password_hash);
+    if (!valid) {
+        return { success: false, error: 'Invalid password' };
+    }
+
+    // Update last_login
+    await db.query('UPDATE users SET last_login = NOW() WHERE id = ?', [users[0].id]);
+
+    return { success: true, userId: users[0].id };
+}
+```
+
+### Sécurité
+
+| Aspect | Implementation |
+|--------|----------------|
+| Mots de passe | bcrypt avec salt (12 rounds minimum) |
+| Connexion DB | TLS obligatoire en production |
+| Credentials | Variables d'environnement, jamais dans le code |
+| Rate limiting | Limiter tentatives de login (5/minute) |
+| Sessions | JWT avec expiration (24h) ou token opaque |
+
+### GDPR Compliance
+
+- **Droit à l'effacement:** `DELETE FROM users WHERE id = ?` + cascade sur logs
+- **Export données:** Endpoint pour exporter toutes les données utilisateur
+- **Consentement:** Table `user_consents` avec timestamps
+- **Rétention:** Politique de suppression automatique des logs > 90 jours
+
 ## Project Structure
 
 ```
@@ -185,7 +395,9 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 │   └── WhiteboardUISetup.cs      # Editor tool for UI configuration
 ├── Interaction/
 │   ├── LaserPointer.cs           # Local laser pointer (VR: A button, Desktop: L key)
-│   └── LaserPointerData.cs       # Network serialization for laser sync
+│   ├── LaserPointerData.cs       # Network serialization for laser sync
+│   ├── SitManager.cs             # Singleton managing sitting state and transitions
+│   └── SitPoint.cs               # XR Interactable sit points on chairs/desks
 ├── Sharing/
 │   ├── ScreenShareManager.cs     # Capture écran + envoi JPEG Base64 via WebSocket
 │   ├── ScreenShareData.cs        # Classes sérialisables pour messages réseau
@@ -201,9 +413,10 @@ Assets/Scrips/                    (Note: intentional typo "Scrips" - preserved f
 ├── UI/
 │   ├── MainMenu/
 │   │   ├── MainMenuManager.cs    # Menu principal, panels, transitions, game loading
-│   │   ├── MainMenuSettings.cs   # Settings UI (audio, graphics, controls)
+│   │   ├── MainMenuSettings.cs   # Settings persistence (PlayerPrefs), events
+│   │   ├── MainMenuOptionsUI.cs  # Options UI with tabs (Audio/Graphics/Controls)
 │   │   └── Editor/
-│   │       └── MainMenuUISetup.cs # Editor tool for UI configuration
+│   │       └── MainMenuUISetup.cs # Editor tool for UI generation
 │   ├── GlobalKeyboardAutoBind.cs
 │   ├── VoiceChatUI.cs
 │   ├── VRMenuUi.cs
@@ -596,6 +809,96 @@ public class LaserPointerData {
 - Cleanup on player disconnect or laser deactivation
 - Stored in `VRRemotePlayer`: `laserLine`, `laserDot`, `laserActive`
 
+## Sit System (`Assets/Scrips/Interaction/`)
+
+### Architecture
+- **SitManager.cs** - Singleton managing sitting state and transitions
+- **SitPoint.cs** - XR Interactable component for individual sit points
+
+### Controls
+| Mode | Action | Description |
+|------|--------|-------------|
+| VR | Select (trigger) | Click on sit point indicator to sit |
+| VR | B button (right) | Stand up from seated position |
+| Desktop | Click | Click on sit point to sit |
+| Desktop | Space key | Stand up from seated position |
+
+### SitManager.cs
+Singleton placed on a persistent GameObject (Bootstrap scene).
+
+**Settings:**
+- `sitTransitionDuration` - Transition animation time (default: 0.3s)
+- `standUpKey` - Key to stand up on Desktop (default: Space)
+- `standUpAction` - InputActionReference for VR stand up (B button right controller)
+- `disableLocomotionWhenSeated` - Disable movement when sitting (default: true)
+- `adjustVRTrackingHeight` - Adjust VR camera height when seated (default: true)
+
+**Events:**
+```csharp
+SitManager.OnSatDown(SitPoint)    // Player sat on a SitPoint
+SitManager.OnStoodUp              // Player stood up
+```
+
+**API publique:**
+```csharp
+SitManager.Instance.IsSitting              // true if currently seated
+SitManager.Instance.CurrentSitPoint        // Current SitPoint or null
+SitManager.Instance.SitDown(SitPoint)      // Sit on a specific point
+SitManager.Instance.StandUp()              // Stand up from current seat
+SitManager.Instance.RegisterSitPoint(sp)   // Register a sit point
+SitManager.Instance.UnregisterSitPoint(sp) // Unregister a sit point
+SitManager.Instance.GetNearestSitPoint(pos, maxDist) // Find nearest available seat
+SitManager.Instance.GetAvailableSitPoints() // Get all unoccupied seats
+```
+
+### SitPoint.cs
+Component to place on chairs or desks with XRSimpleInteractable.
+
+**Settings:**
+- `sitOffset` - Local position offset for seated player
+- `sitRotationY` - Y rotation angle when seated
+- `seatedCameraHeight` - Camera height when seated (default: 0.8m)
+- `showIndicator` - Show visual indicator cylinder (default: true)
+- `availableColor` - Indicator color when available (green)
+- `occupiedColor` - Indicator color when occupied (red)
+- `sitSound` / `standSound` - Optional audio clips
+
+**Properties:**
+```csharp
+sitPoint.IsOccupied    // true if someone is sitting here
+sitPoint.SitPosition   // World position for seated player
+sitPoint.SitRotation   // World rotation for seated player
+```
+
+**API:**
+```csharp
+sitPoint.TrySit()      // Attempt to sit here
+sitPoint.Vacate()      // Free this seat
+```
+
+### Visual Indicator
+- Cylinder primitive rendered at sit position
+- Green when available, red when occupied
+- Collider removed to avoid physics interference
+- Uses `Sprites/Default` shader for transparency
+
+### Transition Animation
+- Smooth easing (EaseOutCubic) for natural movement
+- CharacterController disabled during transition
+- Locomotion disabled when seated (configurable)
+- Re-enabled on stand up
+
+### Scene Setup
+1. Add `SitManager` to Bootstrap scene (persistent singleton)
+2. Add `SitPoint` component to chairs/desks in Meet scene
+3. Adjust `sitOffset` and `sitRotationY` for each chair
+4. Optionally add audio clips for sit/stand sounds
+
+### Gizmos (Editor)
+- Green sphere at sit position
+- Blue ray showing sit direction
+- Yellow sphere at camera height
+
 ## File Presentation (`Assets/Scrips/Sharing/`)
 
 ### Architecture
@@ -742,23 +1045,52 @@ MainMenuSettings.GetMouseSensitivity()
 MainMenuSettings.GetInvertY()
 ```
 
+### MainMenuOptionsUI.cs
+Manages the Options panel UI with tabbed interface.
+
+**Tabs:**
+- `Audio` - Master Volume, Voice Volume, Microphone selection
+- `Graphics` - Quality, Resolution (Desktop), Fullscreen (Desktop)
+- `Controls` - VR: Turn Mode/Snap Angle/Smooth Speed, Desktop: Mouse Sensitivity/Invert Y
+
+**Features:**
+- Auto-detects VR/Desktop mode and shows relevant controls
+- Real-time settings application (no "Apply" needed)
+- Settings synced to game systems via events
+
+**Events Integration:**
+```csharp
+MainMenuSettings.OnMasterVolumeChanged    → AudioListener.volume
+MainMenuSettings.OnVoiceVolumeChanged     → VoiceChatManager.SetPlaybackVolume()
+MainMenuSettings.OnMicrophoneChanged      → VoiceChatManager microphone selection
+MainMenuSettings.OnTurnModeChanged        → VRPlayerController.useSnapTurn
+MainMenuSettings.OnSnapAngleChanged       → VRPlayerController.snapTurnAngle
+MainMenuSettings.OnSmoothTurnSpeedChanged → VRPlayerController.smoothTurnSpeed
+MainMenuSettings.OnMouseSensitivityChanged → DesktopPlayerController sensitivity
+MainMenuSettings.OnInvertYChanged         → DesktopPlayerController invert Y
+```
+
 ### MainMenuUISetup.cs (Editor Tool)
 `Tools > VR Meeting > Setup Main Menu UI`
 
-Creates complete UI structure:
+**Menu Commands:**
+- `Tools > VR Meeting > Create Main Menu UI Now` - Creates full UI structure
+- `Tools > VR Meeting > Link Main Menu References` - Re-links existing UI to managers
+
+**Creates complete UI structure:**
 - World Space Canvas (positioned for VR)
 - Main Panel with Start/Options/Quit buttons
-- Options Panel with settings controls
-- Loading Panel with progress bar
+- Options Panel with tabs (Audio/Graphics/Controls)
 - Quit Dialog with Yes/No buttons
-- Auto-links all references to MainMenuManager
+- Auto-links all references to MainMenuManager and MainMenuOptionsUI
+- Creates MainMenuSettings GameObject if not present
 
-## Desktop Mode (`Assets/Scrips/VR/DesktopPlayerController.cs`)
+## Desktop Mode (`Assets/Scrips/Desktop/DesktopPlayerController.cs`)
 
 ### Controls
 - **Movement:** WASD keys
 - **Look:** Right-click + mouse drag
-- **Sprint:** Hold Shift (2x speed multiplier)
+- **Sprint:** Hold Shift (1.5x speed multiplier)
 - **Whiteboard:** Left-click to draw (via DesktopWhiteboardDrawer)
 - **Laser Pointer:** L key to toggle (via LaserPointer.cs)
 
@@ -766,7 +1098,8 @@ Creates complete UI structure:
 - Uses Unity Input System
 - Head Transform auto-detected from child "Head" or Main Camera
 - Smooth movement with configurable speed
-- FPS-style camera with mouse sensitivity settings
+- FPS-style camera with mouse sensitivity from MainMenuSettings
+- Supports Invert Y from settings
 
 ## Recent Fixes & Changes
 
@@ -882,8 +1215,46 @@ Creates complete UI structure:
 - **Solution:** `_cachedClearPixels` array reused across clears
 - **Result:** No GC during whiteboard operations
 
-### File Sharing Feature (Recent - Commits f6d7757, 706c066, aa2d325)
+### File Sharing Feature (Commits f6d7757, 706c066, aa2d325)
 - **Feature:** Upload/download files within VR meeting rooms
 - **VR Browser:** In-headset file navigation and selection
 - **Constraints:** 10MB max, allowed document/image extensions
-- **Status:** Implemented, requires thorough testing
+- **Status:** Implemented and tested
+
+### Main Menu Options System (Recent)
+- **Feature:** Full settings configuration in Options menu
+- **Files Created:**
+  - `MainMenuSettings.cs` - Singleton with PlayerPrefs persistence and events
+  - `MainMenuOptionsUI.cs` - Tabbed UI (Audio/Graphics/Controls)
+- **Files Updated:**
+  - `MainMenuUISetup.cs` - Editor tool generates complete Options UI
+  - `DesktopPlayerController.cs` - Integrates mouse sensitivity + invert Y
+  - `VRPlayerController.cs` - Integrates turn mode, snap angle, smooth speed
+  - `VoiceChatManager.cs` - Integrates voice volume + microphone selection
+- **Settings Available:**
+  - Audio: Master Volume, Voice Volume, Microphone
+  - Graphics: Quality, Resolution (Desktop), Fullscreen (Desktop)
+  - VR Controls: Turn Mode (Snap/Smooth), Snap Angle, Smooth Turn Speed
+  - Desktop Controls: Mouse Sensitivity, Invert Y
+- **Status:** Implemented and functional
+
+### Sit System (Recent)
+- **Feature:** Interactive sit functionality for chairs and desks
+- **Files Created:**
+  - `SitManager.cs` - Singleton managing sitting state, transitions, locomotion control
+  - `SitPoint.cs` - XR Interactable component with visual indicators
+- **Features:**
+  - VR: Click sit point indicator with controller to sit
+  - VR: B button (right controller) to stand up
+  - Desktop: Click sit point to sit
+  - Desktop: Space key to stand up
+  - Smooth transition animation (EaseOutCubic)
+  - Visual indicators (green=available, red=occupied)
+  - Locomotion disabled when seated
+  - Auto-registers with SitManager
+- **Setup Required:**
+  1. Add SitManager to Bootstrap scene
+  2. Assign `standUpAction` to right controller B button InputActionReference
+  3. Change VRMenuToggle's `toggleAction` to left controller Y button
+  4. Add SitPoint components to chairs in Meet scene
+- **Status:** Scripts created, scene setup pending
