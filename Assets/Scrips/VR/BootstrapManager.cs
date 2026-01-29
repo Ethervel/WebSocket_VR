@@ -50,7 +50,46 @@ public class BootstrapManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        // CRITICAL: Disable XR Interaction Simulator in real VR mode
+        // The simulator interferes with native Quest tracking
+        DisableXRSimulatorInVRMode();
+
         SetupPersistentEventSystem();
+    }
+
+    /// <summary>
+    /// Disables the XR Interaction Simulator when running on a real VR headset.
+    /// The simulator is only useful for desktop testing - in real VR it interferes with native tracking.
+    /// </summary>
+    void DisableXRSimulatorInVRMode()
+    {
+        var xrSettings = XRGeneralSettings.Instance;
+        bool isRealVR = xrSettings != null &&
+                        xrSettings.Manager != null &&
+                        xrSettings.Manager.activeLoader != null;
+
+        if (isRealVR)
+        {
+            // Find and disable XR Interaction Simulator
+            var simulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
+            if (simulator != null)
+            {
+                simulator.gameObject.SetActive(false);
+                Debug.Log("[Bootstrap] XR Interaction Simulator DISABLED - running on real VR headset");
+            }
+
+            // Also check for the older XRDeviceSimulator if present
+            var deviceSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRDeviceSimulator>();
+            if (deviceSimulator != null)
+            {
+                deviceSimulator.gameObject.SetActive(false);
+                Debug.Log("[Bootstrap] XR Device Simulator DISABLED - running on real VR headset");
+            }
+        }
+        else
+        {
+            Debug.Log("[Bootstrap] Desktop mode detected - XR Interaction Simulator can remain active for testing");
+        }
     }
 
     void Start()

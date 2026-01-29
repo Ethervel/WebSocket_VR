@@ -45,8 +45,11 @@ public class VRGameManager : MonoBehaviour
     public float rotationThreshold = 1f;
 
     [Header("Spawn Settings")]
-    [Tooltip("Spawner le joueur local au démarrage")]
+    [Tooltip("Spawner le joueur local au démarrage. Si désactivé, utilise un XR Origin existant dans la scène.")]
     public bool spawnPlayerOnStart = true;
+
+    [Tooltip("Si spawnPlayerOnStart est false, utilise cet XR Origin existant dans la scène au lieu de spawner.")]
+    public GameObject existingXROriginInScene;
 
     [Header("Desktop Mode")]
     [Tooltip("Prefab du joueur Desktop (non-VR)")]
@@ -142,6 +145,81 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Uses an existing XR Origin in the scene instead of spawning one.
+    /// This allows the XR Origin to use its native TrackedPoseDriver without script interference.
+    /// </summary>
+    void UseExistingXROrigin()
+    {
+        // Find existing XR Origin
+        if (existingXROriginInScene != null)
+        {
+            _localPlayer = existingXROriginInScene;
+        }
+        else
+        {
+            // Auto-find XR Origin in scene
+            var xrOrigin = FindFirstObjectByType<XROrigin>();
+            if (xrOrigin != null)
+            {
+                _localPlayer = xrOrigin.gameObject;
+            }
+        }
+
+        if (_localPlayer == null)
+        {
+            Debug.LogError("[VRGame] No existing XR Origin found in scene! Either assign existingXROriginInScene or enable spawnPlayerOnStart.");
+            return;
+        }
+
+        Debug.Log($"[VRGame] Using existing XR Origin: {_localPlayer.name}");
+
+        // Don't destroy on load so it persists across scenes
+        DontDestroyOnLoad(_localPlayer);
+
+        // Find references (same as spawned player)
+        if (_isDesktopMode)
+        {
+            FindDesktopReferences();
+            SetupDesktopInput();
+        }
+        else
+        {
+            FindVRReferences();
+            SetupTeleportation();
+        }
+        SetupUIInteraction();
+
+        // Initialize sync positions
+        Transform originTf = (_localXrOrigin != null) ? _localXrOrigin.transform : _localPlayer.transform;
+        _lastSyncPosition = originTf.position;
+        _lastSyncRotation = originTf.rotation;
+
+        if (_localHead != null)
+        {
+            _lastSyncHeadPos = _localHead.position;
+            _lastSyncHeadRot = _localHead.rotation;
+        }
+
+        if (!_isDesktopMode)
+        {
+            if (_localLeftHand != null)
+                _lastSyncLeftHandPos = _localLeftHand.position;
+            if (_localRightHand != null)
+                _lastSyncRightHandPos = _localRightHand.position;
+        }
+
+        // Add LaserPointer if needed
+        if (_localPlayer.GetComponent<LaserPointer>() == null)
+        {
+            _localPlayer.AddComponent<LaserPointer>();
+            Debug.Log("[VRGame] LaserPointer added to existing XR Origin");
+        }
+
+        Debug.Log($"[VRGame] Existing XR Origin configured - Head: {_localHead != null}, LeftHand: {_localLeftHand != null}, RightHand: {_localRightHand != null}");
+        OnLocalPlayerSpawned?.Invoke(_localPlayer);
+    }
+
     void Start()
     {
         if (spawnPlayerOnStart)
@@ -150,6 +228,12 @@ public class VRGameManager : MonoBehaviour
             // This allows VR controllers to work in the main menu
             Debug.Log("[VRGame] Spawning local player immediately in Bootstrap");
             SpawnLocalPlayer(RoomType.Lobby);
+        }
+        else
+        {
+            // Use existing XR Origin in scene instead of spawning
+            Debug.Log("[VRGame] Using existing XR Origin in scene (spawnPlayerOnStart = false)");
+            UseExistingXROrigin();
         }
     }
 
@@ -435,13 +519,17 @@ public class VRGameManager : MonoBehaviour
         var cam = _localPlayer.GetComponentInChildren<Camera>(true);
         if (cam != null) _localHead = cam.transform;
 
+        // Try multiple naming conventions for left hand
         _localLeftHand = FindChildRecursive(_localPlayer.transform, "Left Controller");
+        if (_localLeftHand == null) _localLeftHand = FindChildRecursive(_localPlayer.transform, "Left Hand");
         if (_localLeftHand == null) _localLeftHand = FindChildRecursive(_localPlayer.transform, "LeftHand");
 
+        // Try multiple naming conventions for right hand
         _localRightHand = FindChildRecursive(_localPlayer.transform, "Right Controller");
+        if (_localRightHand == null) _localRightHand = FindChildRecursive(_localPlayer.transform, "Right Hand");
         if (_localRightHand == null) _localRightHand = FindChildRecursive(_localPlayer.transform, "RightHand");
 
-        Debug.Log($"[VRGame] VR References - XROrigin: {_localXrOrigin != null}, Head: {_localHead != null}, L: {_localLeftHand != null}, R: {_localRightHand != null}");
+        Debug.Log($"[VRGame] VR References - XROrigin: {_localXrOrigin != null}, Head: {_localHead != null}, L: {_localLeftHand?.name ?? "NULL"}, R: {_localRightHand?.name ?? "NULL"}");
     }
 
     void FindDesktopReferences()
