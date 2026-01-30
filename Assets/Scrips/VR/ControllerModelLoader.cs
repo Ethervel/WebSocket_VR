@@ -210,14 +210,8 @@ public class ControllerModelLoader : MonoBehaviour
                 _leftModelInstance.transform.localRotation = Quaternion.identity;
                 _leftModelInstance.transform.localScale = useDebugCubes ? Vector3.one * 0.05f : Vector3.one;
 
-                // Ensure all renderers are enabled
-                foreach (var renderer in _leftModelInstance.GetComponentsInChildren<Renderer>(true))
-                {
-                    renderer.enabled = true;
-                    renderer.gameObject.SetActive(true);
-                }
-
-                Debug.Log($"[ControllerModelLoader] Left controller model loaded at {leftController.position}, scale={_leftModelInstance.transform.lossyScale}, renderers={_leftModelInstance.GetComponentsInChildren<Renderer>(true).Length}");
+                // P1 FIX: Enable renderers gradually to avoid GPU spike
+                StartCoroutine(EnableRenderersGradually(_leftModelInstance, "Left"));
             }
             else
             {
@@ -245,14 +239,8 @@ public class ControllerModelLoader : MonoBehaviour
                 _rightModelInstance.transform.localRotation = Quaternion.identity;
                 _rightModelInstance.transform.localScale = useDebugCubes ? Vector3.one * 0.05f : Vector3.one;
 
-                // Ensure all renderers are enabled
-                foreach (var renderer in _rightModelInstance.GetComponentsInChildren<Renderer>(true))
-                {
-                    renderer.enabled = true;
-                    renderer.gameObject.SetActive(true);
-                }
-
-                Debug.Log($"[ControllerModelLoader] Right controller model loaded at {rightController.position}, scale={_rightModelInstance.transform.lossyScale}, renderers={_rightModelInstance.GetComponentsInChildren<Renderer>(true).Length}");
+                // P1 FIX: Enable renderers gradually to avoid GPU spike
+                StartCoroutine(EnableRenderersGradually(_rightModelInstance, "Right"));
             }
             else
             {
@@ -270,12 +258,18 @@ public class ControllerModelLoader : MonoBehaviour
 
     GameObject FindControllerModelPrefab(string hand)
     {
+        // P0 FIX: Removed Resources.FindObjectsOfTypeAll which was extremely expensive
+        // and caused major performance spikes during scene transitions.
+        // Now only searches in Resources folder - prefabs must be placed there or assigned in Inspector.
+
         // Try to find controller model prefabs in Resources
         string[] searchPaths = new string[]
         {
             $"XR Controller {hand}",
             $"Controller_{hand}",
-            $"{hand}Controller"
+            $"{hand}Controller",
+            $"Controllers/XR Controller {hand}",
+            $"Controllers/{hand}"
         };
 
         foreach (var path in searchPaths)
@@ -288,24 +282,40 @@ public class ControllerModelLoader : MonoBehaviour
             }
         }
 
-        // Try to find in loaded assets (for prefabs in project but not in Resources)
-        var allPrefabs = Resources.FindObjectsOfTypeAll<GameObject>();
-        foreach (var prefab in allPrefabs)
+        // P0 FIX: Instead of expensive FindObjectsOfTypeAll, just warn and return null
+        // User should assign prefabs in Inspector or place them in Resources folder
+        Debug.LogWarning($"[ControllerModelLoader] P0 FIX: {hand} controller model not found in Resources. " +
+                        "Assign prefab in Inspector or place in Resources folder.");
+        return null;
+    }
+
+    /// <summary>
+    /// P1 FIX: Enable renderers gradually across multiple frames to avoid GPU pipeline reconfiguration spike
+    /// </summary>
+    System.Collections.IEnumerator EnableRenderersGradually(GameObject model, string handName)
+    {
+        if (model == null) yield break;
+
+        var renderers = model.GetComponentsInChildren<Renderer>(true);
+        int count = 0;
+        const int BATCH_SIZE = 2; // Enable 2 renderers per frame
+
+        foreach (var renderer in renderers)
         {
-            if (prefab.name.Contains($"XR Controller {hand}") ||
-                prefab.name.Contains($"Controller {hand}"))
+            if (renderer == null) continue;
+
+            renderer.enabled = true;
+            renderer.gameObject.SetActive(true);
+            count++;
+
+            // Yield every BATCH_SIZE renderers to spread GPU work
+            if (count % BATCH_SIZE == 0)
             {
-                // Make sure it's a prefab and has a mesh
-                if (prefab.GetComponentInChildren<MeshRenderer>() != null ||
-                    prefab.GetComponentInChildren<SkinnedMeshRenderer>() != null)
-                {
-                    Debug.Log($"[ControllerModelLoader] Found {hand} controller model: {prefab.name}");
-                    return prefab;
-                }
+                yield return null;
             }
         }
 
-        return null;
+        Debug.Log($"[ControllerModelLoader] P1 FIX: {handName} controller - {count} renderers enabled gradually");
     }
 
     GameObject CreateDebugCube(Color color, string name)

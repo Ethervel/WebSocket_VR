@@ -289,6 +289,11 @@ public class VRGameManager : MonoBehaviour
     {
         Debug.Log($"[VRGame] Scene '{sceneName}' is ready");
 
+        // P1 FIX: Ensure appropriate quality level for game scenes
+        // VR needs at least Medium quality (level 2) for acceptable visuals
+        // but we cap at High (level 3) to maintain performance
+        EnsureMinimumQualityLevel(2, 4); // Min: Medium, Max: High
+
         if (_localPlayer != null)
         {
             // Player already exists (spawned in Bootstrap), teleport to new scene's spawn point
@@ -561,14 +566,8 @@ public class VRGameManager : MonoBehaviour
         // Desktop mode specific setup
         // The DesktopPlayerController handles input, this is for any additional setup
 
-        // IMPORTANT: Disable XR Interaction Simulator in Desktop mode
-        // It captures mouse input for VR controller simulation, preventing normal mouse clicks
-        var xrSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
-        if (xrSimulator != null)
-        {
-            xrSimulator.gameObject.SetActive(false);
-            Debug.Log("[VRGame] Disabled XR Interaction Simulator for Desktop mode");
-        }
+        // P1 FIX: Removed redundant XR Simulator disable - already handled in BootstrapManager.DisableXRSimulatorInVRMode()
+        // This was causing unnecessary FindFirstObjectByType calls during setup
 
         // Add PhysicsRaycaster to camera for pointer events on 3D objects (whiteboard drawing)
         if (_localHead != null)
@@ -731,9 +730,10 @@ public class VRGameManager : MonoBehaviour
         }
 
         // 2. ✅ Desktop Mode: Configurer tous les Canvas WorldSpace avec la caméra du joueur
+        // P0 FIX: Use coroutine to spread canvas setup across multiple frames
         if (_isDesktopMode)
         {
-            SetupWorldSpaceCanvases(playerCamera);
+            StartCoroutine(SetupWorldSpaceCanvasesCoroutine(playerCamera));
         }
 
         // Relancer aussi le binding du clavier si nécessaire
@@ -747,8 +747,9 @@ public class VRGameManager : MonoBehaviour
     /// <summary>
     /// Configure tous les Canvas WorldSpace pour utiliser la caméra du joueur Desktop
     /// Nécessaire pour que GraphicRaycaster détecte les clics souris sur UI WorldSpace
+    /// P0 FIX: Now a coroutine that spreads work across multiple frames to prevent performance spikes
     /// </summary>
-    void SetupWorldSpaceCanvases(Camera playerCamera)
+    System.Collections.IEnumerator SetupWorldSpaceCanvasesCoroutine(Camera playerCamera)
     {
         // P1 FIX: Use cached canvas array to avoid O(n) scene searches
         if (!_canvasCacheValid)
@@ -766,7 +767,13 @@ public class VRGameManager : MonoBehaviour
             Debug.Log($"[VRGame] P1 FIX: Cached {_cachedWorldSpaceCanvases.Length} WorldSpace canvases");
         }
 
+        // P0 FIX: Yield after caching to let the frame complete
+        yield return null;
+
         int worldSpaceCount = 0;
+        int processedThisFrame = 0;
+        const int BATCH_SIZE = 3; // Process 3 canvases per frame to spread the work
+
         foreach (var canvas in _cachedWorldSpaceCanvases)
         {
             if (canvas == null) continue;
@@ -779,7 +786,6 @@ public class VRGameManager : MonoBehaviour
             if (trackedRaycaster != null)
             {
                 trackedRaycaster.enabled = false;
-                Debug.Log($"[VRGame] TrackedDeviceGraphicRaycaster désactivé sur '{canvas.name}'");
             }
 
             // S'assurer qu'il y a un GraphicRaycaster standard pour la souris
@@ -787,20 +793,21 @@ public class VRGameManager : MonoBehaviour
             if (graphicRaycaster == null)
             {
                 graphicRaycaster = canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-                Debug.Log($"[VRGame] GraphicRaycaster ajouté sur '{canvas.name}'");
             }
             graphicRaycaster.enabled = true;
 
-            Debug.Log($"[VRGame] ✅ Canvas WorldSpace '{canvas.name}' → Camera: '{playerCamera.name}'");
+            // P0 FIX: Yield every BATCH_SIZE canvases to spread work across frames
+            processedThisFrame++;
+            if (processedThisFrame >= BATCH_SIZE)
+            {
+                processedThisFrame = 0;
+                yield return null;
+            }
         }
 
         if (worldSpaceCount > 0)
         {
-            Debug.Log($"[VRGame] ✅ {worldSpaceCount} Canvas WorldSpace configurés pour mode Desktop");
-        }
-        else
-        {
-            Debug.Log("[VRGame] Aucun Canvas WorldSpace trouvé dans la scène");
+            Debug.Log($"[VRGame] P0 FIX: {worldSpaceCount} Canvas WorldSpace configurés (spread across frames)");
         }
     }
 
@@ -1723,36 +1730,80 @@ public class VRGameManager : MonoBehaviour
 
     void GetSpawnPoint(RoomType roomType, bool isLocalPlayer, out Vector3 position, out Quaternion rotation)
     {
-        // Check if a game scene is loaded (Meet, etc.) via BootstrapManager
+        // Check if Meet scene (or other game scene) is loaded
         bool gameSceneLoaded = BootstrapManager.Instance != null &&
                                !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName());
 
-        // Use lobbySpawnPoint for game scenes (Meet, etc.)
-        Transform spawnPoint = lobbySpawnPoint;
-
-        if (gameSceneLoaded && spawnPoint != null && spawnPoint.gameObject.scene.isLoaded)
+        if (gameSceneLoaded)
         {
-            position = spawnPoint.position;
-            rotation = spawnPoint.rotation;
-            Debug.Log($"[VRGame] Using game scene spawn point: {position}");
+            // === GAME SCENE (Meet) === Use LobbySP
+            Transform spawnPoint = lobbySpawnPoint;
+
+            // Find LobbySP if not assigned
+            if (spawnPoint == null)
+            {
+                spawnPoint = transform.Find("LobbySP");
+                if (spawnPoint != null)
+                {
+                    lobbySpawnPoint = spawnPoint;
+                    Debug.Log($"[VRGame] Found LobbySP as child of GameManager");
+                }
+            }
+
+            if (spawnPoint != null)
+            {
+                position = spawnPoint.position;
+                rotation = spawnPoint.rotation;
+                Debug.Log($"[VRGame] Using game spawn point '{spawnPoint.name}': {position}");
+                return;
+            }
+        }
+
+        // === BOOTSTRAP SCENE (Menu) === Use MenuSpawnPoint
+        var menuSpawn = GameObject.Find("MenuSpawnPoint");
+        if (menuSpawn != null)
+        {
+            position = menuSpawn.transform.position;
+            rotation = menuSpawn.transform.rotation;
+            Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
         }
         else
         {
-            // Try to find MenuSpawnPoint in Bootstrap scene
-            var menuSpawnPoint = GameObject.Find("MenuSpawnPoint");
-            if (menuSpawnPoint != null)
-            {
-                position = menuSpawnPoint.transform.position;
-                rotation = menuSpawnPoint.transform.rotation;
-                Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
-            }
-            else
-            {
-                // Fallback hardcoded position
-                position = new Vector3(0f, 0.1f, 3f);
-                rotation = Quaternion.Euler(0f, 180f, 0f);
-                Debug.Log($"[VRGame] Using fallback Bootstrap spawn point: {position}");
-            }
+            // Fallback
+            position = new Vector3(0f, 0.1f, 3f);
+            rotation = Quaternion.Euler(0f, 180f, 0f);
+            Debug.Log($"[VRGame] Using fallback spawn point: {position}");
+        }
+    }
+
+    #endregion
+
+    #region Quality Settings
+
+    /// <summary>
+    /// P1 FIX: Ensures quality level is within acceptable range for VR performance
+    /// </summary>
+    void EnsureMinimumQualityLevel(int minLevel, int maxLevel)
+    {
+        int currentLevel = QualitySettings.GetQualityLevel();
+        int targetLevel = currentLevel;
+
+        if (currentLevel < minLevel)
+        {
+            targetLevel = minLevel;
+            Debug.Log($"[VRGame] P1 FIX: Quality level {currentLevel} too low, raising to {targetLevel}");
+        }
+        else if (currentLevel > maxLevel)
+        {
+            targetLevel = maxLevel;
+            Debug.Log($"[VRGame] P1 FIX: Quality level {currentLevel} too high for VR, lowering to {targetLevel}");
+        }
+
+        if (targetLevel != currentLevel)
+        {
+            // Use applyExpensiveChanges=false to avoid frame spike during transition
+            QualitySettings.SetQualityLevel(targetLevel, false);
+            Debug.Log($"[VRGame] P1 FIX: Quality level set to {targetLevel} ({QualitySettings.names[targetLevel]})");
         }
     }
 
