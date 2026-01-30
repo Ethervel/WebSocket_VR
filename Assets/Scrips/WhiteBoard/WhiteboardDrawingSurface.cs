@@ -93,24 +93,45 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         drawingTexture = new Texture2D((int)textureSize.x, (int)textureSize.y, TextureFormat.RGBA32, false);
         ClearTexture();
 
-        // Utiliser Sprites/Default shader - parfait pour overlay transparent
-        Shader spriteShader = Shader.Find("Sprites/Default");
-        if (spriteShader != null)
+        // VR FIX: Use URP Unlit instead of Sprites/Default
+        // Sprites/Default does NOT support Single Pass Instanced rendering,
+        // causing the drawing surface to appear broken/split in VR headsets.
+        Shader urpUnlit = Shader.Find("Universal Render Pipeline/Unlit");
+        if (urpUnlit != null)
         {
-            _renderer.material = new Material(spriteShader);
-            _renderer.material.mainTexture = drawingTexture;
-            _renderer.material.renderQueue = 3001;
+            Material mat = new Material(urpUnlit);
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", drawingTexture);
+            mat.mainTexture = drawingTexture;
+            // Transparent surface for overlay on whiteboard background
+            mat.SetFloat("_Surface", 1); // Transparent
+            mat.SetFloat("_Blend", 0);   // Alpha blend
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetFloat("_ZWrite", 0);
+            mat.renderQueue = 3001;
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            _renderer.material = mat;
         }
         else
         {
-            _renderer.material.mainTexture = drawingTexture;
-            if (_renderer.material.HasProperty("_BaseMap"))
+            // Fallback: try Sprites/Default (won't work in VR Single Pass Instanced)
+            Shader spriteShader = Shader.Find("Sprites/Default");
+            if (spriteShader != null)
             {
-                _renderer.material.SetTexture("_BaseMap", drawingTexture);
+                _renderer.material = new Material(spriteShader);
+                _renderer.material.mainTexture = drawingTexture;
+                _renderer.material.renderQueue = 3001;
+                Debug.LogWarning($"[DrawingSurface:{id}] Using Sprites/Default fallback - VR stereo may be broken!");
             }
-            if (_renderer.material.HasProperty("_BaseColor"))
+            else
             {
-                _renderer.material.SetColor("_BaseColor", Color.white);
+                _renderer.material.mainTexture = drawingTexture;
+                if (_renderer.material.HasProperty("_BaseMap"))
+                    _renderer.material.SetTexture("_BaseMap", drawingTexture);
+                if (_renderer.material.HasProperty("_BaseColor"))
+                    _renderer.material.SetColor("_BaseColor", Color.white);
             }
         }
 

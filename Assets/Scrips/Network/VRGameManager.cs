@@ -103,6 +103,9 @@ public class VRGameManager : MonoBehaviour
     // MINOR FIX: Constants for layer names to avoid magic strings
     private const string LAYER_WHITEBOARD = "Whiteboard";
 
+    // VR FIX: Cached URP shader - Sprites/Default does NOT support Single Pass Instanced
+    private static Shader _cachedURPUnlitShader;
+
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
     public static event Action<string, GameObject> OnRemotePlayerSpawned;
@@ -1118,6 +1121,36 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// VR FIX: Creates a URP Unlit material compatible with Single Pass Instanced rendering.
+    /// Sprites/Default does NOT support stereo instancing, causing broken visuals in VR headsets.
+    /// </summary>
+    static Material CreateVRCompatibleUnlitMaterial(Color color, int renderQueue = 3000)
+    {
+        if (_cachedURPUnlitShader == null)
+            _cachedURPUnlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+
+        if (_cachedURPUnlitShader == null)
+        {
+            Debug.LogWarning("[VRGame] URP Unlit shader not found, falling back to Sprites/Default");
+            var fallback = new Material(Shader.Find("Sprites/Default"));
+            fallback.color = color;
+            return fallback;
+        }
+
+        Material mat = new Material(_cachedURPUnlitShader);
+        mat.SetColor("_BaseColor", color);
+        mat.SetFloat("_Surface", 1); // Transparent
+        mat.SetFloat("_Blend", 0);   // Alpha blend
+        mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetFloat("_ZWrite", 0);
+        mat.renderQueue = renderQueue;
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        return mat;
+    }
+
     // IMPORTANT FIX: Cached MaterialPropertyBlock to avoid memory allocations
     // Using MaterialPropertyBlock avoids creating new Material instances (memory leak)
     private static MaterialPropertyBlock _cachedPropertyBlock;
@@ -1194,13 +1227,11 @@ public class VRGameManager : MonoBehaviour
         var bgCollider = bgObj.GetComponent<Collider>();
         if (bgCollider != null) Destroy(bgCollider);
 
-        // Dark semi-transparent material
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
         var bgRenderer = bgObj.GetComponent<MeshRenderer>();
         if (bgRenderer != null)
         {
-            Material bgMat = new Material(Shader.Find("Sprites/Default"));
-            bgMat.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
-            bgRenderer.material = bgMat;
+            bgRenderer.material = CreateVRCompatibleUnlitMaterial(new Color(0.1f, 0.1f, 0.1f, 0.8f), 3001);
         }
 
         // Position above head initially
@@ -1695,7 +1726,8 @@ public class VRGameManager : MonoBehaviour
         remote.laserLine.positionCount = 2;
         remote.laserLine.startWidth = 0.005f;
         remote.laserLine.endWidth = 0.005f;
-        remote.laserLine.material = new Material(Shader.Find("Sprites/Default"));
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
+        remote.laserLine.material = CreateVRCompatibleUnlitMaterial(color);
         remote.laserLine.startColor = color;
         remote.laserLine.endColor = color;
         remote.laserLine.receiveShadows = false;
@@ -1710,11 +1742,11 @@ public class VRGameManager : MonoBehaviour
         var col = remote.laserDot.GetComponent<Collider>();
         if (col != null) Destroy(col);
 
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
         var renderer = remote.laserDot.GetComponent<MeshRenderer>();
         if (renderer != null)
         {
-            renderer.material = new Material(Shader.Find("Sprites/Default"));
-            renderer.material.color = color;
+            renderer.material = CreateVRCompatibleUnlitMaterial(color);
             renderer.receiveShadows = false;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
@@ -1735,7 +1767,7 @@ public class VRGameManager : MonoBehaviour
 
         if (gameSceneLoaded)
         {
-            position = new Vector3(0f, 0f, -10f);
+            position = new Vector3(0f, 1.6f, -10f);
             rotation = Quaternion.identity;
             Debug.Log($"[VRGame] Using Meet spawn: {position}");
             return;

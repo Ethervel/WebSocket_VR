@@ -37,6 +37,9 @@ public class LaserPointer : MonoBehaviour
     // Cached network data
     private readonly LaserPointerData _cachedData = new LaserPointerData();
 
+    // Cached VR-compatible shader (Sprites/Default does NOT support Single Pass Instanced)
+    private static Shader _cachedUnlitShader;
+
     public bool IsActive => _isActive;
 
     void Start()
@@ -109,6 +112,38 @@ public class LaserPointer : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// Creates a URP Unlit material compatible with VR Single Pass Instanced rendering.
+    /// Sprites/Default does NOT support stereo instancing and causes broken visuals in VR.
+    /// </summary>
+    static Material CreateVRCompatibleUnlitMaterial(Color color)
+    {
+        if (_cachedUnlitShader == null)
+            _cachedUnlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+
+        // Fallback if URP shader not found (should not happen in URP project)
+        if (_cachedUnlitShader == null)
+        {
+            Debug.LogWarning("[LaserPointer] URP Unlit shader not found, falling back to Sprites/Default");
+            var fallback = new Material(Shader.Find("Sprites/Default"));
+            fallback.color = color;
+            return fallback;
+        }
+
+        Material mat = new Material(_cachedUnlitShader);
+        mat.SetColor("_BaseColor", color);
+        // Enable transparency for colored effects
+        mat.SetFloat("_Surface", 1); // Transparent
+        mat.SetFloat("_Blend", 0);   // Alpha blend
+        mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetFloat("_ZWrite", 0);
+        mat.renderQueue = 3000;
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        return mat;
+    }
+
     void CreateVisuals()
     {
         // Create LineRenderer for beam
@@ -118,7 +153,7 @@ public class LaserPointer : MonoBehaviour
         _lineRenderer.positionCount = 2;
         _lineRenderer.startWidth = beamWidth;
         _lineRenderer.endWidth = beamWidth;
-        _lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        _lineRenderer.material = CreateVRCompatibleUnlitMaterial(laserColor);
         _lineRenderer.startColor = laserColor;
         _lineRenderer.endColor = laserColor;
         _lineRenderer.receiveShadows = false;
@@ -138,8 +173,7 @@ public class LaserPointer : MonoBehaviour
         _dotRenderer = _hitDot.GetComponent<MeshRenderer>();
         if (_dotRenderer != null)
         {
-            _dotRenderer.material = new Material(Shader.Find("Sprites/Default"));
-            _dotRenderer.material.color = laserColor;
+            _dotRenderer.material = CreateVRCompatibleUnlitMaterial(laserColor);
             _dotRenderer.receiveShadows = false;
             _dotRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }

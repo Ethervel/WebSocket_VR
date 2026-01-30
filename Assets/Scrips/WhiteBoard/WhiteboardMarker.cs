@@ -17,7 +17,7 @@ public class WhiteboardMarker : MonoBehaviour
 
     [Header("Touch Detection")]
     [Tooltip("Distance maximale pour considérer que le stylo touche la surface (en mètres)")]
-    public float touchThreshold = 0.15f;
+    public float touchThreshold = 0.0001f;
 
     [Header("Network Settings")]
     [Tooltip("Intervalle d'envoi réseau (plus petit = plus fluide mais plus de bande passante)")]
@@ -172,15 +172,15 @@ public class WhiteboardMarker : MonoBehaviour
 
     void DrawVR()
     {
-        bool hit = Physics.Raycast(tip.position, transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+        bool hit = Physics.Raycast(tip.position, transform.up, out _touch, touchThreshold, drawingSurfaceLayer);
 
         if (!hit)
         {
-            hit = Physics.Raycast(tip.position, transform.forward, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+            hit = Physics.Raycast(tip.position, transform.forward, out _touch, touchThreshold, drawingSurfaceLayer);
         }
         if (!hit)
         {
-            hit = Physics.Raycast(tip.position, -transform.up, out _touch, _tipHeight * 2f, drawingSurfaceLayer);
+            hit = Physics.Raycast(tip.position, -transform.up, out _touch, touchThreshold, drawingSurfaceLayer);
         }
 
         if (!hit)
