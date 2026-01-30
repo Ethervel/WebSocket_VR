@@ -1730,50 +1730,21 @@ public class VRGameManager : MonoBehaviour
 
     void GetSpawnPoint(RoomType roomType, bool isLocalPlayer, out Vector3 position, out Quaternion rotation)
     {
-        // Check if Meet scene (or other game scene) is loaded
         bool gameSceneLoaded = BootstrapManager.Instance != null &&
                                !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName());
 
         if (gameSceneLoaded)
         {
-            // === GAME SCENE (Meet) === Use LobbySP
-            Transform spawnPoint = lobbySpawnPoint;
-
-            // Find LobbySP if not assigned
-            if (spawnPoint == null)
-            {
-                spawnPoint = transform.Find("LobbySP");
-                if (spawnPoint != null)
-                {
-                    lobbySpawnPoint = spawnPoint;
-                    Debug.Log($"[VRGame] Found LobbySP as child of GameManager");
-                }
-            }
-
-            if (spawnPoint != null)
-            {
-                position = spawnPoint.position;
-                rotation = spawnPoint.rotation;
-                Debug.Log($"[VRGame] Using game spawn point '{spawnPoint.name}': {position}");
-                return;
-            }
+            position = new Vector3(0f, 0f, -10f);
+            rotation = Quaternion.identity;
+            Debug.Log($"[VRGame] Using Meet spawn: {position}");
+            return;
         }
 
-        // === BOOTSTRAP SCENE (Menu) === Use MenuSpawnPoint
-        var menuSpawn = GameObject.Find("MenuSpawnPoint");
-        if (menuSpawn != null)
-        {
-            position = menuSpawn.transform.position;
-            rotation = menuSpawn.transform.rotation;
-            Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
-        }
-        else
-        {
-            // Fallback
-            position = new Vector3(0f, 0.1f, 3f);
-            rotation = Quaternion.Euler(0f, 180f, 0f);
-            Debug.Log($"[VRGame] Using fallback spawn point: {position}");
-        }
+        // Bootstrap only (before Meet loads)
+        position = new Vector3(0f, 0.1f, -0.3f);
+        rotation = Quaternion.Euler(0f, 180f, 0f);
+        Debug.Log($"[VRGame] Using Bootstrap spawn: {position}");
     }
 
     #endregion
@@ -1786,24 +1757,15 @@ public class VRGameManager : MonoBehaviour
     void EnsureMinimumQualityLevel(int minLevel, int maxLevel)
     {
         int currentLevel = QualitySettings.GetQualityLevel();
-        int targetLevel = currentLevel;
-
-        if (currentLevel < minLevel)
-        {
-            targetLevel = minLevel;
-            Debug.Log($"[VRGame] P1 FIX: Quality level {currentLevel} too low, raising to {targetLevel}");
-        }
-        else if (currentLevel > maxLevel)
-        {
-            targetLevel = maxLevel;
-            Debug.Log($"[VRGame] P1 FIX: Quality level {currentLevel} too high for VR, lowering to {targetLevel}");
-        }
+        int maxAvailable = QualitySettings.names.Length - 1;
+        int clampedMin = Mathf.Clamp(minLevel, 0, maxAvailable);
+        int clampedMax = Mathf.Clamp(maxLevel, 0, maxAvailable);
+        int targetLevel = Mathf.Clamp(currentLevel, clampedMin, clampedMax);
 
         if (targetLevel != currentLevel)
         {
-            // Use applyExpensiveChanges=false to avoid frame spike during transition
             QualitySettings.SetQualityLevel(targetLevel, false);
-            Debug.Log($"[VRGame] P1 FIX: Quality level set to {targetLevel} ({QualitySettings.names[targetLevel]})");
+            Debug.Log($"[VRGame] Quality level {currentLevel} -> {targetLevel} ({QualitySettings.names[targetLevel]})");
         }
     }
 
