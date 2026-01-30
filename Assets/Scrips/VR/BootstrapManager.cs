@@ -50,7 +50,91 @@ public class BootstrapManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        // Ensure XR is initialized in builds (Editor handles this automatically)
+        EnsureXRInitialized();
+
+        // CRITICAL: Disable XR Interaction Simulator in real VR mode
+        // The simulator interferes with native Quest tracking
+        DisableXRSimulatorInVRMode();
+
         SetupPersistentEventSystem();
+    }
+
+    /// <summary>
+    /// Explicitly initializes XR subsystems if they haven't started yet.
+    /// In the Editor, Unity handles this automatically. In builds, the loader
+    /// may not be active yet at Awake time, so we force initialization here.
+    /// </summary>
+    void EnsureXRInitialized()
+    {
+        var xrSettings = XRGeneralSettings.Instance;
+        if (xrSettings == null || xrSettings.Manager == null)
+        {
+            Debug.Log("[Bootstrap] XR General Settings not found - desktop mode");
+            return;
+        }
+
+        // If a loader is already active, XR is already running
+        if (xrSettings.Manager.activeLoader != null)
+        {
+            Debug.Log($"[Bootstrap] XR already initialized: {xrSettings.Manager.activeLoader.name}");
+            return;
+        }
+
+        // No active loader - try to initialize manually
+        Debug.Log("[Bootstrap] XR loader not active, attempting manual initialization...");
+        xrSettings.Manager.InitializeLoaderSync();
+
+        if (xrSettings.Manager.activeLoader != null)
+        {
+            xrSettings.Manager.StartSubsystems();
+            Debug.Log($"[Bootstrap] XR manually initialized: {xrSettings.Manager.activeLoader.name}");
+        }
+        else
+        {
+            Debug.LogWarning("[Bootstrap] XR initialization failed - no loader available. Running in desktop mode.");
+        }
+    }
+
+    /// <summary>
+    /// Disables the XR Interaction Simulator when running on a real VR headset.
+    /// The simulator is only useful for desktop testing - in real VR it interferes with native tracking.
+    /// </summary>
+    void DisableXRSimulatorInVRMode()
+    {
+        var xrSettings = XRGeneralSettings.Instance;
+        bool isRealVR = xrSettings != null &&
+                        xrSettings.Manager != null &&
+                        xrSettings.Manager.activeLoader != null;
+
+        if (isRealVR)
+        {
+            // P0 FIX: Set target frame rate for VR to prevent performance drops
+            // Quest runs at 72Hz, PCVR typically at 90Hz - use 90 as safe default
+            Application.targetFrameRate = 90;
+            QualitySettings.vSyncCount = 0; // Disable VSync, let VR compositor handle timing
+            Debug.Log("[Bootstrap] P0 FIX: Set targetFrameRate=90, vSyncCount=0 for VR");
+
+            // Find and disable XR Interaction Simulator
+            var simulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
+            if (simulator != null)
+            {
+                simulator.gameObject.SetActive(false);
+                Debug.Log("[Bootstrap] XR Interaction Simulator DISABLED - running on real VR headset");
+            }
+
+            // Also check for the older XRDeviceSimulator if present
+            var deviceSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRDeviceSimulator>();
+            if (deviceSimulator != null)
+            {
+                deviceSimulator.gameObject.SetActive(false);
+                Debug.Log("[Bootstrap] XR Device Simulator DISABLED - running on real VR headset");
+            }
+        }
+        else
+        {
+            Debug.Log("[Bootstrap] Desktop mode detected - XR Interaction Simulator can remain active for testing");
+        }
     }
 
     void Start()

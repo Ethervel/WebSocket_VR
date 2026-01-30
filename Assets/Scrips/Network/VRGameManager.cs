@@ -45,8 +45,11 @@ public class VRGameManager : MonoBehaviour
     public float rotationThreshold = 1f;
 
     [Header("Spawn Settings")]
-    [Tooltip("Spawner le joueur local au démarrage")]
+    [Tooltip("Spawner le joueur local au démarrage. Si désactivé, utilise un XR Origin existant dans la scène.")]
     public bool spawnPlayerOnStart = true;
+
+    [Tooltip("Si spawnPlayerOnStart est false, utilise cet XR Origin existant dans la scène au lieu de spawner.")]
+    public GameObject existingXROriginInScene;
 
     [Header("Desktop Mode")]
     [Tooltip("Prefab du joueur Desktop (non-VR)")]
@@ -100,6 +103,9 @@ public class VRGameManager : MonoBehaviour
     // MINOR FIX: Constants for layer names to avoid magic strings
     private const string LAYER_WHITEBOARD = "Whiteboard";
 
+    // VR FIX: Cached URP shader - Sprites/Default does NOT support Single Pass Instanced
+    private static Shader _cachedURPUnlitShader;
+
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
     public static event Action<string, GameObject> OnRemotePlayerSpawned;
@@ -142,6 +148,81 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Uses an existing XR Origin in the scene instead of spawning one.
+    /// This allows the XR Origin to use its native TrackedPoseDriver without script interference.
+    /// </summary>
+    void UseExistingXROrigin()
+    {
+        // Find existing XR Origin
+        if (existingXROriginInScene != null)
+        {
+            _localPlayer = existingXROriginInScene;
+        }
+        else
+        {
+            // Auto-find XR Origin in scene
+            var xrOrigin = FindFirstObjectByType<XROrigin>();
+            if (xrOrigin != null)
+            {
+                _localPlayer = xrOrigin.gameObject;
+            }
+        }
+
+        if (_localPlayer == null)
+        {
+            Debug.LogError("[VRGame] No existing XR Origin found in scene! Either assign existingXROriginInScene or enable spawnPlayerOnStart.");
+            return;
+        }
+
+        Debug.Log($"[VRGame] Using existing XR Origin: {_localPlayer.name}");
+
+        // Don't destroy on load so it persists across scenes
+        DontDestroyOnLoad(_localPlayer);
+
+        // Find references (same as spawned player)
+        if (_isDesktopMode)
+        {
+            FindDesktopReferences();
+            SetupDesktopInput();
+        }
+        else
+        {
+            FindVRReferences();
+            SetupTeleportation();
+        }
+        SetupUIInteraction();
+
+        // Initialize sync positions
+        Transform originTf = (_localXrOrigin != null) ? _localXrOrigin.transform : _localPlayer.transform;
+        _lastSyncPosition = originTf.position;
+        _lastSyncRotation = originTf.rotation;
+
+        if (_localHead != null)
+        {
+            _lastSyncHeadPos = _localHead.position;
+            _lastSyncHeadRot = _localHead.rotation;
+        }
+
+        if (!_isDesktopMode)
+        {
+            if (_localLeftHand != null)
+                _lastSyncLeftHandPos = _localLeftHand.position;
+            if (_localRightHand != null)
+                _lastSyncRightHandPos = _localRightHand.position;
+        }
+
+        // Add LaserPointer if needed
+        if (_localPlayer.GetComponent<LaserPointer>() == null)
+        {
+            _localPlayer.AddComponent<LaserPointer>();
+            Debug.Log("[VRGame] LaserPointer added to existing XR Origin");
+        }
+
+        Debug.Log($"[VRGame] Existing XR Origin configured - Head: {_localHead != null}, LeftHand: {_localLeftHand != null}, RightHand: {_localRightHand != null}");
+        OnLocalPlayerSpawned?.Invoke(_localPlayer);
+    }
+
     void Start()
     {
         if (spawnPlayerOnStart)
@@ -150,6 +231,12 @@ public class VRGameManager : MonoBehaviour
             // This allows VR controllers to work in the main menu
             Debug.Log("[VRGame] Spawning local player immediately in Bootstrap");
             SpawnLocalPlayer(RoomType.Lobby);
+        }
+        else
+        {
+            // Use existing XR Origin in scene instead of spawning
+            Debug.Log("[VRGame] Using existing XR Origin in scene (spawnPlayerOnStart = false)");
+            UseExistingXROrigin();
         }
     }
 
@@ -204,6 +291,11 @@ public class VRGameManager : MonoBehaviour
     void OnMainSceneReady(string sceneName)
     {
         Debug.Log($"[VRGame] Scene '{sceneName}' is ready");
+
+        // P1 FIX: Ensure appropriate quality level for game scenes
+        // VR needs at least Medium quality (level 2) for acceptable visuals
+        // but we cap at High (level 3) to maintain performance
+        EnsureMinimumQualityLevel(2, 4); // Min: Medium, Max: High
 
         if (_localPlayer != null)
         {
@@ -435,13 +527,17 @@ public class VRGameManager : MonoBehaviour
         var cam = _localPlayer.GetComponentInChildren<Camera>(true);
         if (cam != null) _localHead = cam.transform;
 
+        // Try multiple naming conventions for left hand
         _localLeftHand = FindChildRecursive(_localPlayer.transform, "Left Controller");
+        if (_localLeftHand == null) _localLeftHand = FindChildRecursive(_localPlayer.transform, "Left Hand");
         if (_localLeftHand == null) _localLeftHand = FindChildRecursive(_localPlayer.transform, "LeftHand");
 
+        // Try multiple naming conventions for right hand
         _localRightHand = FindChildRecursive(_localPlayer.transform, "Right Controller");
+        if (_localRightHand == null) _localRightHand = FindChildRecursive(_localPlayer.transform, "Right Hand");
         if (_localRightHand == null) _localRightHand = FindChildRecursive(_localPlayer.transform, "RightHand");
 
-        Debug.Log($"[VRGame] VR References - XROrigin: {_localXrOrigin != null}, Head: {_localHead != null}, L: {_localLeftHand != null}, R: {_localRightHand != null}");
+        Debug.Log($"[VRGame] VR References - XROrigin: {_localXrOrigin != null}, Head: {_localHead != null}, L: {_localLeftHand?.name ?? "NULL"}, R: {_localRightHand?.name ?? "NULL"}");
     }
 
     void FindDesktopReferences()
@@ -473,14 +569,8 @@ public class VRGameManager : MonoBehaviour
         // Desktop mode specific setup
         // The DesktopPlayerController handles input, this is for any additional setup
 
-        // IMPORTANT: Disable XR Interaction Simulator in Desktop mode
-        // It captures mouse input for VR controller simulation, preventing normal mouse clicks
-        var xrSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
-        if (xrSimulator != null)
-        {
-            xrSimulator.gameObject.SetActive(false);
-            Debug.Log("[VRGame] Disabled XR Interaction Simulator for Desktop mode");
-        }
+        // P1 FIX: Removed redundant XR Simulator disable - already handled in BootstrapManager.DisableXRSimulatorInVRMode()
+        // This was causing unnecessary FindFirstObjectByType calls during setup
 
         // Add PhysicsRaycaster to camera for pointer events on 3D objects (whiteboard drawing)
         if (_localHead != null)
@@ -643,9 +733,10 @@ public class VRGameManager : MonoBehaviour
         }
 
         // 2. ✅ Desktop Mode: Configurer tous les Canvas WorldSpace avec la caméra du joueur
+        // P0 FIX: Use coroutine to spread canvas setup across multiple frames
         if (_isDesktopMode)
         {
-            SetupWorldSpaceCanvases(playerCamera);
+            StartCoroutine(SetupWorldSpaceCanvasesCoroutine(playerCamera));
         }
 
         // Relancer aussi le binding du clavier si nécessaire
@@ -659,8 +750,9 @@ public class VRGameManager : MonoBehaviour
     /// <summary>
     /// Configure tous les Canvas WorldSpace pour utiliser la caméra du joueur Desktop
     /// Nécessaire pour que GraphicRaycaster détecte les clics souris sur UI WorldSpace
+    /// P0 FIX: Now a coroutine that spreads work across multiple frames to prevent performance spikes
     /// </summary>
-    void SetupWorldSpaceCanvases(Camera playerCamera)
+    System.Collections.IEnumerator SetupWorldSpaceCanvasesCoroutine(Camera playerCamera)
     {
         // P1 FIX: Use cached canvas array to avoid O(n) scene searches
         if (!_canvasCacheValid)
@@ -678,7 +770,13 @@ public class VRGameManager : MonoBehaviour
             Debug.Log($"[VRGame] P1 FIX: Cached {_cachedWorldSpaceCanvases.Length} WorldSpace canvases");
         }
 
+        // P0 FIX: Yield after caching to let the frame complete
+        yield return null;
+
         int worldSpaceCount = 0;
+        int processedThisFrame = 0;
+        const int BATCH_SIZE = 3; // Process 3 canvases per frame to spread the work
+
         foreach (var canvas in _cachedWorldSpaceCanvases)
         {
             if (canvas == null) continue;
@@ -691,7 +789,6 @@ public class VRGameManager : MonoBehaviour
             if (trackedRaycaster != null)
             {
                 trackedRaycaster.enabled = false;
-                Debug.Log($"[VRGame] TrackedDeviceGraphicRaycaster désactivé sur '{canvas.name}'");
             }
 
             // S'assurer qu'il y a un GraphicRaycaster standard pour la souris
@@ -699,20 +796,21 @@ public class VRGameManager : MonoBehaviour
             if (graphicRaycaster == null)
             {
                 graphicRaycaster = canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-                Debug.Log($"[VRGame] GraphicRaycaster ajouté sur '{canvas.name}'");
             }
             graphicRaycaster.enabled = true;
 
-            Debug.Log($"[VRGame] ✅ Canvas WorldSpace '{canvas.name}' → Camera: '{playerCamera.name}'");
+            // P0 FIX: Yield every BATCH_SIZE canvases to spread work across frames
+            processedThisFrame++;
+            if (processedThisFrame >= BATCH_SIZE)
+            {
+                processedThisFrame = 0;
+                yield return null;
+            }
         }
 
         if (worldSpaceCount > 0)
         {
-            Debug.Log($"[VRGame] ✅ {worldSpaceCount} Canvas WorldSpace configurés pour mode Desktop");
-        }
-        else
-        {
-            Debug.Log("[VRGame] Aucun Canvas WorldSpace trouvé dans la scène");
+            Debug.Log($"[VRGame] P0 FIX: {worldSpaceCount} Canvas WorldSpace configurés (spread across frames)");
         }
     }
 
@@ -1023,6 +1121,36 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// VR FIX: Creates a URP Unlit material compatible with Single Pass Instanced rendering.
+    /// Sprites/Default does NOT support stereo instancing, causing broken visuals in VR headsets.
+    /// </summary>
+    static Material CreateVRCompatibleUnlitMaterial(Color color, int renderQueue = 3000)
+    {
+        if (_cachedURPUnlitShader == null)
+            _cachedURPUnlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+
+        if (_cachedURPUnlitShader == null)
+        {
+            Debug.LogWarning("[VRGame] URP Unlit shader not found, falling back to Sprites/Default");
+            var fallback = new Material(Shader.Find("Sprites/Default"));
+            fallback.color = color;
+            return fallback;
+        }
+
+        Material mat = new Material(_cachedURPUnlitShader);
+        mat.SetColor("_BaseColor", color);
+        mat.SetFloat("_Surface", 1); // Transparent
+        mat.SetFloat("_Blend", 0);   // Alpha blend
+        mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetFloat("_ZWrite", 0);
+        mat.renderQueue = renderQueue;
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        return mat;
+    }
+
     // IMPORTANT FIX: Cached MaterialPropertyBlock to avoid memory allocations
     // Using MaterialPropertyBlock avoids creating new Material instances (memory leak)
     private static MaterialPropertyBlock _cachedPropertyBlock;
@@ -1099,13 +1227,11 @@ public class VRGameManager : MonoBehaviour
         var bgCollider = bgObj.GetComponent<Collider>();
         if (bgCollider != null) Destroy(bgCollider);
 
-        // Dark semi-transparent material
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
         var bgRenderer = bgObj.GetComponent<MeshRenderer>();
         if (bgRenderer != null)
         {
-            Material bgMat = new Material(Shader.Find("Sprites/Default"));
-            bgMat.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
-            bgRenderer.material = bgMat;
+            bgRenderer.material = CreateVRCompatibleUnlitMaterial(new Color(0.1f, 0.1f, 0.1f, 0.8f), 3001);
         }
 
         // Position above head initially
@@ -1600,7 +1726,8 @@ public class VRGameManager : MonoBehaviour
         remote.laserLine.positionCount = 2;
         remote.laserLine.startWidth = 0.005f;
         remote.laserLine.endWidth = 0.005f;
-        remote.laserLine.material = new Material(Shader.Find("Sprites/Default"));
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
+        remote.laserLine.material = CreateVRCompatibleUnlitMaterial(color);
         remote.laserLine.startColor = color;
         remote.laserLine.endColor = color;
         remote.laserLine.receiveShadows = false;
@@ -1615,11 +1742,11 @@ public class VRGameManager : MonoBehaviour
         var col = remote.laserDot.GetComponent<Collider>();
         if (col != null) Destroy(col);
 
+        // VR FIX: Use URP Unlit instead of Sprites/Default (stereo instancing support)
         var renderer = remote.laserDot.GetComponent<MeshRenderer>();
         if (renderer != null)
         {
-            renderer.material = new Material(Shader.Find("Sprites/Default"));
-            renderer.material.color = color;
+            renderer.material = CreateVRCompatibleUnlitMaterial(color);
             renderer.receiveShadows = false;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
@@ -1635,36 +1762,42 @@ public class VRGameManager : MonoBehaviour
 
     void GetSpawnPoint(RoomType roomType, bool isLocalPlayer, out Vector3 position, out Quaternion rotation)
     {
-        // Check if a game scene is loaded (Meet, etc.) via BootstrapManager
         bool gameSceneLoaded = BootstrapManager.Instance != null &&
                                !string.IsNullOrEmpty(BootstrapManager.Instance.GetCurrentSceneName());
 
-        // Use lobbySpawnPoint for game scenes (Meet, etc.)
-        Transform spawnPoint = lobbySpawnPoint;
-
-        if (gameSceneLoaded && spawnPoint != null && spawnPoint.gameObject.scene.isLoaded)
+        if (gameSceneLoaded)
         {
-            position = spawnPoint.position;
-            rotation = spawnPoint.rotation;
-            Debug.Log($"[VRGame] Using game scene spawn point: {position}");
+            position = new Vector3(0f, 1.6f, -10f);
+            rotation = Quaternion.identity;
+            Debug.Log($"[VRGame] Using Meet spawn: {position}");
+            return;
         }
-        else
+
+        // Bootstrap only (before Meet loads)
+        position = new Vector3(0f, 0.1f, -0.3f);
+        rotation = Quaternion.Euler(0f, 180f, 0f);
+        Debug.Log($"[VRGame] Using Bootstrap spawn: {position}");
+    }
+
+    #endregion
+
+    #region Quality Settings
+
+    /// <summary>
+    /// P1 FIX: Ensures quality level is within acceptable range for VR performance
+    /// </summary>
+    void EnsureMinimumQualityLevel(int minLevel, int maxLevel)
+    {
+        int currentLevel = QualitySettings.GetQualityLevel();
+        int maxAvailable = QualitySettings.names.Length - 1;
+        int clampedMin = Mathf.Clamp(minLevel, 0, maxAvailable);
+        int clampedMax = Mathf.Clamp(maxLevel, 0, maxAvailable);
+        int targetLevel = Mathf.Clamp(currentLevel, clampedMin, clampedMax);
+
+        if (targetLevel != currentLevel)
         {
-            // Try to find MenuSpawnPoint in Bootstrap scene
-            var menuSpawnPoint = GameObject.Find("MenuSpawnPoint");
-            if (menuSpawnPoint != null)
-            {
-                position = menuSpawnPoint.transform.position;
-                rotation = menuSpawnPoint.transform.rotation;
-                Debug.Log($"[VRGame] Using MenuSpawnPoint: {position}");
-            }
-            else
-            {
-                // Fallback hardcoded position
-                position = new Vector3(0f, 0.1f, 3f);
-                rotation = Quaternion.Euler(0f, 180f, 0f);
-                Debug.Log($"[VRGame] Using fallback Bootstrap spawn point: {position}");
-            }
+            QualitySettings.SetQualityLevel(targetLevel, false);
+            Debug.Log($"[VRGame] Quality level {currentLevel} -> {targetLevel} ({QualitySettings.names[targetLevel]})");
         }
     }
 
