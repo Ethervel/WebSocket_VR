@@ -2,6 +2,8 @@
 
 Description technique du serveur WebSocket et de son integration avec le client Unity.
 
+> **Derniere mise a jour : 2026-02-02** - Synchronise avec le code source actuel.
+
 ---
 
 ## Vue d'Ensemble
@@ -18,9 +20,9 @@ Description technique du serveur WebSocket et de son integration avec le client 
         |                                                        |
         v                                                        v
 +------------------+                                     +------------------+
-| VRRoomManager    |                                     | Modules          |
-| VRGameManager    |                                     | (non connectes)  |
-| VoiceChatManager |                                     | auth.js, db.js   |
+| VRRoomManager    |                                     | filePresentation |
+| VRGameManager    |                                     |   .js (PDF)      |
+| VoiceChatManager |                                     | (optionnel)      |
 +------------------+                                     +------------------+
 ```
 
@@ -28,10 +30,10 @@ Description technique du serveur WebSocket et de son integration avec le client 
 
 | Composant | Technologie | Version | Fichier |
 |-----------|-------------|---------|---------|
-| Serveur WebSocket | Node.js + ws | 8.14.2 | `server.js` |
-| Client WebSocket | NativeWebSocket | Unity Package | `VRNetworkManager.cs` |
-| Voix (WebRTC) | Unity.WebRTC | 3.0.0 | `VoiceChatManager.cs` |
-| Authentification | bcrypt + MariaDB | - | `auth.js` (NON CONNECTE) |
+| Serveur WebSocket | Node.js + ws | 8.14.2 | `server.js` (887 lignes) |
+| Client WebSocket | NativeWebSocket | Unity Package | `VRNetworkManager.cs` (460 lignes) |
+| Voix (WebRTC) | Unity.WebRTC | 3.0.0 | `VoiceChatManager.cs` (1139 lignes) |
+| PDF (optionnel) | pdf-poppler | 0.2.3 | `filePresentation.js` (257 lignes) |
 
 ---
 
@@ -41,27 +43,26 @@ Description technique du serveur WebSocket et de son integration avec le client 
 
 ```
 Server/
-├── server.js           # Serveur principal (888 lignes)
+├── server.js           # Serveur principal (887 lignes)
+├── filePresentation.js # Conversion PDF (257 lignes, optionnel)
 ├── package.json        # Dependances: ws, uuid, pdf-poppler
-├── auth.js             # Authentification (NON CONNECTE)
-├── db.js               # Pool MariaDB (NON CONNECTE)
-└── filePresentation.js # Conversion PDF (optionnel)
+└── node_modules/       # Dependances installees
 ```
 
 ### Composants server.js
 
-| Composant | Lignes | Description |
-|-----------|--------|-------------|
+| Composant | Lignes (approx.) | Description |
+|-----------|-------------------|-------------|
 | Configuration | 1-27 | Imports, constantes, state global |
 | Connection handling | 41-96 | Welcome, peer events, handlers |
-| Message routing | 100-228 | Switch principal, dispatch |
-| Room management | 232-416 | Create, join, leave, close, kick |
+| Message routing | 100-228 | Switch principal, dispatch (46 types) |
+| Room management | 232-416 | Create, join, leave, close, update, kick |
 | Whiteboard | 463-487 | State sync point-to-point |
-| WebRTC signaling | 491-605 | Voice + screen share |
+| WebRTC signaling | 491-605 | Voice (3 types) + screen share (3 types) |
 | File sharing | 609-661 | List response, present state |
-| PDF conversion | 665-748 | Cache, page requests |
-| Utilities | 752-833 | sendToClient, broadcast, broadcastToRoom |
-| Maintenance | 838-887 | Heartbeat, cleanup, shutdown |
+| PDF conversion | 665-748 | Cache, page requests, filePresentation |
+| Utilities | 752-833 | sendToClient, broadcast, broadcastToRoom, sendError |
+| Maintenance | 838-887 | Heartbeat (30s), cache cleanup (5m), status log (60s), shutdown |
 
 ### State Global
 
@@ -78,6 +79,7 @@ const pdfCache = new Map(); // fileId -> { pages, totalPages, timestamp }
 | `PORT` | 8080 | Port d'ecoute (env configurable) |
 | `HEARTBEAT_INTERVAL` | 30000 ms | Intervalle ping |
 | `PDF_CACHE_TTL` | 30 min | Duree cache PDF |
+| Max players/room | 10 | Limite par defaut |
 
 ---
 
@@ -89,7 +91,7 @@ const pdfCache = new Map(); // fileId -> { pages, totalPages, timestamp }
 Client                              Serveur
    |                                   |
    |-------- WebSocket Connect ------->|
-   |                                   | Genere UUID
+   |                                   | Genere UUID (uuidv4)
    |                                   | Stocke dans clients Map
    |<------- welcome {senderId} -------|
    |                                   |
@@ -113,10 +115,10 @@ Client                              Serveur
 
 ```javascript
 {
-    roomId: string,          // Code 6 caracteres
+    roomId: string,          // Code 6 caracteres (crypto-secure)
     hostId: string,          // UUID du createur
     roomName: string,        // Nom affiche
-    roomType: number,        // 0=Lobby, 1=RoomA, 2=RoomB
+    roomType: number,        // 0=Lobby, 1=MeetingRoomA, 2=MeetingRoomB
     playerCount: number,     // Joueurs actuels
     maxPlayers: number,      // Limite (defaut: 10)
     createdAt: number        // Timestamp creation
@@ -127,21 +129,25 @@ Client                              Serveur
 
 ## Routage des Messages
 
-### Switch Principal
+### Switch Principal (46 types explicites)
 
 | Categorie | Types | Handler |
 |-----------|-------|---------|
-| Room Lifecycle | `room-available`, `room-closed`, `room-join`, `room-leave`, `room-update` | Fonctions dediees |
+| Room Lifecycle | `room-available`, `room-closed`, `room-join`, `room-leave`, `room-update`, `room-list-request` | Fonctions dediees |
 | Position VR | `vr-position`, `position` | `broadcastToRoom()` |
-| Objets | `obj-sync`, `obj-state` | `broadcastToRoom()` |
+| Objets Interactifs | `obj-sync`, `obj-state` | `broadcastToRoom()` |
 | Whiteboard | `whiteboard-draw`, `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request` | `broadcastToRoom()` |
-| Whiteboard State | `whiteboard-state` | `handleWhiteboardState()` |
+| Whiteboard State | `whiteboard-state` | `handleWhiteboardState()` (point-to-point) |
 | Room State | `room-welcome`, `room-teleport`, `player-name-update` | `broadcastToRoom()` |
-| Admin | `kick-player` | `handleKickPlayer()` |
+| Admin | `kick-player` | `handleKickPlayer()` (host only) |
 | WebRTC Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` | Point-to-point |
-| Screen Share | `screen-share-*`, `screen-video-*` | Mixte |
-| File Share | `file-announce`, `file-chunk`, `file-complete`, `file-request` | `broadcastToRoom()` |
-| PDF | `pdf-convert-request`, `pdf-page-request` | Fonctions dediees |
+| Screen Share | `screen-share-start/stop/frame/request/state` | `broadcastToRoom()` |
+| Screen WebRTC | `screen-video-offer/answer/ice` | Point-to-point |
+| File Share | `file-announce`, `file-chunk`, `file-complete`, `file-request`, `file-list-request` | `broadcastToRoom()` |
+| File Share P2P | `file-list-response` | `handleFileListResponse()` (point-to-point ou broadcast) |
+| File Presentation | `file-present-start/page/navigate/stop/request` | `broadcastToRoom()` |
+| File Present P2P | `file-present-state` | `handleFilePresentState()` (point-to-point ou broadcast) |
+| PDF | `pdf-convert-request`, `pdf-page-request` | Fonctions dediees (reponse directe) |
 | Default | Autres | Room si dans room, sinon global |
 
 ### Fonction broadcastToRoom
@@ -164,6 +170,17 @@ function broadcastToRoom(senderId, message) {
 }
 ```
 
+### Fonctions de Communication
+
+| Fonction | Description |
+|----------|-------------|
+| `sendToClient(ws, message)` | Envoyer a 1 client |
+| `broadcast(message, exceptId)` | Envoyer a TOUS les clients |
+| `broadcastToRoom(senderId, message)` | Envoyer aux membres de la room |
+| `sendRoomList(ws)` | Envoyer la liste des rooms a 1 client |
+| `broadcastRoomList()` | Broadcast liste rooms a tous |
+| `sendError(clientId, errorMessage)` | Envoyer une erreur a 1 client |
+
 ---
 
 ## Protocole de Messages
@@ -177,6 +194,8 @@ function broadcastToRoom(senderId, message) {
     "data": "{\"json\":\"serialise\"}"
 }
 ```
+
+> **Important :** `senderId` est **force cote serveur** (`message.senderId = clientId`). La valeur envoyee par le client est ecrasee.
 
 ### Messages Connexion
 
@@ -195,7 +214,11 @@ function broadcastToRoom(senderId, message) {
 | `room-welcome` | Host -> Room | `{roomId, roomType, players: [...]}` |
 | `room-leave` | Client -> Room | `{roomId, playerId}` |
 | `room-list` | Serveur -> Client | `{rooms: [RoomInfo...]}` |
+| `room-list-request` | Client -> Serveur | (vide) |
 | `room-closed` | Host -> All | `{roomId}` |
+| `room-update` | Host -> Serveur | `{roomId, ...}` (host only) |
+| `room-teleport` | Client -> Room | `{roomId, roomType}` |
+| `player-name-update` | Client -> Room | `{playerName}` |
 | `kick-player` | Host -> Target | `{roomId, playerId, reason}` |
 
 ### Messages Position VR (30Hz)
@@ -213,6 +236,15 @@ function broadcastToRoom(senderId, message) {
 }
 ```
 
+> Mains a 0 = mode Desktop (pas de mains visibles)
+
+### Messages Objets Interactifs
+
+| Type | Direction | Data |
+|------|-----------|------|
+| `obj-sync` | Client -> Room | Position/rotation/etat de l'objet |
+| `obj-state` | Client -> Room | Etat complet pour late joiners |
+
 ### Messages WebRTC (Point-to-Point)
 
 | Type | Data |
@@ -225,6 +257,7 @@ function broadcastToRoom(senderId, message) {
 
 | Type | Data |
 |------|------|
+| `whiteboard-draw` | `{whiteboardId, roomId, ...strokeData}` |
 | `whiteboard-batch` | `{whiteboardId, roomId, r/g/b/a, penSize, pointsFlat: [u,v,...]}` |
 | `whiteboard-clear` | `{whiteboardId, roomId}` |
 | `whiteboard-request` | `{whiteboardId, roomId}` |
@@ -237,6 +270,42 @@ function broadcastToRoom(senderId, message) {
 | `screen-share-start` | `{sharerId, sharerName}` |
 | `screen-share-frame` | `{imageData (base64 JPEG)}` |
 | `screen-share-stop` | `{sharerId}` |
+| `screen-share-request` | `{sharerId}` |
+| `screen-share-state` | `{targetId, ...}` |
+| `screen-video-offer` | `{targetId, sdp}` (point-to-point) |
+| `screen-video-answer` | `{targetId, sdp}` (point-to-point) |
+| `screen-video-ice` | `{targetId, candidate}` (point-to-point) |
+
+### Messages File Share
+
+| Type | Data |
+|------|------|
+| `file-announce` | `{fileId, fileName, fileSize, fileType}` |
+| `file-chunk` | `{fileId, chunkIndex, data}` |
+| `file-complete` | `{fileId}` |
+| `file-request` | `{fileId}` |
+| `file-list-request` | `{roomId}` |
+| `file-list-response` | `{targetId, files: [...]}` |
+
+### Messages File Presentation
+
+| Type | Data |
+|------|------|
+| `file-present-start` | `{fileId, fileName, totalPages}` |
+| `file-present-page` | `{fileId, pageIndex, imageData}` |
+| `file-present-navigate` | `{fileId, pageIndex}` |
+| `file-present-stop` | `{fileId}` |
+| `file-present-request` | `{roomId}` |
+| `file-present-state` | `{targetId, fileId, currentPage, ...}` |
+
+### Messages PDF
+
+| Type | Direction | Data |
+|------|-----------|------|
+| `pdf-convert-request` | Client -> Serveur | `{fileId, data (base64)}` |
+| `pdf-convert-response` | Serveur -> Client | `{fileId, totalPages, success}` |
+| `pdf-page-request` | Client -> Serveur | `{fileId, pageIndex}` |
+| `pdf-page-response` | Serveur -> Client | `{fileId, pageIndex, imageData}` |
 
 ---
 
@@ -273,6 +342,28 @@ Host                            Serveur                    Target
   |                                |--- room-list (broadcast) |
 ```
 
+### File Presentation
+
+```
+Presentateur                    Serveur                    Participants
+  |                                |                          |
+  |-- pdf-convert-request -------->|                          |
+  |<-- pdf-convert-response -------|                          |
+  |                                |                          |
+  |-- file-present-start --------->|                          |
+  |                                |--- file-present-start -->|
+  |                                |                          |
+  |-- file-present-page ---------->|                          |
+  |                                |--- file-present-page --->|
+  |                                |                          |
+  |-- file-present-navigate ------>| (late joiner)            |
+  |                                |<-- file-present-request -|
+  |                                |                          |
+  |<-- file-present-request -------|                          |
+  |-- file-present-state --------->|                          |
+  |                                |--- file-present-state -->|
+```
+
 ---
 
 ## Heartbeat et Timeout
@@ -305,8 +396,8 @@ const heartbeatInterval = setInterval(() => {
 | Evenement | Delai |
 |-----------|-------|
 | Ping serveur | Toutes les 30s |
-| Pong client | Automatique (WebSocket) |
-| Timeout | 60s sans pong |
+| Pong client | Automatique (protocole WebSocket) |
+| Timeout | 60s sans pong -> terminate + handleDisconnect |
 
 ---
 
@@ -332,7 +423,12 @@ const heartbeatInterval = setInterval(() => {
 | ID force | `message.senderId = clientId` dans handleMessage |
 | Isolation rooms | `broadcastToRoom` filtre par roomId |
 | Kick authority | Verification `room.hostId === clientId` |
+| Room update authority | Verification `room.hostId === clientId` |
+| Capacite rooms | Rejet si `playerCount >= maxPlayers` |
 | Timeout | Deconnexion automatique apres 60s |
+| Validation JSON | Try/catch sur tous les handlers |
+| Etat WebSocket | Verification `readyState === OPEN` |
+| Rate limiting (client) | Token bucket 60 msg/s dans Unity |
 
 ---
 
@@ -346,6 +442,7 @@ const heartbeatInterval = setInterval(() => {
 [Room] Join: e5f6g7h8 -> XYZ789
 [Room] Leave: e5f6g7h8 <- XYZ789
 [Room] Closed: XYZ789
+[Room] Update: XYZ789 by a1b2c3d4
 [Kick] Host a1b2c3d4 kicked e5f6g7h8 from XYZ789
 [Timeout] Client a1b2c3d4...
 [Disconnect] Client a1b2c3d4...
@@ -384,24 +481,13 @@ process.on('SIGINT', () => {
 
 ---
 
-## Modules Non Connectes
+## Changelog
 
-### auth.js
-
-| Fonction | Parametres | Retour |
-|----------|------------|--------|
-| `registerUser` | username, email, password, displayName | `{success, userId, error}` |
-| `loginUser` | username, password | `{success, userId, username, email, displayName, avatarColor, error}` |
-| `updateUserProfile` | userId, displayName, avatarColor | `{success, error}` |
-
-### db.js
-
-| Config | Valeur |
-|--------|--------|
-| Host | localhost |
-| Port | 3306 |
-| Database | vr_meeting |
-| Pool size | 10 connexions |
+| Date | Version | Description |
+|------|---------|-------------|
+| 2025-01-26 | 1.0 | Documentation initiale |
+| 2026-02-02 | 2.0 | Correction line counts (887), ajout 46 types de messages, ajout file presentation/PDF/objets interactifs/screen WebRTC, ajout fonctions communication |
+| 2026-02-02 | 2.1 | Suppression des sections base de donnees (Phase 3 non implementee) |
 
 ---
 
@@ -409,3 +495,5 @@ process.on('SIGINT', () => {
 
 - [GUIDE_DEPLOIEMENT_ENTREPRISE.md](./GUIDE_DEPLOIEMENT_ENTREPRISE.md) - Etat actuel du deploiement
 - [NETWORKING_CODE_EXPLAINED.md](./NETWORKING_CODE_EXPLAINED.md) - Code annote ligne par ligne
+- [SERVER_ARCHITECTURE_KO.md](./SERVER_ARCHITECTURE_KO.md) - Version coreenne
+- [CLAUDE.md](../CLAUDE.md) - Instructions projet

@@ -2,31 +2,41 @@
  * File Presentation Module - PDF Conversion
  *
  * Ce module gere la conversion des PDFs en images pour la presentation.
- * Necessite l'installation de pdf-poppler:
- *   npm install pdf-poppler
  *
- * Sur Windows, vous devez aussi installer Poppler:
- *   1. Telecharger depuis: https://github.com/oschwartz10612/poppler-windows/releases
- *   2. Extraire dans C:\Program Files\poppler
- *   3. Ajouter C:\Program Files\poppler\Library\bin au PATH
+ * Windows : utilise pdf-poppler (npm install pdf-poppler)
+ * Linux   : utilise pdftoppm (sudo apt install poppler-utils)
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 // Cache pour les PDFs convertis: fileId -> { pages: [base64...], totalPages, timestamp }
 const pdfCache = new Map();
 const PDF_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-// Verifier si pdf-poppler est disponible
+const isLinux = process.platform === 'linux' || process.platform === 'darwin';
+
+// Verifier les backends disponibles
 let pdfPoppler = null;
-try {
-    pdfPoppler = require('pdf-poppler');
-    console.log('[PDFModule] pdf-poppler loaded successfully');
-} catch (e) {
-    console.log('[PDFModule] pdf-poppler not installed. PDF conversion will not work.');
-    console.log('[PDFModule] To enable PDF conversion, run: npm install pdf-poppler');
+let hasPdftoppm = false;
+
+if (isLinux) {
+    try {
+        execFileSync('which', ['pdftoppm'], { stdio: 'pipe' });
+        hasPdftoppm = true;
+        console.log('[PDFModule] pdftoppm found (Linux/macOS backend)');
+    } catch (e) {
+        console.log('[PDFModule] pdftoppm not found. Install with: sudo apt install poppler-utils');
+    }
+} else {
+    try {
+        pdfPoppler = require('pdf-poppler');
+        console.log('[PDFModule] pdf-poppler loaded successfully (Windows backend)');
+    } catch (e) {
+        console.log('[PDFModule] pdf-poppler not installed. Run: npm install pdf-poppler');
+    }
 }
 
 /**
@@ -36,11 +46,13 @@ try {
  * @returns {Promise<{success: boolean, totalPages: number, error?: string}>}
  */
 async function convertPdfToImages(fileId, pdfBuffer) {
-    if (!pdfPoppler) {
+    if (!pdfPoppler && !hasPdftoppm) {
         return {
             success: false,
             totalPages: 0,
-            error: 'pdf-poppler not installed. Run: npm install pdf-poppler'
+            error: isLinux
+                ? 'pdftoppm not found. Install with: sudo apt install poppler-utils'
+                : 'pdf-poppler not installed. Run: npm install pdf-poppler'
         };
     }
 
@@ -53,23 +65,32 @@ async function convertPdfToImages(fileId, pdfBuffer) {
         fs.writeFileSync(pdfPath, pdfBuffer);
         fs.mkdirSync(outputDir);
 
-        // Options de conversion
-        const opts = {
-            format: 'jpeg',
-            out_dir: outputDir,
-            out_prefix: 'page',
-            page: null,  // Toutes les pages
-            scale: 1920  // Largeur max
-        };
-
-        // Convertir
-        await pdfPoppler.convert(pdfPath, opts);
+        if (hasPdftoppm) {
+            // Linux/macOS : utiliser pdftoppm
+            const outputPrefix = path.join(outputDir, 'page');
+            execFileSync('pdftoppm', [
+                '-jpeg',
+                '-scale-to-x', '1920',
+                '-scale-to-y', '-1',
+                pdfPath,
+                outputPrefix
+            ], { stdio: 'pipe', timeout: 60000 });
+        } else {
+            // Windows : utiliser pdf-poppler
+            const opts = {
+                format: 'jpeg',
+                out_dir: outputDir,
+                out_prefix: 'page',
+                page: null,
+                scale: 1920
+            };
+            await pdfPoppler.convert(pdfPath, opts);
+        }
 
         // Lire les pages converties
         const pageFiles = fs.readdirSync(outputDir)
             .filter(f => f.endsWith('.jpg') || f.endsWith('.jpeg'))
             .sort((a, b) => {
-                // Trier par numero de page
                 const numA = parseInt(a.match(/\d+/)?.[0] || '0');
                 const numB = parseInt(b.match(/\d+/)?.[0] || '0');
                 return numA - numB;
@@ -253,5 +274,5 @@ module.exports = {
     cleanupCache,
     handlePdfConvertRequest,
     handlePdfPageRequest,
-    pdfPoppler: !!pdfPoppler  // Indique si pdf-poppler est disponible
+    pdfAvailable: !!pdfPoppler || hasPdftoppm  // Indique si un backend PDF est disponible
 };
