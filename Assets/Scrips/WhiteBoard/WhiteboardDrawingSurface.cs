@@ -334,6 +334,9 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         if (batchData.draws == null || batchData.draws.Count == 0) return;
 
+        // Ne pas re-dessiner nos propres traits (deja appliques localement)
+        if (senderId == VRNetworkManager.LocalId) return;
+
         // Reset continuité si nouveau sender
         if (_lastSenderId != senderId)
         {

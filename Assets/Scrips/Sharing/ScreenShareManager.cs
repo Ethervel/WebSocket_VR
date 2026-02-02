@@ -14,18 +14,18 @@ public class ScreenShareManager : MonoBehaviour
 
     [Header("Capture Settings")]
     [Tooltip("Largeur de capture")]
-    public int captureWidth = 854;
+    public int captureWidth = 1280;
 
     [Tooltip("Hauteur de capture")]
-    public int captureHeight = 480;
+    public int captureHeight = 720;
 
     [Tooltip("Qualité JPEG (0-100)")]
     [Range(0, 100)]
-    public int jpegQuality = 50;
+    public int jpegQuality = 75;
 
     [Tooltip("Frames par seconde")]
     [Range(1, 15)]
-    public float captureFrameRate = 3f;
+    public float captureFrameRate = 5f;
 
     [Header("Debug")]
     [Tooltip("Activer les raccourcis clavier de test (F9=Start, F10=Stop)")]
