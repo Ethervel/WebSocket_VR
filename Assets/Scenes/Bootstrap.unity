@@ -6383,8 +6383,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: ws://192.168.0.37:8080
-  enforceSecureConnection: 0
+  serverUrl: wss://meeting.local
+  enforceSecureConnection: 1
   autoReconnect: 1
   reconnectDelay: 3
   welcomeTimeout: 5
@@ -25129,9 +25129,9 @@ MonoBehaviour:
   showDebugInfo: 1
   peerConnectionTimeout: 15
   useCustomTurnServer: 1
-  customTurnUrl: turn:192.168.0.37:3478
+  customTurnUrl: turn:meeting.local:3478
   customTurnUsername: vrmeeting
-  customTurnCredential: testpassword123
+  customTurnCredential: TurnPassword123
   enableTurnTcp: 1
 --- !u!4 &1816735480
 Transform:
