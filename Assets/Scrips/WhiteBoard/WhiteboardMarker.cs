@@ -40,8 +40,6 @@ public class WhiteboardMarker : MonoBehaviour
     private float _networkTimer;
     private List<float> _pendingPointsFlat = new List<float>();
     private string _currentSurfaceId;
-    private Vector2 _lastSentPoint = Vector2.zero;
-    private bool _hasLastSentPoint = false;
     private bool _isNewStroke = true; // Premier trait après levée du stylo
 
     // P1 FIX: Deferred Apply() to batch all SetPixels in a single Apply() per frame
@@ -139,23 +137,31 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Update()
     {
+        // GUARD 1: DesktopWhiteboardDrawer exclusively handles ALL desktop drawing.
+        // WhiteboardMarker must never send network messages in desktop mode,
+        // as this causes receivers to see double strokes (two overlapping lines).
+        if (DesktopWhiteboardDrawer.IsActive)
+        {
+            // Flush any pending data if we were drawing before DesktopWhiteboardDrawer became active
+            if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+            {
+                Debug.Log($"[WhiteboardMarker] GUARD: flushing {_pendingPointsFlat.Count / 2} pending points before yielding to DesktopDrawer");
+                SendBatchToNetwork();
+            }
+            _touchedLastFrame = false;
+            return;
+        }
+
+        // GUARD 2: Even if DesktopWhiteboardDrawer.IsActive is momentarily false
+        // (e.g., during player respawn), WhiteboardMarker must never handle desktop
+        // input. Only VR drawing (grab + raycast from tip) is allowed from this script.
+        if (_isDesktopMode)
+            return;
+
         if (_isHeld)
         {
             DrawVR();
             NetworkUpdate();
-        }
-        else if (_isDesktopMode && Mouse.current != null && Mouse.current.leftButton.isPressed)
-        {
-            DrawDesktop();
-            NetworkUpdate();
-        }
-        else if (_isDesktopMode && _touchedLastFrame)
-        {
-            if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
-            {
-                SendBatchToNetwork();
-            }
-            _touchedLastFrame = false;
         }
     }
 
@@ -306,7 +312,6 @@ public class WhiteboardMarker : MonoBehaviour
         _touchedLastFrame = false;
         _lastTouchPos = Vector2.zero;
         _pendingPointsFlat.Clear();
-        _hasLastSentPoint = false;
         _isNewStroke = true; // Prochain dessin sera un nouveau trait
     }
 
@@ -333,24 +338,10 @@ public class WhiteboardMarker : MonoBehaviour
 
         string currentRoomId = VRRoomManager.Instance.CurrentRoomId;
 
-        List<float> pointsToSend = new List<float>();
-
-        // Ne pas inclure le dernier point si c'est un nouveau trait (stylo levé)
-        if (_hasLastSentPoint && _pendingPointsFlat.Count >= 2 && !_isNewStroke)
-        {
-            pointsToSend.Add(_lastSentPoint.x);
-            pointsToSend.Add(_lastSentPoint.y);
-        }
-
-        pointsToSend.AddRange(_pendingPointsFlat);
-
-        if (_pendingPointsFlat.Count >= 2)
-        {
-            _lastSentPoint.x = _pendingPointsFlat[_pendingPointsFlat.Count - 2];
-            _lastSentPoint.y = _pendingPointsFlat[_pendingPointsFlat.Count - 1];
-            _hasLastSentPoint = true;
-        }
-
+        // FIX: Send points directly without overlap point prepending.
+        // The receiver already handles cross-batch continuity via _lastReceivedPoint gap-fill.
+        // The previous overlap point mechanism was redundant and could contribute to doubled strokes
+        // when combined with the receiver's own gap-fill interpolation.
         WhiteboardPacket packet = new WhiteboardPacket
         {
             whiteboardId = _currentSurfaceId,
@@ -360,9 +351,11 @@ public class WhiteboardMarker : MonoBehaviour
             b = currentColor.b,
             a = currentColor.a,
             penSize = penSize,
-            isNewStroke = _isNewStroke, // Indique si c'est un nouveau trait
-            pointsFlat = pointsToSend.ToArray()
+            isNewStroke = _isNewStroke,
+            pointsFlat = _pendingPointsFlat.ToArray()
         };
+
+        Debug.Log($"[WhiteboardMarker] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={_isNewStroke}, sender={VRNetworkManager.LocalId}");
 
         // Après le premier envoi, ce n'est plus un nouveau trait
         _isNewStroke = false;

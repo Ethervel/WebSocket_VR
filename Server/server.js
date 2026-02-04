@@ -668,7 +668,7 @@ async function handlePdfConvertRequest(clientId, dataStr) {
         const { roomId, fileId, requesterId } = data;
 
         // Use filePresentation module if available
-        if (filePresentation && filePresentation.pdfPoppler) {
+        if (filePresentation && filePresentation.pdfAvailable) {
             await filePresentation.handlePdfConvertRequest(clientId, data, clients, sendToClient);
             return;
         }
@@ -699,7 +699,7 @@ function handlePdfPageRequest(clientId, dataStr) {
         const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
         const { roomId, fileId, pageNumber, requesterId } = data;
 
-        if (filePresentation && filePresentation.pdfPoppler) {
+        if (filePresentation && filePresentation.pdfAvailable) {
             filePresentation.handlePdfPageRequest(clientId, data, clients, sendToClient);
             return;
         }

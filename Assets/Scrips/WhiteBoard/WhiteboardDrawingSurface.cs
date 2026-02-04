@@ -38,6 +38,14 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     private Vector2? _lastReceivedPoint = null;
     private string _lastSenderId = null;
 
+    // Duplicate ID detection: warn if multiple surfaces share the same ID
+    private static HashSet<string> _registeredSurfaceIds = new HashSet<string>();
+
+    // DEDUP FIX: Prevent duplicate batch processing (same batch applied twice)
+    // Tracks per-sender: (hash of last batch data, frame it was processed in)
+    private Dictionary<string, (int hash, int frame)> _lastBatchInfo = new Dictionary<string, (int hash, int frame)>();
+    private static int _activeSurfaceCount = 0;
+
     // P2 FIX: Cache clearPixels array to avoid 16MB allocation per ClearTexture() call
     private Color[] _cachedClearPixels;
 
@@ -56,8 +64,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
     void Start()
     {
+        // Duplicate ID detection: if another surface has the same ID, receivers will
+        // apply each network batch twice, causing the "2 superimposed lines" bug.
+        if (_registeredSurfaceIds.Contains(id))
+        {
+            Debug.LogError($"[DrawingSurface:{id}] DUPLICATE SURFACE ID! Another WhiteboardDrawingSurface " +
+                           $"with id=\"{id}\" already exists. This causes double-drawn strokes on receivers. " +
+                           $"Give each surface a unique id.");
+        }
+        _registeredSurfaceIds.Add(id);
+        _activeSurfaceCount++;
+
         InitializeTexture();
         SubscribeToNetwork();
+
+        Debug.Log($"[DrawingSurface:{id}] INIT: instanceId={GetInstanceID()}, activeSurfaces={_activeSurfaceCount}, registeredIds=[{string.Join(",", _registeredSurfaceIds)}]");
 
         // Si déjà dans une room, demander l'état
         if (VRRoomManager.Instance != null && VRRoomManager.Instance.IsInRoom)
@@ -78,6 +99,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     void OnDisable()
     {
         UnsubscribeFromNetwork();
+        _registeredSurfaceIds.Remove(id);
+        _activeSurfaceCount = Mathf.Max(0, _activeSurfaceCount - 1);
     }
 
     void InitializeTexture()
@@ -109,6 +132,7 @@ public class WhiteboardDrawingSurface : MonoBehaviour
             mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             mat.SetFloat("_ZWrite", 0);
+            mat.SetFloat("_Cull", 2); // Back-face culling: prevent double-rendering of transparent surface
             mat.renderQueue = 3001;
             mat.SetOverrideTag("RenderType", "Transparent");
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
@@ -336,6 +360,21 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         // Ne pas re-dessiner nos propres traits (deja appliques localement)
         if (senderId == VRNetworkManager.LocalId) return;
+
+        // DEDUP FIX: Detect and skip duplicate batches (same data from same sender within 2 frames)
+        int batchHash = dataJson.GetHashCode();
+        int currentFrame = Time.frameCount;
+        if (_lastBatchInfo.TryGetValue(senderId, out var lastInfo))
+        {
+            if (lastInfo.hash == batchHash && (currentFrame - lastInfo.frame) <= 2)
+            {
+                Debug.LogWarning($"[DrawingSurface:{id}] DEDUP: Skipping duplicate batch from={senderId}, frame={currentFrame}, lastFrame={lastInfo.frame}, instanceId={GetInstanceID()}");
+                return;
+            }
+        }
+        _lastBatchInfo[senderId] = (batchHash, currentFrame);
+
+        Debug.Log($"[DrawingSurface:{id}] RECV batch from={senderId}, packets={batchData.draws.Count}, firstPktPoints={batchData.draws[0].pointsFlat?.Length / 2}, isNewStroke={batchData.draws[0].isNewStroke}, frame={currentFrame}, instanceId={GetInstanceID()}");
 
         // Reset continuité si nouveau sender
         if (_lastSenderId != senderId)

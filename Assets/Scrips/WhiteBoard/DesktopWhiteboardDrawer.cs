@@ -49,6 +49,9 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
     // P2 FIX: Deferred Apply() to batch all SetPixels in a single Apply() per frame
     private bool _textureDirty = false;
 
+    // Static flag so WhiteboardMarker knows not to send duplicate network messages
+    public static bool IsActive { get; private set; }
+
     // Events pour notifier l'UI du changement de mode
     public static event System.Action<DrawingMode> OnModeChanged;
 
@@ -72,6 +75,23 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
         ApplyColor(currentColor);
         ApplyEraserColor();
+
+        IsActive = true;
+    }
+
+    void OnEnable()
+    {
+        IsActive = true;
+    }
+
+    void OnDisable()
+    {
+        IsActive = false;
+    }
+
+    void OnDestroy()
+    {
+        IsActive = false;
     }
 
     void Update()
@@ -269,6 +289,8 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             roomId = roomId,
             draws = new List<WhiteboardPacket> { packet }
         };
+
+        Debug.Log($"[DesktopDrawer] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={packet.isNewStroke}, mode={currentMode}, sender={VRNetworkManager.LocalId}");
 
         try
         {
