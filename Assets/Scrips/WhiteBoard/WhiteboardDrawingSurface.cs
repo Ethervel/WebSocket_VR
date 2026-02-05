@@ -374,7 +374,8 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         }
         _lastBatchInfo[senderId] = (batchHash, currentFrame);
 
-        Debug.Log($"[DrawingSurface:{id}] RECV batch from={senderId}, packets={batchData.draws.Count}, firstPktPoints={batchData.draws[0].pointsFlat?.Length / 2}, isNewStroke={batchData.draws[0].isNewStroke}, frame={currentFrame}, instanceId={GetInstanceID()}");
+        var firstPkt = batchData.draws[0];
+        Debug.Log($"[DrawingSurface:{id}] RECV batch from={senderId}, packets={batchData.draws.Count}, points={firstPkt.pointsFlat?.Length / 2}, isNewStroke={firstPkt.isNewStroke}, RGBA=({firstPkt.r:F2},{firstPkt.g:F2},{firstPkt.b:F2},{firstPkt.a:F2}), penSize={firstPkt.penSize}, frame={currentFrame}");
 
         // Reset continuité si nouveau sender
         if (_lastSenderId != senderId)

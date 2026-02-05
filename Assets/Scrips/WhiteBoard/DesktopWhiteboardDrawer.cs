@@ -290,7 +290,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             draws = new List<WhiteboardPacket> { packet }
         };
 
-        Debug.Log($"[DesktopDrawer] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={packet.isNewStroke}, mode={currentMode}, sender={VRNetworkManager.LocalId}");
+        Debug.Log($"[DesktopDrawer] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={packet.isNewStroke}, mode={currentMode}, RGBA=({colorToSend.r:F2},{colorToSend.g:F2},{colorToSend.b:F2},{colorToSend.a:F2}), penSize={sizeToSend}, sender={VRNetworkManager.LocalId}");
 
         try
         {
@@ -363,8 +363,21 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             return;
         }
 
+        // FIX: Flush pending points with the CURRENT mode's color/size BEFORE switching.
+        // Without this, pending erase points would be sent with blue (draw) color
+        // when switching Eraser→Cursor, causing blue dots on receivers.
+        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        {
+            Debug.Log($"[DesktopDrawer] SetMode: flushing {_pendingPointsFlat.Count / 2} pending points in mode={currentMode} before switching to {mode}");
+            SendBatchToNetwork();
+        }
+        // Reset draw state so Update()'s cursor-mode EndStroke() doesn't re-flush
+        _touchedLastFrame = false;
+        _currentSurface = null;
+        _isNewStroke = true; // New stroke boundary when switching modes
+
         currentMode = mode;
-        Debug.Log($"[DesktopDrawer] Mode changé avec succès: {currentMode}");
+        Debug.Log($"[DesktopDrawer] Mode changé: {currentMode}");
         OnModeChanged?.Invoke(mode);
     }
 

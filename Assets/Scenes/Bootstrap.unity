@@ -25131,7 +25131,7 @@ MonoBehaviour:
   useCustomTurnServer: 1
   customTurnUrl: turn:meeting.local:3478
   customTurnUsername: vrmeeting
-  customTurnCredential: TurnPassword123
+  customTurnCredential: TurnPassword123!
   enableTurnTcp: 1
 --- !u!4 &1816735480
 Transform:
