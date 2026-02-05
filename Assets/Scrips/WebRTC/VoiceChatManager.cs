@@ -541,6 +541,11 @@ public class VoiceChatManager : MonoBehaviour
             StopMicrophone();
         }
 
+        StartCoroutine(StartTestToneCoroutine());
+    }
+
+    IEnumerator StartTestToneCoroutine()
+    {
         // Generate a 440Hz sine wave clip (1 second, looping)
         int sampleRate = 48000;
         int samples = sampleRate; // 1 second
@@ -549,14 +554,17 @@ public class VoiceChatManager : MonoBehaviour
         float[] data = new float[samples];
         for (int i = 0; i < samples; i++)
         {
-            data[i] = Mathf.Sin(2f * Mathf.PI * frequency * i / sampleRate) * 0.5f;
+            // Add slight variation to make it more audible
+            data[i] = Mathf.Sin(2f * Mathf.PI * frequency * i / sampleRate) * 0.8f;
         }
         toneClip.SetData(data, 0);
 
         _microphoneAudioSource.clip = toneClip;
         _microphoneAudioSource.loop = true;
-        _microphoneAudioSource.volume = 0; // Don't play locally
+        _microphoneAudioSource.volume = 0.01f; // Very low but not zero (WebRTC needs non-zero)
         _microphoneAudioSource.Play();
+
+        yield return null; // Wait a frame for audio to start
 
         // Create WebRTC audio track from the tone
         _localAudioTrack = new AudioStreamTrack(_microphoneAudioSource);
@@ -566,14 +574,24 @@ public class VoiceChatManager : MonoBehaviour
         _isMicrophoneActive = true;
         _isTestToneActive = true;
 
-        Debug.Log("[VoiceChat] TEST TONE started (440Hz) - other player should hear a beep");
+        Debug.Log($"[VoiceChat] TEST TONE started (440Hz) - {_peerConnections.Count} peer connections");
         OnMicrophoneStateChanged?.Invoke(true);
 
-        // Add track to existing peer connections
+        // Add track to existing peer connections AND renegotiate
         foreach (var kvp in _peerConnections)
         {
-            AddTrackToPeer(kvp.Key);
+            string peerId = kvp.Key;
+            RTCPeerConnection pc = kvp.Value;
+
+            // Add the track
+            pc.AddTrack(_localAudioTrack, _localStream);
+            Debug.Log($"[VoiceChat] TEST TONE: Added track to {peerId}, renegotiating...");
+
+            // Renegotiate by creating a new offer
+            yield return StartCoroutine(CreateAndSendOffer(peerId, pc));
         }
+
+        Debug.Log("[VoiceChat] TEST TONE: Renegotiation complete - other player should hear a 440Hz beep now");
     }
 
     public void StopTestTone()

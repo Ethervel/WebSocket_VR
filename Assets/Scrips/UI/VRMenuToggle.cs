@@ -115,6 +115,13 @@ public class VRMenuToggle : MonoBehaviour
 
         menuCanvas.SetActive(_isMenuVisible);
 
+        // Desktop mode: unlock cursor for mouse interaction
+        if (_isMenuVisible && !UnityEngine.XR.XRSettings.isDeviceActive)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
         Debug.Log($"[VRMenuToggle] Menu {(_isMenuVisible ? "opened" : "closed")}");
     }
 
