@@ -71,6 +71,9 @@ public class VoiceChatManager : MonoBehaviour
     private AudioSource _microphoneAudioSource;
     private string _selectedMicrophone;
 
+    // Test tone (temporary - for testing without microphone)
+    private bool _isTestToneActive = false;
+
     // WebRTC
     // MINOR FIX: Added readonly to collections that are only assigned once
     private readonly Dictionary<string, RTCPeerConnection> _peerConnections = new Dictionary<string, RTCPeerConnection>();
@@ -524,7 +527,83 @@ public class VoiceChatManager : MonoBehaviour
     }
     
     #endregion
-    
+
+    #region Test Tone (temporary - remove when done testing)
+
+    public void StartTestTone()
+    {
+        if (!_isInitialized) return;
+        if (_isTestToneActive) return;
+
+        // Stop real microphone if active
+        if (_isMicrophoneActive)
+        {
+            StopMicrophone();
+        }
+
+        // Generate a 440Hz sine wave clip (1 second, looping)
+        int sampleRate = 48000;
+        int samples = sampleRate; // 1 second
+        float frequency = 440f;
+        AudioClip toneClip = AudioClip.Create("TestTone", samples, 1, sampleRate, false);
+        float[] data = new float[samples];
+        for (int i = 0; i < samples; i++)
+        {
+            data[i] = Mathf.Sin(2f * Mathf.PI * frequency * i / sampleRate) * 0.5f;
+        }
+        toneClip.SetData(data, 0);
+
+        _microphoneAudioSource.clip = toneClip;
+        _microphoneAudioSource.loop = true;
+        _microphoneAudioSource.volume = 0; // Don't play locally
+        _microphoneAudioSource.Play();
+
+        // Create WebRTC audio track from the tone
+        _localAudioTrack = new AudioStreamTrack(_microphoneAudioSource);
+        _localStream = new MediaStream();
+        _localStream.AddTrack(_localAudioTrack);
+
+        _isMicrophoneActive = true;
+        _isTestToneActive = true;
+
+        Debug.Log("[VoiceChat] TEST TONE started (440Hz) - other player should hear a beep");
+        OnMicrophoneStateChanged?.Invoke(true);
+
+        // Add track to existing peer connections
+        foreach (var kvp in _peerConnections)
+        {
+            AddTrackToPeer(kvp.Key);
+        }
+    }
+
+    public void StopTestTone()
+    {
+        if (!_isTestToneActive) return;
+
+        _microphoneAudioSource.Stop();
+        _microphoneAudioSource.clip = null;
+
+        if (_localAudioTrack != null)
+        {
+            _localAudioTrack.Dispose();
+            _localAudioTrack = null;
+        }
+
+        if (_localStream != null)
+        {
+            _localStream.Dispose();
+            _localStream = null;
+        }
+
+        _isMicrophoneActive = false;
+        _isTestToneActive = false;
+
+        Debug.Log("[VoiceChat] TEST TONE stopped");
+        OnMicrophoneStateChanged?.Invoke(false);
+    }
+
+    #endregion
+
     #region Room Events (ADAPTÉ)
     
     void OnRoomCreated(string roomId)
@@ -1099,6 +1178,20 @@ public class VoiceChatManager : MonoBehaviour
         if (GUILayout.Button(_isMicrophoneActive ? "Stop Mic 🔇" : "Start Mic 🎤"))
         {
             ToggleMicrophone();
+        }
+
+        // Test tone button (temporary)
+        GUILayout.Space(5);
+        if (GUILayout.Button(_isTestToneActive ? "⬛ Stop Test Tone" : "🔊 Send Test Tone (440Hz)"))
+        {
+            if (_isTestToneActive)
+                StopTestTone();
+            else
+                StartTestTone();
+        }
+        if (_isTestToneActive)
+        {
+            GUILayout.Label("SENDING 440Hz TONE...");
         }
 
         GUILayout.EndVertical();
