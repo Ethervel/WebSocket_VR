@@ -86,6 +86,14 @@ public class VRGameManager : MonoBehaviour
     // Cache pour éviter allocations GC à chaque sync
     private readonly VRPositionData _cachedPositionData = new VRPositionData();
 
+    // GC FIX: Cache pour la réception des messages (évite new à chaque message reçu)
+    private readonly VRPositionData _cachedReceivedPositionData = new VRPositionData();
+    private readonly LaserPointerData _cachedReceivedLaserData = new LaserPointerData();
+
+    // GC FIX: Cache pour GetAllRemotePlayers (évite new Dictionary à chaque appel)
+    private readonly Dictionary<string, GameObject> _cachedRemotePlayersResult = new Dictionary<string, GameObject>();
+    private bool _remotePlayersCacheDirty = true;
+
     // Cache XRInteractionManager pour éviter FindFirstObjectByType répété et fuites mémoire
     private XRInteractionManager _cachedInteractionManager;
 
@@ -105,6 +113,9 @@ public class VRGameManager : MonoBehaviour
 
     // VR FIX: Cached URP shader - Sprites/Default does NOT support Single Pass Instanced
     private static Shader _cachedURPUnlitShader;
+
+    // GC FIX: Cache materials to avoid creating new ones (key = color + renderQueue hash)
+    private static readonly Dictionary<int, Material> _cachedMaterials = new Dictionary<int, Material>();
 
     // Events
     public static event Action<GameObject> OnLocalPlayerSpawned;
@@ -595,21 +606,67 @@ public class VRGameManager : MonoBehaviour
         Debug.Log("[VRGame] Desktop input setup complete");
     }
 
+    // GC FIX: Cached StringBuilder for string operations
+    private static readonly System.Text.StringBuilder _stringBuilder = new System.Text.StringBuilder(64);
+
     Transform FindChildRecursive(Transform parent, string nameContains)
     {
-        string cleanSearch = nameContains.ToLower().Replace(" ", "");
-        
+        // GC FIX: Use cached StringBuilder and avoid repeated ToLower/Replace
+        _stringBuilder.Clear();
+        foreach (char c in nameContains)
+        {
+            if (c != ' ')
+                _stringBuilder.Append(char.ToLowerInvariant(c));
+        }
+        string cleanSearch = _stringBuilder.ToString();
+
+        return FindChildRecursiveInternal(parent, cleanSearch, nameContains);
+    }
+
+    Transform FindChildRecursiveInternal(Transform parent, string cleanSearch, string originalName)
+    {
         foreach (Transform child in parent)
         {
-            string cleanChildName = child.name.ToLower().Replace(" ", "");
-            
-            if (cleanChildName.Contains(cleanSearch))
+            // GC FIX: Build clean name without allocating new strings each recursion
+            _stringBuilder.Clear();
+            string childName = child.name;
+            for (int i = 0; i < childName.Length; i++)
             {
-                Debug.Log($"[VRGame] Found '{nameContains}' -> Actual name: '{child.name}'");
+                char c = childName[i];
+                if (c != ' ')
+                    _stringBuilder.Append(char.ToLowerInvariant(c));
+            }
+
+            // Check if contains (manual to avoid string allocation)
+            bool contains = false;
+            if (_stringBuilder.Length >= cleanSearch.Length)
+            {
+                for (int i = 0; i <= _stringBuilder.Length - cleanSearch.Length; i++)
+                {
+                    bool match = true;
+                    for (int j = 0; j < cleanSearch.Length; j++)
+                    {
+                        if (_stringBuilder[i + j] != cleanSearch[j])
+                        {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match)
+                    {
+                        contains = true;
+                        break;
+                    }
+                }
+            }
+
+            if (contains)
+            {
+                Debug.Log($"[VRGame] Found '{originalName}' -> Actual name: '{child.name}'");
                 return child;
             }
-            
-            var result = FindChildRecursive(child, nameContains);
+
+            var result = FindChildRecursiveInternal(child, cleanSearch, originalName);
             if (result != null)
                 return result;
         }
@@ -1045,6 +1102,7 @@ public class VRGameManager : MonoBehaviour
         ApplyAvatarColor(remote, avatarColor);
 
         _remotePlayers[playerData.playerId] = remote;
+        _remotePlayersCacheDirty = true; // GC FIX: Mark cache dirty
 
         Debug.Log($"[VRGame] Remote player spawned: {playerData.playerName} - " +
                   $"Head: {remote.head != null}, LeftHand: {remote.leftHand != null}, RightHand: {remote.rightHand != null}, Color: {avatarColor}");
@@ -1124,9 +1182,19 @@ public class VRGameManager : MonoBehaviour
     /// <summary>
     /// VR FIX: Creates a URP Unlit material compatible with Single Pass Instanced rendering.
     /// Sprites/Default does NOT support stereo instancing, causing broken visuals in VR headsets.
+    /// GC FIX: Materials are now cached to avoid creating new ones each call.
     /// </summary>
     static Material CreateVRCompatibleUnlitMaterial(Color color, int renderQueue = 3000)
     {
+        // GC FIX: Create a hash key from color and renderQueue
+        int hashKey = color.GetHashCode() ^ (renderQueue * 397);
+
+        // Check cache first
+        if (_cachedMaterials.TryGetValue(hashKey, out var cachedMat) && cachedMat != null)
+        {
+            return cachedMat;
+        }
+
         if (_cachedURPUnlitShader == null)
             _cachedURPUnlitShader = Shader.Find("Universal Render Pipeline/Unlit");
 
@@ -1135,6 +1203,7 @@ public class VRGameManager : MonoBehaviour
             Debug.LogWarning("[VRGame] URP Unlit shader not found, falling back to Sprites/Default");
             var fallback = new Material(Shader.Find("Sprites/Default"));
             fallback.color = color;
+            _cachedMaterials[hashKey] = fallback;
             return fallback;
         }
 
@@ -1148,6 +1217,9 @@ public class VRGameManager : MonoBehaviour
         mat.renderQueue = renderQueue;
         mat.SetOverrideTag("RenderType", "Transparent");
         mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+
+        // GC FIX: Cache the material
+        _cachedMaterials[hashKey] = mat;
         return mat;
     }
 
@@ -1281,6 +1353,7 @@ public class VRGameManager : MonoBehaviour
                 Destroy(remote.gameObject);
 
             _remotePlayers.Remove(playerId);
+            _remotePlayersCacheDirty = true; // GC FIX: Mark cache dirty
             OnRemotePlayerDespawned?.Invoke(playerId);
         }
     }
@@ -1307,6 +1380,7 @@ public class VRGameManager : MonoBehaviour
                 Destroy(remote.gameObject);
         }
         _remotePlayers.Clear();
+        _remotePlayersCacheDirty = true; // GC FIX: Mark cache dirty
     }
     
     void TeleportRemotePlayersToCurrentZone(RoomType roomType)
@@ -1384,6 +1458,7 @@ public class VRGameManager : MonoBehaviour
         // Réutilise l'objet caché pour éviter les allocations GC
         _cachedPositionData.roomId = VRRoomManager.Instance.CurrentRoomId;
         _cachedPositionData.roomType = VRRoomManager.Instance.CurrentRoomType;
+        _cachedPositionData.isDesktopMode = _isDesktopMode; // BUG FIX: Send explicit mode flag
         
         // ✅ OPTIMIZATION: Arrondir à 3 décimales (mm) pour réduire la taille du JSON
         _cachedPositionData.posX = Round(originTf.position.x);
@@ -1478,11 +1553,11 @@ public class VRGameManager : MonoBehaviour
             return;
         }
 
-        VRPositionData data;
+        // GC FIX: Use cached object with FromJsonOverwrite instead of FromJson (avoids allocation)
         try
         {
-            data = JsonUtility.FromJson<VRPositionData>(msg.data);
-            if (data == null || string.IsNullOrEmpty(data.roomId))
+            JsonUtility.FromJsonOverwrite(msg.data, _cachedReceivedPositionData);
+            if (string.IsNullOrEmpty(_cachedReceivedPositionData.roomId))
             {
                 Debug.LogWarning("[VRGame] Invalid vr-position data");
                 return;
@@ -1494,29 +1569,50 @@ public class VRGameManager : MonoBehaviour
             return;
         }
 
+        // GC FIX: Use local reference to cached data
+        var data = _cachedReceivedPositionData;
+
         if (VRRoomManager.Instance == null || data.roomId != VRRoomManager.Instance.CurrentRoomId)
             return;
 
         if (_remotePlayers.TryGetValue(msg.senderId, out var remote))
         {
-            remote.targetPosition = new Vector3(data.posX, data.posY, data.posZ);
+            // GC FIX: Set struct fields directly instead of new Vector3/Quaternion
+            remote.targetPosition.x = data.posX;
+            remote.targetPosition.y = data.posY;
+            remote.targetPosition.z = data.posZ;
             remote.targetRotation = Quaternion.Euler(0f, data.rotY, 0f);
 
-            remote.targetHeadPosition = new Vector3(data.headPosX, data.headPosY, data.headPosZ);
-            remote.targetHeadRotation = new Quaternion(data.headRotX, data.headRotY, data.headRotZ, data.headRotW);
+            remote.targetHeadPosition.x = data.headPosX;
+            remote.targetHeadPosition.y = data.headPosY;
+            remote.targetHeadPosition.z = data.headPosZ;
+            remote.targetHeadRotation.x = data.headRotX;
+            remote.targetHeadRotation.y = data.headRotY;
+            remote.targetHeadRotation.z = data.headRotZ;
+            remote.targetHeadRotation.w = data.headRotW;
 
-            // Check if remote player is in Desktop mode (all hand positions are zero)
-            bool remoteIsDesktop = data.leftHandPosX == 0 && data.leftHandPosY == 0 && data.leftHandPosZ == 0 &&
-                                   data.rightHandPosX == 0 && data.rightHandPosY == 0 && data.rightHandPosZ == 0 &&
-                                   data.leftHandRotW == 0 && data.rightHandRotW == 0;
+            // BUG FIX: Use explicit flag instead of inferring from hand positions
+            // Previous check (data.leftHandPosX == 0 && ...) caused false positives if VR player hands were at origin
+            bool remoteIsDesktop = data.isDesktopMode;
 
             if (syncHands && !remoteIsDesktop)
             {
-                remote.targetLeftHandPosition = new Vector3(data.leftHandPosX, data.leftHandPosY, data.leftHandPosZ);
-                remote.targetLeftHandRotation = new Quaternion(data.leftHandRotX, data.leftHandRotY, data.leftHandRotZ, data.leftHandRotW);
+                // GC FIX: Set struct fields directly
+                remote.targetLeftHandPosition.x = data.leftHandPosX;
+                remote.targetLeftHandPosition.y = data.leftHandPosY;
+                remote.targetLeftHandPosition.z = data.leftHandPosZ;
+                remote.targetLeftHandRotation.x = data.leftHandRotX;
+                remote.targetLeftHandRotation.y = data.leftHandRotY;
+                remote.targetLeftHandRotation.z = data.leftHandRotZ;
+                remote.targetLeftHandRotation.w = data.leftHandRotW;
 
-                remote.targetRightHandPosition = new Vector3(data.rightHandPosX, data.rightHandPosY, data.rightHandPosZ);
-                remote.targetRightHandRotation = new Quaternion(data.rightHandRotX, data.rightHandRotY, data.rightHandRotZ, data.rightHandRotW);
+                remote.targetRightHandPosition.x = data.rightHandPosX;
+                remote.targetRightHandPosition.y = data.rightHandPosY;
+                remote.targetRightHandPosition.z = data.rightHandPosZ;
+                remote.targetRightHandRotation.x = data.rightHandRotX;
+                remote.targetRightHandRotation.y = data.rightHandRotY;
+                remote.targetRightHandRotation.z = data.rightHandRotZ;
+                remote.targetRightHandRotation.w = data.rightHandRotW;
 
                 // Show hands for VR players
                 if (remote.leftHand != null) remote.leftHand.gameObject.SetActive(true);
@@ -1551,30 +1647,35 @@ public class VRGameManager : MonoBehaviour
         }
     }
 
+    // PERF: Threshold for skipping interpolation when already at target
+    private const float INTERPOLATION_THRESHOLD_SQR = 0.0001f; // 1cm squared
+
     void InterpolateRemotePlayers()
     {
+        // PERF: Early exit if no remote players
+        if (_remotePlayers.Count == 0) return;
+
         float t = Time.deltaTime * interpolationSpeed;
 
         foreach (var remote in _remotePlayers.Values)
         {
             if (remote.gameObject == null || !remote.hasReceivedData)
                 continue;
-                
+
             if (!remote.gameObject.activeSelf)
                 continue;
 
-            // Corps : world
-            remote.gameObject.transform.position = Vector3.Lerp(
-                remote.gameObject.transform.position,
-                remote.targetPosition,
-                t
-            );
+            // PERF: Cache transform reference to avoid repeated property access
+            Transform bodyTransform = remote.gameObject.transform;
 
-            remote.gameObject.transform.rotation = Quaternion.Slerp(
-                remote.gameObject.transform.rotation,
-                remote.targetRotation,
-                t
-            );
+            // Corps : world - PERF: Skip if already at target
+            float bodyDistSqr = (bodyTransform.position - remote.targetPosition).sqrMagnitude;
+            if (bodyDistSqr > INTERPOLATION_THRESHOLD_SQR)
+            {
+                bodyTransform.position = Vector3.Lerp(bodyTransform.position, remote.targetPosition, t);
+            }
+
+            bodyTransform.rotation = Quaternion.Slerp(bodyTransform.rotation, remote.targetRotation, t);
 
             // Tête : WORLD (avec offset de rotation du prefab)
             if (remote.head != null)
@@ -1648,21 +1749,28 @@ public class VRGameManager : MonoBehaviour
 
     #region Laser Pointer (Remote)
 
+    // GC FIX: Cached vectors for laser pointer to avoid allocations
+    private Vector3 _cachedLaserOrigin;
+    private Vector3 _cachedLaserHitPoint;
+    private Color _cachedLaserColor;
+
     void HandleLaserPointerMessage(NetworkMessage msg)
     {
         if (string.IsNullOrEmpty(msg.data)) return;
 
-        LaserPointerData data;
+        // GC FIX: Use FromJsonOverwrite with cached object
         try
         {
-            data = JsonUtility.FromJson<LaserPointerData>(msg.data);
-            if (data == null || string.IsNullOrEmpty(data.roomId)) return;
+            JsonUtility.FromJsonOverwrite(msg.data, _cachedReceivedLaserData);
+            if (string.IsNullOrEmpty(_cachedReceivedLaserData.roomId)) return;
         }
         catch (Exception e)
         {
             Debug.LogError($"[VRGame] JSON parse error for laser-pointer: {e.Message}");
             return;
         }
+
+        var data = _cachedReceivedLaserData;
 
         if (VRRoomManager.Instance == null || data.roomId != VRRoomManager.Instance.CurrentRoomId)
             return;
@@ -1675,30 +1783,44 @@ public class VRGameManager : MonoBehaviour
             // Create or show laser visuals
             EnsureRemoteLaserVisuals(remote, data);
 
-            Vector3 origin = new Vector3(data.originX, data.originY, data.originZ);
-            Vector3 hitPoint = new Vector3(data.hitX, data.hitY, data.hitZ);
-            Color color = new Color(data.colorR, data.colorG, data.colorB, 1f);
+            // GC FIX: Reuse cached vectors instead of new
+            _cachedLaserOrigin.x = data.originX;
+            _cachedLaserOrigin.y = data.originY;
+            _cachedLaserOrigin.z = data.originZ;
+            _cachedLaserHitPoint.x = data.hitX;
+            _cachedLaserHitPoint.y = data.hitY;
+            _cachedLaserHitPoint.z = data.hitZ;
+            _cachedLaserColor.r = data.colorR;
+            _cachedLaserColor.g = data.colorG;
+            _cachedLaserColor.b = data.colorB;
+            _cachedLaserColor.a = 1f;
 
             // Update line
             if (remote.laserLine != null)
             {
-                remote.laserLine.startColor = color;
-                remote.laserLine.endColor = color;
-                remote.laserLine.SetPosition(0, origin);
-                remote.laserLine.SetPosition(1, hitPoint);
+                remote.laserLine.startColor = _cachedLaserColor;
+                remote.laserLine.endColor = _cachedLaserColor;
+                remote.laserLine.SetPosition(0, _cachedLaserOrigin);
+                remote.laserLine.SetPosition(1, _cachedLaserHitPoint);
                 remote.laserLine.enabled = true;
             }
 
             // Update dot
             if (remote.laserDot != null)
             {
-                remote.laserDot.transform.position = hitPoint;
+                remote.laserDot.transform.position = _cachedLaserHitPoint;
                 remote.laserDot.SetActive(true);
 
+                // GC FIX: Use MaterialPropertyBlock instead of material.color
                 var dotRenderer = remote.laserDot.GetComponent<MeshRenderer>();
                 if (dotRenderer != null)
                 {
-                    dotRenderer.material.color = color;
+                    if (_cachedPropertyBlock == null)
+                        _cachedPropertyBlock = new MaterialPropertyBlock();
+                    dotRenderer.GetPropertyBlock(_cachedPropertyBlock);
+                    _cachedPropertyBlock.SetColor("_BaseColor", _cachedLaserColor);
+                    _cachedPropertyBlock.SetColor("_Color", _cachedLaserColor);
+                    dotRenderer.SetPropertyBlock(_cachedPropertyBlock);
                 }
             }
 
@@ -1816,11 +1938,18 @@ public class VRGameManager : MonoBehaviour
 
     public Dictionary<string, GameObject> GetAllRemotePlayers()
     {
-        var result = new Dictionary<string, GameObject>();
-        foreach (var kvp in _remotePlayers)
-            if (kvp.Value.gameObject != null)
-                result[kvp.Key] = kvp.Value.gameObject;
-        return result;
+        // GC FIX: Return cached dictionary, only rebuild when dirty
+        if (_remotePlayersCacheDirty)
+        {
+            _cachedRemotePlayersResult.Clear();
+            foreach (var kvp in _remotePlayers)
+            {
+                if (kvp.Value.gameObject != null)
+                    _cachedRemotePlayersResult[kvp.Key] = kvp.Value.gameObject;
+            }
+            _remotePlayersCacheDirty = false;
+        }
+        return _cachedRemotePlayersResult;
     }
 
     #endregion
@@ -1872,6 +2001,9 @@ public class VRPositionData
 {
     public string roomId;
     public RoomType roomType;
+
+    // BUG FIX: Explicit desktop mode flag instead of inferring from hand positions
+    public bool isDesktopMode;
 
     public float posX, posY, posZ;
     public float rotY;

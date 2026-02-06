@@ -397,58 +397,6 @@ public class FileShareManager : MonoBehaviour
 
     #region Network Message Handling
 
-    /// <summary>
-    /// IMPORTANT FIX: Safe JSON deserialization with validation.
-    /// Returns null if deserialization fails or data is invalid.
-    /// </summary>
-    private T TryDeserialize<T>(string json, string context) where T : class
-    {
-        if (string.IsNullOrEmpty(json))
-        {
-            Debug.LogWarning($"[FileShare] Empty JSON data for {context}");
-            return null;
-        }
-
-        try
-        {
-            T result = JsonUtility.FromJson<T>(json);
-            if (result == null)
-            {
-                Debug.LogWarning($"[FileShare] Null result from JSON for {context}");
-                return null;
-            }
-            return result;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[FileShare] JSON parse error for {context}: {e.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// IMPORTANT FIX: Safe Base64 decode with validation.
-    /// Returns null if decode fails.
-    /// </summary>
-    private byte[] TryDecodeBase64(string base64Data, string context)
-    {
-        if (string.IsNullOrEmpty(base64Data))
-        {
-            Debug.LogWarning($"[FileShare] Empty Base64 data for {context}");
-            return null;
-        }
-
-        try
-        {
-            return Convert.FromBase64String(base64Data);
-        }
-        catch (FormatException e)
-        {
-            Debug.LogError($"[FileShare] Base64 decode error for {context}: {e.Message}");
-            return null;
-        }
-    }
-
     void HandleNetworkMessage(NetworkMessage msg)
     {
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
@@ -479,7 +427,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileRemoved(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileRemovedData>(msg.data, "file-removed");
+        var data = JsonHelper.TryDeserialize<FileRemovedData>(msg.data, "file-removed");
         if (data == null) return;
 
         // Room filtering
@@ -503,7 +451,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileUpload(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileShareUploadData>(msg.data, "file-share-upload");
+        var data = JsonHelper.TryDeserialize<FileShareUploadData>(msg.data, "file-share-upload");
         if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
@@ -513,7 +461,7 @@ public class FileShareManager : MonoBehaviour
         if (data.sharerId == VRNetworkManager.LocalId) return;
 
         // IMPORTANT FIX: Validate file data before processing
-        byte[] fileContent = TryDecodeBase64(data.fileDataBase64, $"file-upload:{data.fileId}");
+        byte[] fileContent = JsonHelper.TryDecodeBase64(data.fileDataBase64, $"file-upload:{data.fileId}");
         if (fileContent == null) return;
 
         // IMPORTANT FIX: Validate file size matches claimed size (prevent truncation attacks)
@@ -547,7 +495,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileListRequest(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileListRequestData>(msg.data, "file-list-request");
+        var data = JsonHelper.TryDeserialize<FileListRequestData>(msg.data, "file-list-request");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return;
 
         // Room filtering
@@ -585,7 +533,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleFileListResponse(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileListResponseData>(msg.data, "file-list-response");
+        var data = JsonHelper.TryDeserialize<FileListResponseData>(msg.data, "file-list-response");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return;
 
         // Room filtering
@@ -597,7 +545,7 @@ public class FileShareManager : MonoBehaviour
         // IMPORTANT FIX: Mark list response as received for timeout handling
         _waitingForListResponse = false;
 
-        var fileList = TryDeserialize<FileMetadataList>(data.filesJson, "file-list-inner");
+        var fileList = JsonHelper.TryDeserialize<FileMetadataList>(data.filesJson, "file-list-inner");
         if (fileList?.files == null) return;
 
         int addedCount = 0;
@@ -622,7 +570,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleDownloadRequest(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileDownloadRequestData>(msg.data, "file-download-request");
+        var data = JsonHelper.TryDeserialize<FileDownloadRequestData>(msg.data, "file-download-request");
         if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
@@ -649,7 +597,7 @@ public class FileShareManager : MonoBehaviour
 
     void HandleDownloadResponse(NetworkMessage msg)
     {
-        var data = TryDeserialize<FileDownloadResponseData>(msg.data, "file-download-response");
+        var data = JsonHelper.TryDeserialize<FileDownloadResponseData>(msg.data, "file-download-response");
         if (data == null || string.IsNullOrEmpty(data.fileId)) return;
 
         // Room filtering
@@ -659,7 +607,7 @@ public class FileShareManager : MonoBehaviour
         if (data.targetPlayerId != VRNetworkManager.LocalId) return;
 
         // IMPORTANT FIX: Safe Base64 decode
-        byte[] fileData = TryDecodeBase64(data.fileDataBase64, $"file-download:{data.fileId}");
+        byte[] fileData = JsonHelper.TryDecodeBase64(data.fileDataBase64, $"file-download:{data.fileId}");
         if (fileData == null)
         {
             OnFileShareError?.Invoke(data.fileId, "Download failed: Invalid data");

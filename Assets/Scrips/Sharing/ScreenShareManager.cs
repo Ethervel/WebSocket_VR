@@ -57,6 +57,11 @@ public class ScreenShareManager : MonoBehaviour
     private Coroutine _pendingRequestCoroutine;
     private Texture2D _windowTexture;
 
+    // PERF: Cached arrays to avoid GC allocation on every frame
+    private Color[] _cachedSourcePixels;
+    private Color[] _cachedDestPixels;
+    private Color32[] _cachedPixels32;
+
     // IMPORTANT FIX: Timeout handling for late joiner state requests
     [Header("State Request Timeout")]
     [Tooltip("Timeout in seconds waiting for state response")]
@@ -355,6 +360,11 @@ public class ScreenShareManager : MonoBehaviour
             Destroy(_windowTexture);
             _windowTexture = null;
         }
+
+        // PERF: Release cached arrays to free memory when not sharing
+        _cachedSourcePixels = null;
+        _cachedDestPixels = null;
+        _cachedPixels32 = null;
     }
 
     IEnumerator CaptureLoop()
@@ -431,8 +441,15 @@ public class ScreenShareManager : MonoBehaviour
     {
         int width = source.width;
         int height = source.height;
-        Color[] sourcePixels = source.GetPixels();
-        Color[] destPixels = new Color[sourcePixels.Length];
+        int pixelCount = width * height;
+
+        // PERF: Reuse cached arrays to avoid GC allocation every frame
+        if (_cachedSourcePixels == null || _cachedSourcePixels.Length != pixelCount)
+            _cachedSourcePixels = new Color[pixelCount];
+        if (_cachedDestPixels == null || _cachedDestPixels.Length != pixelCount)
+            _cachedDestPixels = new Color[pixelCount];
+
+        source.GetPixels(_cachedSourcePixels);
 
         for (int y = 0; y < height; y++)
         {
@@ -440,11 +457,11 @@ public class ScreenShareManager : MonoBehaviour
             {
                 int srcIndex = y * width + x;
                 int dstIndex = y * width + (width - 1 - x);
-                destPixels[dstIndex] = sourcePixels[srcIndex];
+                _cachedDestPixels[dstIndex] = _cachedSourcePixels[srcIndex];
             }
         }
 
-        destination.SetPixels(destPixels);
+        destination.SetPixels(_cachedDestPixels);
         destination.Apply();
     }
 
@@ -452,75 +469,36 @@ public class ScreenShareManager : MonoBehaviour
     {
         int width = texture.width;
         int height = texture.height;
-        Color32[] pixels = texture.GetPixels32();
+        int pixelCount = width * height;
+
+        // PERF: Reuse cached array to avoid GC allocation every frame
+        if (_cachedPixels32 == null || _cachedPixels32.Length != pixelCount)
+            _cachedPixels32 = new Color32[pixelCount];
+
+        texture.GetPixels32(_cachedPixels32);
 
         for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < width / 2; x++)
+            int halfWidth = width / 2;
+            int rowOffset = y * width;
+            for (int x = 0; x < halfWidth; x++)
             {
-                int leftIndex = y * width + x;
-                int rightIndex = y * width + (width - 1 - x);
+                int leftIndex = rowOffset + x;
+                int rightIndex = rowOffset + (width - 1 - x);
 
-                Color32 temp = pixels[leftIndex];
-                pixels[leftIndex] = pixels[rightIndex];
-                pixels[rightIndex] = temp;
+                Color32 temp = _cachedPixels32[leftIndex];
+                _cachedPixels32[leftIndex] = _cachedPixels32[rightIndex];
+                _cachedPixels32[rightIndex] = temp;
             }
         }
 
-        texture.SetPixels32(pixels);
+        texture.SetPixels32(_cachedPixels32);
         texture.Apply();
     }
 
     #endregion
 
     #region Network Handlers
-
-    /// <summary>
-    /// IMPORTANT FIX: Safe JSON deserialization with validation.
-    /// </summary>
-    private T TryDeserialize<T>(string json, string context) where T : class
-    {
-        if (string.IsNullOrEmpty(json))
-        {
-            Debug.LogWarning($"[ScreenShare] Empty JSON data for {context}");
-            return null;
-        }
-
-        try
-        {
-            T result = JsonUtility.FromJson<T>(json);
-            if (result == null)
-            {
-                Debug.LogWarning($"[ScreenShare] Null result from JSON for {context}");
-                return null;
-            }
-            return result;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[ScreenShare] JSON parse error for {context}: {e.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// IMPORTANT FIX: Safe Base64 decode for image data.
-    /// </summary>
-    private byte[] TryDecodeBase64(string base64Data, string context)
-    {
-        if (string.IsNullOrEmpty(base64Data))
-            return null;
-
-        try
-        {
-            return Convert.FromBase64String(base64Data);
-        }
-        catch (FormatException e)
-        {
-            Debug.LogError($"[ScreenShare] Base64 decode error for {context}: {e.Message}");
-            return null;
-        }
-    }
 
     void HandleNetworkMessage(NetworkMessage msg)
     {
@@ -549,7 +527,7 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareStart(NetworkMessage msg)
     {
-        var data = TryDeserialize<ScreenShareStartData>(msg.data, "screen-share-start");
+        var data = JsonHelper.TryDeserialize<ScreenShareStartData>(msg.data, "screen-share-start");
         if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -573,7 +551,7 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareStop(NetworkMessage msg)
     {
-        var data = TryDeserialize<ScreenShareStopData>(msg.data, "screen-share-stop");
+        var data = JsonHelper.TryDeserialize<ScreenShareStopData>(msg.data, "screen-share-stop");
         if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -598,7 +576,7 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareFrame(NetworkMessage msg)
     {
-        var data = TryDeserialize<ScreenShareFrameData>(msg.data, "screen-share-frame");
+        var data = JsonHelper.TryDeserialize<ScreenShareFrameData>(msg.data, "screen-share-frame");
         if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -607,7 +585,7 @@ public class ScreenShareManager : MonoBehaviour
         if (state.sharerId != data.sharerId) return;
 
         // IMPORTANT FIX: Safe Base64 decode
-        byte[] jpegData = TryDecodeBase64(data.imageData, "frame-image");
+        byte[] jpegData = JsonHelper.TryDecodeBase64(data.imageData, "frame-image");
         if (jpegData == null || jpegData.Length == 0) return;
 
         // IMPORTANT FIX: Validate texture before loading
@@ -631,7 +609,7 @@ public class ScreenShareManager : MonoBehaviour
     {
         if (!_isSharing) return;
 
-        var data = TryDeserialize<ScreenShareRequestData>(msg.data, "screen-share-request");
+        var data = JsonHelper.TryDeserialize<ScreenShareRequestData>(msg.data, "screen-share-request");
         if (data == null) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;
@@ -656,7 +634,7 @@ public class ScreenShareManager : MonoBehaviour
 
     void HandleShareState(NetworkMessage msg)
     {
-        var data = TryDeserialize<ScreenShareStateData>(msg.data, "screen-share-state");
+        var data = JsonHelper.TryDeserialize<ScreenShareStateData>(msg.data, "screen-share-state");
         if (data == null || string.IsNullOrEmpty(data.whiteboardId)) return;
 
         if (data.roomId != VRRoomManager.Instance.CurrentRoomId) return;

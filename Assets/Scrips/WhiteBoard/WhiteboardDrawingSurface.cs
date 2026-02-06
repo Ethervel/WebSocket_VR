@@ -49,6 +49,11 @@ public class WhiteboardDrawingSurface : MonoBehaviour
     // P2 FIX: Cache clearPixels array to avoid 16MB allocation per ClearTexture() call
     private Color[] _cachedClearPixels;
 
+    // PERF: Cache paint pixels array to avoid allocation every ApplyPacket() call
+    private Color[] _cachedPaintPixels;
+    private int _cachedPaintPixelsSize;
+    private Color _cachedPaintColor;
+
     // P2 FIX: Track pending state request coroutine to prevent duplicates
     private Coroutine _pendingStateRequestCoroutine;
 
@@ -423,10 +428,23 @@ public class WhiteboardDrawingSurface : MonoBehaviour
 
         int sizeX = packet.penSize;
         int sizeY = packet.penSizeY > 0 ? packet.penSizeY : packet.penSize;
-
         int pixelCount = sizeX * sizeY;
-        Color[] paintPixels = new Color[pixelCount];
-        for (int i = 0; i < pixelCount; i++) paintPixels[i] = col;
+
+        // PERF: Reuse cached array and only reallocate if size changed or color changed
+        if (_cachedPaintPixels == null || _cachedPaintPixelsSize != pixelCount)
+        {
+            _cachedPaintPixels = new Color[pixelCount];
+            _cachedPaintPixelsSize = pixelCount;
+            _cachedPaintColor = col;
+            for (int i = 0; i < pixelCount; i++) _cachedPaintPixels[i] = col;
+        }
+        else if (_cachedPaintColor != col)
+        {
+            _cachedPaintColor = col;
+            for (int i = 0; i < pixelCount; i++) _cachedPaintPixels[i] = col;
+        }
+
+        Color[] paintPixels = _cachedPaintPixels;
 
         // Distance max pour interpoler (25% de la texture = ~512px sur 2048)
         float maxInterpolationDistance = textureSize.x * 0.25f;

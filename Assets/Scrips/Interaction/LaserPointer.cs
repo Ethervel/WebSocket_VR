@@ -37,6 +37,10 @@ public class LaserPointer : MonoBehaviour
     // Cached network data
     private readonly LaserPointerData _cachedData = new LaserPointerData();
 
+    // PERF: Cached raycast result to avoid double raycast per frame
+    private Vector3 _cachedOrigin;
+    private Vector3 _cachedEndPoint;
+
     // Cached VR-compatible shader (Sprites/Default does NOT support Single Pass Instanced)
     private static Shader _cachedUnlitShader;
 
@@ -79,12 +83,12 @@ public class LaserPointer : MonoBehaviour
         }
         else
         {
-            // VR: ray from right hand controller
-            _rayOrigin = FindChildRecursive(transform, "rightcontroller");
+            // VR: ray from right hand controller - use shared utility
+            _rayOrigin = TransformUtility.FindChildRecursive(transform, "rightcontroller");
             if (_rayOrigin == null)
-                _rayOrigin = FindChildRecursive(transform, "righthand");
+                _rayOrigin = TransformUtility.FindChildRecursive(transform, "righthand");
             if (_rayOrigin == null)
-                _rayOrigin = FindChildRecursive(transform, "right");
+                _rayOrigin = TransformUtility.FindChildRecursive(transform, "right");
         }
 
         if (_rayOrigin == null)
@@ -95,21 +99,6 @@ public class LaserPointer : MonoBehaviour
         }
 
         Debug.Log($"[LaserPointer] Ray origin: {(_rayOrigin != null ? _rayOrigin.name : "NULL")}, mode: {(_isDesktopMode ? "Desktop" : "VR")}");
-    }
-
-    Transform FindChildRecursive(Transform parent, string nameContains)
-    {
-        string search = nameContains.ToLower().Replace(" ", "");
-        foreach (Transform child in parent)
-        {
-            string childName = child.name.ToLower().Replace(" ", "");
-            if (childName.Contains(search))
-                return child;
-
-            var result = FindChildRecursive(child, nameContains);
-            if (result != null) return result;
-        }
-        return null;
     }
 
     /// <summary>
@@ -233,14 +222,13 @@ public class LaserPointer : MonoBehaviour
 
     void UpdateLaser()
     {
-        Vector3 origin = _rayOrigin.position;
+        // PERF: Cache origin and direction for reuse in UpdateNetworkSync
+        _cachedOrigin = _rayOrigin.position;
         Vector3 direction = _rayOrigin.forward;
 
-        Vector3 endPoint;
-
-        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, _raycastMask))
+        if (Physics.Raycast(_cachedOrigin, direction, out RaycastHit hit, maxDistance, _raycastMask))
         {
-            endPoint = hit.point;
+            _cachedEndPoint = hit.point;
 
             // Show and position dot at hit point
             if (_hitDot != null)
@@ -253,7 +241,7 @@ public class LaserPointer : MonoBehaviour
         }
         else
         {
-            endPoint = origin + direction * maxDistance;
+            _cachedEndPoint = _cachedOrigin + direction * maxDistance;
 
             // Hide dot when no hit
             if (_hitDot != null) _hitDot.SetActive(false);
@@ -262,8 +250,8 @@ public class LaserPointer : MonoBehaviour
         // Update line renderer
         if (_lineRenderer != null)
         {
-            _lineRenderer.SetPosition(0, origin);
-            _lineRenderer.SetPosition(1, endPoint);
+            _lineRenderer.SetPosition(0, _cachedOrigin);
+            _lineRenderer.SetPosition(1, _cachedEndPoint);
         }
     }
 
@@ -273,22 +261,8 @@ public class LaserPointer : MonoBehaviour
         if (_syncTimer < 1f / syncRate) return;
         _syncTimer = 0f;
 
-        if (_rayOrigin == null) return;
-
-        Vector3 origin = _rayOrigin.position;
-        Vector3 direction = _rayOrigin.forward;
-        Vector3 hitPoint;
-
-        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, _raycastMask))
-        {
-            hitPoint = hit.point;
-        }
-        else
-        {
-            hitPoint = origin + direction * maxDistance;
-        }
-
-        SendLaserUpdate(true, origin, hitPoint);
+        // PERF: Reuse cached raycast result from UpdateLaser() instead of raycasting again
+        SendLaserUpdate(true, _cachedOrigin, _cachedEndPoint);
     }
 
     void SendLaserUpdate(bool active, Vector3 origin, Vector3 hitPoint)

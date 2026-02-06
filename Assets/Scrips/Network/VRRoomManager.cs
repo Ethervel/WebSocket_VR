@@ -465,7 +465,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a new room becomes available
     void HandleRoomAvailable(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomInfo>(msg.data, "room-available");
+        var data = JsonHelper.TryDeserialize<RoomInfo>(msg.data, "room-available");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         _availableRooms[data.roomId] = data;
@@ -476,7 +476,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a room is closed by its host
     void HandleRoomClosed(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomInfo>(msg.data, "room-closed");
+        var data = JsonHelper.TryDeserialize<RoomInfo>(msg.data, "room-closed");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         _availableRooms.Remove(data.roomId);
@@ -502,7 +502,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a player requests to join this room (host only)
     void HandleRoomJoin(NetworkMessage msg)
     {
-        var request = TryDeserialize<RoomJoinRequest>(msg.data, "room-join");
+        var request = JsonHelper.TryDeserialize<RoomJoinRequest>(msg.data, "room-join");
         if (request == null || string.IsNullOrEmpty(request.roomId)) return; // P0 FIX: Validate
 
         // Only process join requests for our own room if we're host
@@ -542,7 +542,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when host sends the authoritative players list
     void HandleRoomWelcome(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomWelcomeData>(msg.data, "room-welcome");
+        var data = JsonHelper.TryDeserialize<RoomWelcomeData>(msg.data, "room-welcome");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         if (!IsInRoom || data.roomId != CurrentRoomId)
@@ -572,7 +572,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a player leaves the room
     void HandleRoomLeave(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomLeaveData>(msg.data, "room-leave");
+        var data = JsonHelper.TryDeserialize<RoomLeaveData>(msg.data, "room-leave");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         if (!IsInRoom || data.roomId != CurrentRoomId)
@@ -595,7 +595,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when server sends updated room list
     void HandleRoomList(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomListData>(msg.data, "room-list");
+        var data = JsonHelper.TryDeserialize<RoomListData>(msg.data, "room-list");
         if (data == null || data.rooms == null) return; // P0 FIX: Validate
 
         _availableRooms.Clear();
@@ -611,7 +611,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a player teleports to a different zone
     void HandleRoomTeleport(NetworkMessage msg)
     {
-        var data = TryDeserialize<RoomTeleportData>(msg.data, "room-teleport");
+        var data = JsonHelper.TryDeserialize<RoomTeleportData>(msg.data, "room-teleport");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         if (!IsInRoom || data.roomId != CurrentRoomId)
@@ -627,7 +627,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when a player updates their display name
     void HandlePlayerNameUpdate(NetworkMessage msg)
     {
-        var data = TryDeserialize<PlayerNameUpdate>(msg.data, "player-name-update");
+        var data = JsonHelper.TryDeserialize<PlayerNameUpdate>(msg.data, "player-name-update");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         if (!IsInRoom || data.roomId != CurrentRoomId)
@@ -642,7 +642,7 @@ public class VRRoomManager : MonoBehaviour
 
     void HandleAvatarUpdate(NetworkMessage msg)
     {
-        var data = TryDeserialize<AvatarUpdateData>(msg.data, "avatar-update");
+        var data = JsonHelper.TryDeserialize<AvatarUpdateData>(msg.data, "avatar-update");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return; // P0 FIX: Validate
 
         if (!IsInRoom || data.roomId != CurrentRoomId)
@@ -670,7 +670,7 @@ public class VRRoomManager : MonoBehaviour
     // Called when this player is kicked from the room
     void HandleKickPlayer(NetworkMessage msg)
     {
-        var data = TryDeserialize<KickPlayerData>(msg.data, "kick-player");
+        var data = JsonHelper.TryDeserialize<KickPlayerData>(msg.data, "kick-player");
         if (data == null || string.IsNullOrEmpty(data.roomId)) return;
 
         // Only process if targeted at us and we're in that room
@@ -714,35 +714,6 @@ public class VRRoomManager : MonoBehaviour
     #endregion
 
     #region Helpers
-
-    /// <summary>
-    /// P0 FIX: Safe JSON deserialization with validation
-    /// Returns null if deserialization fails or data is invalid
-    /// </summary>
-    private T TryDeserialize<T>(string json, string context) where T : class
-    {
-        if (string.IsNullOrEmpty(json))
-        {
-            Debug.LogWarning($"[VRRoom] P0 FIX: Empty JSON data for {context}");
-            return null;
-        }
-
-        try
-        {
-            T result = JsonUtility.FromJson<T>(json);
-            if (result == null)
-            {
-                Debug.LogWarning($"[VRRoom] P0 FIX: Null result from JSON for {context}");
-                return null;
-            }
-            return result;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[VRRoom] P0 FIX: JSON parse error for {context}: {e.Message}\nJSON: {json.Substring(0, Math.Min(200, json.Length))}");
-            return null;
-        }
-    }
 
     /// <summary>
     /// IMPORTANT FIX: Generates a 6-character room code using cryptographically secure random.

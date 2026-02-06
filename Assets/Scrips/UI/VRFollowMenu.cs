@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// Makes the VR menu follow the player's head position.
@@ -42,6 +43,33 @@ public class VRFollowMenu : MonoBehaviour
     void Start()
     {
         FindPlayerCamera();
+
+        // Desktop mode: enable mouse interaction with World Space canvas
+        if (!UnityEngine.XR.XRSettings.isDeviceActive)
+        {
+            SetupDesktopMouseInteraction();
+        }
+    }
+
+    void SetupDesktopMouseInteraction()
+    {
+        // Get or add Canvas component
+        Canvas canvas = GetComponent<Canvas>();
+        if (canvas == null) return;
+
+        // Ensure GraphicRaycaster exists for UI interaction
+        if (GetComponent<GraphicRaycaster>() == null)
+        {
+            gameObject.AddComponent<GraphicRaycaster>();
+            Debug.Log("[VRFollowMenu] Added GraphicRaycaster for desktop mouse interaction");
+        }
+
+        // Set the event camera for World Space canvas
+        if (canvas.renderMode == RenderMode.WorldSpace && _playerCamera != null)
+        {
+            canvas.worldCamera = _playerCamera.GetComponent<Camera>();
+            Debug.Log("[VRFollowMenu] Set worldCamera for desktop mouse interaction");
+        }
     }
 
     void OnEnable()
@@ -54,6 +82,12 @@ public class VRFollowMenu : MonoBehaviour
         }
 
         _isLocked = lockOnOpen;
+
+        // Desktop mode: ensure mouse interaction is set up
+        if (!UnityEngine.XR.XRSettings.isDeviceActive)
+        {
+            SetupDesktopMouseInteraction();
+        }
     }
 
     void Update()
