@@ -1,5 +1,8 @@
 # Guide de Deploiement LAN - VR Meeting Rooms
 
+> **Version:** Ubuntu 24.04 LTS + Node.js 22 LTS
+> **Derniere mise a jour:** Fevrier 2026
+
 ## Test realiste avec VM Linux (Bridge) sur PC-A + PC-B client
 
 ---
@@ -13,7 +16,7 @@ PC-A (hote Windows)                          PC-B (client Windows)
 |  VM VirtualBox (Ubuntu Desktop)          | |  Unity Build .exe  |
 |  +------------------------------------+  | |  (client 2)        |
 |  |  Ubuntu Desktop 24.04 LTS          |  | |                    |
-|  |  Node.js v20 LTS                   |  | +--------------------+
+|  |  Node.js v22 LTS                   |  | +--------------------+
 |  |  WebSocket server :8080            |  |
 |  |  IP: 192.168.1.70 (bridge)        |  |
 |  +------------------------------------+  |
@@ -83,23 +86,27 @@ AVANT (defaut) :                      APRES (bridge) :
 > **Attention Wi-Fi** : Certains adaptateurs Wi-Fi ne supportent pas le bridge.
 > Si ca ne marche pas en Wi-Fi, branchez PC-A en cable Ethernet.
 
-### 1.5 Installer Ubuntu Desktop
+### 1.5 Installer Ubuntu Desktop 24.04
 
 1. Demarrer la VM
 2. L'ecran GRUB s'affiche : selectionner **"Try or Install Ubuntu"** et appuyer sur Entree
-3. L'installateur graphique se lance. Suivre les etapes :
+3. L'installateur graphique Ubuntu 24.04 se lance. Suivre les etapes :
    - Langue : **Francais** (ou English)
-   - Clavier : **French**
-   - Se connecter a internet : normalement le reseau est detecte automatiquement via le bridge
-   - Cliquer **Installer Ubuntu**
-   - Type d'installation : **Installation normale** (laisser par defaut)
-   - Type d'installation du disque : **Effacer le disque et installer Ubuntu** (c'est la VM, pas votre vrai disque)
-   - Fuseau horaire : choisir le votre
+   - Accessibilite : **Suivant** (sauf besoin specifique)
+   - Clavier : **French** ou laisser la detection automatique
+   - Se connecter a internet : normalement detecte via le bridge, cliquer **Suivant**
+   - **Installer Ubuntu** (pas "Essayer")
+   - **Installation interactive** > **Suivant**
+   - **Selection par defaut** (installation standard) > **Suivant**
+   - Applications recommandees : laisser par defaut > **Suivant**
+   - **Effacer le disque et installer Ubuntu** (c'est la VM, pas votre vrai disque) > **Suivant**
    - Creer un compte :
      - Nom : `VR Admin`
      - Nom de l'ordinateur : `vr-server`
      - Nom d'utilisateur : `vr-admin`
      - Mot de passe : choisir un mot de passe
+   - Fuseau horaire : choisir le votre > **Suivant**
+   - Recapitulatif : verifier et cliquer **Installer**
 4. Attendre la fin de l'installation (~10-15 min)
 5. Cliquer **Redemarrer maintenant** quand demande
 6. Si un message dit "Please remove the installation medium" → appuyer sur Entree
@@ -107,13 +114,13 @@ AVANT (defaut) :                      APRES (bridge) :
 
 ### 1.6 Premier demarrage et installation de SSH
 
-Apres le reboot, Ubuntu Desktop se lance avec une interface graphique.
+Apres le reboot, Ubuntu Desktop 24.04 se lance avec GNOME.
 
 1. Se connecter avec le mot de passe choisi
-2. Fermer les fenetres de bienvenue / mises a jour
+2. Passer l'assistant de bienvenue (compte en ligne, telemetrie, etc.)
 3. Ouvrir un **Terminal** :
-   - Clic droit sur le bureau > **Ouvrir un terminal**
-   - Ou chercher "Terminal" dans les applications (icone grille en bas a gauche)
+   - Appuyer sur la touche `Super` (Windows) et taper "Terminal"
+   - Ou clic droit sur le bureau > **Ouvrir un terminal**
 4. Installer le serveur SSH (necessaire pour copier les fichiers depuis PC-A) :
 
 ```bash
@@ -134,7 +141,7 @@ sudo systemctl status ssh    # doit afficher "active (running)"
 ## Partie 2 : Configurer le serveur dans la VM
 
 > Toutes les commandes de cette partie sont a executer dans le **Terminal** Ubuntu Desktop.
-> Pour l'ouvrir : clic droit sur le bureau > "Ouvrir un terminal", ou raccourci `Ctrl+Alt+T`.
+> Pour l'ouvrir : touche `Super` puis taper "Terminal", ou raccourci `Ctrl+Alt+T`.
 
 ### 2.1 Verifier l'IP de la VM
 
@@ -157,16 +164,16 @@ Exemple :
 > (ex: tous en 192.168.1.x). Si l'IP est en 10.0.2.x, le bridge n'est pas actif.
 
 **Methode alternative (graphique)** : cliquer sur l'icone reseau en haut a droite de l'ecran >
-Parametres filaires > l'adresse IPv4 est affichee.
+Parametres filaires > cliquer sur l'engrenage > l'adresse IPv4 est affichee dans l'onglet "Details".
 
 ### 2.2 Installer Node.js et poppler-utils
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs poppler-utils
 
 # Verifier
-node --version    # v20.x.x
+node --version    # v22.x.x
 npm --version
 which pdftoppm    # /usr/bin/pdftoppm
 ```
@@ -469,7 +476,7 @@ Cela affiche en temps reel les connexions, messages et erreurs.
 - [ ] Reseau VM en mode **Bridge** (pas NAT)
 - [ ] VM a une IP en 192.168.x.x (meme sous-reseau que PC-A et PC-B)
 - [ ] OpenSSH server installe dans la VM
-- [ ] Node.js v20 installe dans la VM
+- [ ] Node.js v22 installe dans la VM
 - [ ] poppler-utils installe dans la VM
 - [ ] Dossier Server copie dans la VM
 - [ ] npm install execute sans erreur bloquante
@@ -583,13 +590,18 @@ Test-NetConnection -ComputerName 192.168.1.70 -Port 8080
 - Pour fixer l'IP de la VM :
 
 ```bash
-# Dans la VM, editer la config netplan
-sudo nano /etc/netplan/00-installer-config.yaml
+# Dans la VM, lister les fichiers netplan
+ls /etc/netplan/
+# Generalement : 50-cloud-init.yaml ou 01-netcfg.yaml
+
+# Editer le fichier existant (adapter le nom)
+sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 
 ```yaml
 network:
   version: 2
+  renderer: networkd
   ethernets:
     enp0s3:
       dhcp4: no
@@ -609,6 +621,7 @@ sudo netplan apply
 ```
 
 > Adaptez l'adresse IP et la gateway (`via`) a votre reseau.
+> Le nom du fichier peut varier selon l'installation.
 
 ### Le voice chat ne fonctionne pas
 
@@ -1027,7 +1040,7 @@ Ce guide simule la production en LAN. Pour le vrai deploiement sur internet :
 
 ```bash
 # === Installation de base (une seule fois) ===
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
 sudo apt install -y nodejs poppler-utils
 cd ~/vr-meeting/Server && npm install
 
