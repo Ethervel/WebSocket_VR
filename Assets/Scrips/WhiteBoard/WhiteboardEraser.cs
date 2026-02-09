@@ -49,6 +49,13 @@ public class WhiteboardEraser : MonoBehaviour
     private bool _isHeld = false;
     private bool _isSubscribedToGrab = false;
 
+    /// <summary>
+    /// Dynamic desktop mode check - always reflects current state
+    /// </summary>
+    private bool IsDesktopMode =>
+        DesktopWhiteboardDrawer.IsActive ||
+        (VRGameManager.Instance != null && VRGameManager.Instance.IsDesktopMode);
+
     void Start()
     {
         if (eraserTip == null)
@@ -75,7 +82,8 @@ public class WhiteboardEraser : MonoBehaviour
         _tipHeight = eraserTip.localScale.y;
         ApplyEraserColor();
 
-        Debug.Log($"[WhiteboardEraser] Initialisé, taille={eraserSizeX}x{eraserSizeY}");
+        // Desktop mode is now checked dynamically via IsDesktopMode property
+        Debug.Log($"[WhiteboardEraser] Start: IsDesktopMode={IsDesktopMode}, DesktopDrawerIsActive={DesktopWhiteboardDrawer.IsActive}");
     }
 
     void SubscribeToGrabEvents()
@@ -105,9 +113,18 @@ public class WhiteboardEraser : MonoBehaviour
         _isHeld = false;
         _touchedLastFrame = false;
 
-        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        // CRITICAL FIX: Don't send in desktop mode
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
         {
-            SendBatchToNetwork();
+            if (IsDesktopMode)
+            {
+                Debug.Log($"[WhiteboardEraser] OnGrabSelectExited: discarding {_pendingPointsFlat.Count / 2} points (desktop mode)");
+                _pendingPointsFlat.Clear();
+            }
+            else
+            {
+                SendBatchToNetwork();
+            }
         }
 
         _currentSurface = null;
@@ -128,6 +145,23 @@ public class WhiteboardEraser : MonoBehaviour
 
     void Update()
     {
+        // COMPREHENSIVE GUARD: WhiteboardEraser is ONLY for VR mode.
+        // In desktop mode, DesktopWhiteboardDrawer handles ALL erasing.
+        // Using a dynamic property ensures we always have the correct state.
+        if (IsDesktopMode)
+        {
+            // CRITICAL FIX: Just CLEAR pending data without sending
+            if (_pendingPointsFlat.Count > 0)
+            {
+                Debug.Log($"[WhiteboardEraser] GUARD: discarding {_pendingPointsFlat.Count / 2} pending points (desktop mode)");
+                _pendingPointsFlat.Clear();
+            }
+            _touchedLastFrame = false;
+            _currentSurface = null;
+            _currentSurfaceId = null;
+            return;
+        }
+
         if (_isHeld)
         {
             Erase();
@@ -277,6 +311,14 @@ public class WhiteboardEraser : MonoBehaviour
 
     void SendBatchToNetwork()
     {
+        // CRITICAL FIX: Never send in desktop mode
+        if (IsDesktopMode)
+        {
+            Debug.Log($"[WhiteboardEraser] SendBatchToNetwork: BLOCKED - desktop mode active, discarding {_pendingPointsFlat.Count / 2} points");
+            _pendingPointsFlat.Clear();
+            return;
+        }
+
         if (_pendingPointsFlat.Count == 0) return;
         if (string.IsNullOrEmpty(_currentSurfaceId)) return;
         if (!VRNetworkManager.IsConnected) return;

@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 using System.IO;
@@ -35,8 +36,8 @@ public class BuildScript
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
         }
 
-        // Configure for Quest
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+        // Configure for Quest (IL2CPP required for Android/Quest)
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
 
         string outputPath = Path.Combine(BUILD_ROOT, "Quest", "VRMeeting.apk");
@@ -65,8 +66,8 @@ public class BuildScript
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64);
         }
 
-        // Configure for PCVR
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.IL2CPP);
+        // Configure for PCVR - use IL2CPP if available, else Mono
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, GetPreferredScriptingBackend(NamedBuildTarget.Standalone));
 
         string outputPath = Path.Combine(BUILD_ROOT, "PCVR", "VRMeeting.exe");
         EnsureDirectoryExists(outputPath);
@@ -93,6 +94,9 @@ public class BuildScript
             Debug.Log("Switching to Windows platform...");
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64);
         }
+
+        // Configure for Desktop - use IL2CPP if available, else Mono
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, GetPreferredScriptingBackend(NamedBuildTarget.Standalone));
 
         string outputPath = Path.Combine(BUILD_ROOT, "Desktop", "VRMeeting_Desktop.exe");
         EnsureDirectoryExists(outputPath);
@@ -122,7 +126,7 @@ public class BuildScript
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
         }
 
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
 
         string outputPath = Path.Combine(BUILD_ROOT, "Quest", "VRMeeting_Dev.apk");
@@ -148,6 +152,9 @@ public class BuildScript
         {
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64);
         }
+
+        // Configure for PCVR Dev - use IL2CPP if available, else Mono
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, GetPreferredScriptingBackend(NamedBuildTarget.Standalone));
 
         string outputPath = Path.Combine(BUILD_ROOT, "PCVR", "VRMeeting_Dev.exe");
         EnsureDirectoryExists(outputPath);
@@ -230,6 +237,9 @@ public class BuildScript
 
     private static void ExecuteBuild(BuildPlayerOptions options, string buildName)
     {
+        // Auto-clean: Delete target folder to prevent Mono/IL2CPP conflicts
+        CleanTargetFolder(options.locationPathName);
+
         System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
         stopwatch.Start();
 
@@ -263,6 +273,23 @@ public class BuildScript
         }
     }
 
+    private static void CleanTargetFolder(string outputPath)
+    {
+        string directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+        {
+            Debug.Log($"Auto-cleaning build folder: {directory}");
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"Could not clean build folder: {e.Message}");
+            }
+        }
+    }
+
     private static void EnsureDirectoryExists(string filePath)
     {
         string directory = Path.GetDirectoryName(filePath);
@@ -270,6 +297,29 @@ public class BuildScript
         {
             Directory.CreateDirectory(directory);
         }
+    }
+
+    private static ScriptingImplementation GetPreferredScriptingBackend(NamedBuildTarget target)
+    {
+        // Check if IL2CPP is available, fall back to Mono if not
+        // IL2CPP requires the module to be installed via Unity Hub
+        bool il2cppAvailable = true;
+
+        #if UNITY_EDITOR_WIN
+        // Check for IL2CPP installation by looking for the backend
+        string editorPath = EditorApplication.applicationPath;
+        string editorDir = Path.GetDirectoryName(editorPath);
+        string il2cppPath = Path.Combine(editorDir, "Data", "il2cpp");
+        il2cppAvailable = Directory.Exists(il2cppPath);
+        #endif
+
+        if (!il2cppAvailable)
+        {
+            Debug.LogWarning("IL2CPP not installed. Using Mono scripting backend. For better performance, install IL2CPP via Unity Hub.");
+            return ScriptingImplementation.Mono2x;
+        }
+
+        return ScriptingImplementation.IL2CPP;
     }
 
     #endregion
