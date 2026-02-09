@@ -444,12 +444,10 @@ public class ScreenShareManager : MonoBehaviour
         int pixelCount = width * height;
 
         // PERF: Reuse cached arrays to avoid GC allocation every frame
-        if (_cachedSourcePixels == null || _cachedSourcePixels.Length != pixelCount)
-            _cachedSourcePixels = new Color[pixelCount];
         if (_cachedDestPixels == null || _cachedDestPixels.Length != pixelCount)
             _cachedDestPixels = new Color[pixelCount];
 
-        source.GetPixels(_cachedSourcePixels);
+        _cachedSourcePixels = source.GetPixels();
 
         for (int y = 0; y < height; y++)
         {
@@ -471,11 +469,7 @@ public class ScreenShareManager : MonoBehaviour
         int height = texture.height;
         int pixelCount = width * height;
 
-        // PERF: Reuse cached array to avoid GC allocation every frame
-        if (_cachedPixels32 == null || _cachedPixels32.Length != pixelCount)
-            _cachedPixels32 = new Color32[pixelCount];
-
-        texture.GetPixels32(_cachedPixels32);
+        _cachedPixels32 = texture.GetPixels32();
 
         for (int y = 0; y < height; y++)
         {

@@ -49,9 +49,15 @@ public class WhiteboardMarker : MonoBehaviour
     private XRGrabInteractable _grabInteractable;
     private bool _isHeld = false;
 
-    // Desktop mode
-    private bool _isDesktopMode = false;
+    // Desktop mode - NOTE: Use IsDesktopMode property for dynamic check
     private Camera _mainCamera;
+
+    /// <summary>
+    /// Dynamic desktop mode check - always reflects current state
+    /// </summary>
+    private bool IsDesktopMode =>
+        DesktopWhiteboardDrawer.IsActive ||
+        (VRGameManager.Instance != null && VRGameManager.Instance.IsDesktopMode);
 
     void Start()
     {
@@ -78,8 +84,10 @@ public class WhiteboardMarker : MonoBehaviour
         _tipHeight = tip.localScale.y;
         ApplyColor(currentColor);
 
-        _isDesktopMode = VRGameManager.Instance == null || VRGameManager.Instance.IsDesktopMode;
+        // Desktop mode is now checked dynamically via IsDesktopMode property
         _mainCamera = Camera.main;
+
+        Debug.Log($"[WhiteboardMarker] Start: IsDesktopMode={IsDesktopMode}, DesktopDrawerIsActive={DesktopWhiteboardDrawer.IsActive}");
     }
 
     // P2 FIX: Track subscription state to prevent duplicate listeners
@@ -126,9 +134,19 @@ public class WhiteboardMarker : MonoBehaviour
         _isHeld = false;
         _touchedLastFrame = false;
 
-        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        // CRITICAL FIX: Don't send in desktop mode - just clear
+        // SendBatchToNetwork() now has its own guard, but be explicit here too
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
         {
-            SendBatchToNetwork();
+            if (IsDesktopMode)
+            {
+                Debug.Log($"[WhiteboardMarker] OnReleased: discarding {_pendingPointsFlat.Count / 2} points (desktop mode)");
+                _pendingPointsFlat.Clear(); // Just discard
+            }
+            else
+            {
+                SendBatchToNetwork();
+            }
         }
 
         _currentSurface = null;
@@ -137,26 +155,24 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Update()
     {
-        // GUARD 1: DesktopWhiteboardDrawer exclusively handles ALL desktop drawing.
-        // WhiteboardMarker must never send network messages in desktop mode,
-        // as this causes receivers to see double strokes (two overlapping lines).
-        if (DesktopWhiteboardDrawer.IsActive)
+        // COMPREHENSIVE GUARD: WhiteboardMarker is ONLY for VR mode.
+        // In desktop mode, DesktopWhiteboardDrawer handles ALL drawing.
+        // Using a dynamic property ensures we always have the correct state.
+        if (IsDesktopMode)
         {
-            // Flush any pending data if we were drawing before DesktopWhiteboardDrawer became active
-            if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+            // CRITICAL FIX: Just CLEAR pending data without sending - DO NOT flush!
+            // Flushing would send with WhiteboardMarker's default blue color,
+            // causing blue dots on remote players.
+            if (_pendingPointsFlat.Count > 0)
             {
-                Debug.Log($"[WhiteboardMarker] GUARD: flushing {_pendingPointsFlat.Count / 2} pending points before yielding to DesktopDrawer");
-                SendBatchToNetwork();
+                Debug.Log($"[WhiteboardMarker] GUARD: discarding {_pendingPointsFlat.Count / 2} pending points (desktop mode)");
+                _pendingPointsFlat.Clear();
             }
             _touchedLastFrame = false;
+            _currentSurface = null;
+            _currentSurfaceId = null;
             return;
         }
-
-        // GUARD 2: Even if DesktopWhiteboardDrawer.IsActive is momentarily false
-        // (e.g., during player respawn), WhiteboardMarker must never handle desktop
-        // input. Only VR drawing (grab + raycast from tip) is allowed from this script.
-        if (_isDesktopMode)
-            return;
 
         if (_isHeld)
         {
@@ -245,9 +261,10 @@ public class WhiteboardMarker : MonoBehaviour
     {
         if (_currentSurface != surface)
         {
-            if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+            // FIX: Use _currentSurfaceId for consistency (SendBatchToNetwork has desktop mode guard)
+            if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
             {
-                SendBatchToNetwork();
+                SendBatchToNetwork(); // Will be blocked if in desktop mode
             }
 
             _currentSurface = surface;
@@ -302,9 +319,10 @@ public class WhiteboardMarker : MonoBehaviour
 
     void EndStroke()
     {
-        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        // FIX: Use _currentSurfaceId for consistency (SendBatchToNetwork has desktop mode guard)
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
         {
-            SendBatchToNetwork();
+            SendBatchToNetwork(); // Will be blocked if in desktop mode
         }
 
         _currentSurface = null;
@@ -331,6 +349,16 @@ public class WhiteboardMarker : MonoBehaviour
 
     void SendBatchToNetwork()
     {
+        // CRITICAL FIX: NEVER send from WhiteboardMarker in desktop mode
+        // This prevents duplicate batches and blue dots from appearing on remote players
+        // (DesktopWhiteboardDrawer handles ALL drawing in desktop mode)
+        if (IsDesktopMode)
+        {
+            Debug.Log($"[WhiteboardMarker] SendBatchToNetwork: BLOCKED - desktop mode active, discarding {_pendingPointsFlat.Count / 2} points");
+            _pendingPointsFlat.Clear();
+            return;
+        }
+
         if (_pendingPointsFlat.Count == 0) return;
         if (string.IsNullOrEmpty(_currentSurfaceId)) return;
         if (!VRNetworkManager.IsConnected) return;
@@ -381,6 +409,16 @@ public class WhiteboardMarker : MonoBehaviour
 
     public void SetColor(Color newColor)
     {
+        // FIX: Flush pending points with the CURRENT color BEFORE changing
+        // Without this, pending points drawn in RED would be sent as BLUE (the new color)
+        // causing "blue dots following the pen" on remote players
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
+        {
+            Debug.Log($"[WhiteboardMarker] SetColor: flushing {_pendingPointsFlat.Count / 2} pending points with current RGBA=({currentColor.r:F2},{currentColor.g:F2},{currentColor.b:F2},{currentColor.a:F2}) before changing to RGBA=({newColor.r:F2},{newColor.g:F2},{newColor.b:F2},{newColor.a:F2})");
+            SendBatchToNetwork(); // Will be blocked if in desktop mode
+        }
+
+        Debug.Log($"[WhiteboardMarker] SetColor: changing from RGBA=({currentColor.r:F2},{currentColor.g:F2},{currentColor.b:F2},{currentColor.a:F2}) to RGBA=({newColor.r:F2},{newColor.g:F2},{newColor.b:F2},{newColor.a:F2}), IsDesktopMode={IsDesktopMode}");
         currentColor = newColor;
         ApplyColor(newColor);
     }

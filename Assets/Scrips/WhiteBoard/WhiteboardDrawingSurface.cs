@@ -430,18 +430,18 @@ public class WhiteboardDrawingSurface : MonoBehaviour
         int sizeY = packet.penSizeY > 0 ? packet.penSizeY : packet.penSize;
         int pixelCount = sizeX * sizeY;
 
-        // PERF: Reuse cached array and only reallocate if size changed or color changed
+        // FIX: Always fill the array with the packet's color to avoid cache bugs
+        // The color comparison was causing issues where stale colors could be reused
         if (_cachedPaintPixels == null || _cachedPaintPixelsSize != pixelCount)
         {
             _cachedPaintPixels = new Color[pixelCount];
             _cachedPaintPixelsSize = pixelCount;
-            _cachedPaintColor = col;
-            for (int i = 0; i < pixelCount; i++) _cachedPaintPixels[i] = col;
         }
-        else if (_cachedPaintColor != col)
+
+        // Always fill with current color - no caching of color to avoid bugs
+        for (int i = 0; i < pixelCount; i++)
         {
-            _cachedPaintColor = col;
-            for (int i = 0; i < pixelCount; i++) _cachedPaintPixels[i] = col;
+            _cachedPaintPixels[i] = col;
         }
 
         Color[] paintPixels = _cachedPaintPixels;

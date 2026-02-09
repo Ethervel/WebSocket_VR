@@ -54,13 +54,31 @@ public class WhiteboardBarUI : MonoBehaviour
     private Color _normalButtonColor = new Color(0.25f, 0.25f, 0.3f, 1f);
     private Color _activeButtonColor = new Color(0.3f, 0.5f, 0.8f, 1f);
 
+    // BLUE DOTS FIX: Static color sync - all instances share the same current color
+    // This prevents multiple WhiteboardBarUI instances from having different colors
+    private static Color _sharedCurrentColor = Color.blue;
+    private static bool _colorHasBeenSet = false;
+    public static event System.Action<Color> OnColorChanged;
+
     void Start()
     {
         AutoDetectReferences();
         CacheDrawingComponents();
         ConnectButtons(); // Connecter les boutons au runtime
 
-        _currentColor = availableColors.Length > 0 ? availableColors[0] : Color.blue;
+        // BLUE DOTS FIX: Use shared color if already set by another instance
+        if (_colorHasBeenSet)
+        {
+            _currentColor = _sharedCurrentColor;
+        }
+        else
+        {
+            _currentColor = availableColors.Length > 0 ? availableColors[0] : Color.blue;
+            _sharedCurrentColor = _currentColor;
+        }
+
+        // Subscribe to color changes from other instances
+        OnColorChanged += OnExternalColorChanged;
 
         // Get canvas rect for animation
         Canvas canvas = GetComponent<Canvas>();
@@ -168,6 +186,14 @@ public class WhiteboardBarUI : MonoBehaviour
         VRGameManager.OnLocalPlayerSpawned -= OnLocalPlayerSpawned;
         ScreenShareManager.OnScreenShareStarted -= OnScreenShareStarted;
         ScreenShareManager.OnScreenShareStopped -= OnScreenShareStopped;
+        OnColorChanged -= OnExternalColorChanged;
+    }
+
+    // BLUE DOTS FIX: Handle color changes from other WhiteboardBarUI instances
+    void OnExternalColorChanged(Color newColor)
+    {
+        // Update local color without re-broadcasting (to avoid infinite loop)
+        _currentColor = newColor;
     }
 
     void AutoDetectReferences()
@@ -193,8 +219,25 @@ public class WhiteboardBarUI : MonoBehaviour
     void OnLocalPlayerSpawned(GameObject player)
     {
         _desktopDrawer = player.GetComponentInChildren<DesktopWhiteboardDrawer>();
-        if (_desktopDrawer != null)
-            _desktopDrawer.SetColor(_currentColor);
+
+        // BLUE DOTS FIX: Only restore color if user has explicitly set one
+        // Use singleton Instance and shared static color to ensure all instances are in sync
+        if (_colorHasBeenSet)
+        {
+            _currentColor = _sharedCurrentColor; // Sync local with shared
+
+            // Prefer singleton for reliability
+            if (DesktopWhiteboardDrawer.Instance != null)
+            {
+                DesktopWhiteboardDrawer.Instance.SetColor(_sharedCurrentColor);
+                Debug.Log($"[WhiteboardBarUI] OnLocalPlayerSpawned: restored shared color (singleton) RGBA=({_sharedCurrentColor.r:F2},{_sharedCurrentColor.g:F2},{_sharedCurrentColor.b:F2},{_sharedCurrentColor.a:F2})");
+            }
+            else if (_desktopDrawer != null)
+            {
+                _desktopDrawer.SetColor(_sharedCurrentColor);
+                Debug.Log($"[WhiteboardBarUI] OnLocalPlayerSpawned: restored shared color (fallback) RGBA=({_sharedCurrentColor.r:F2},{_sharedCurrentColor.g:F2},{_sharedCurrentColor.b:F2},{_sharedCurrentColor.a:F2})");
+            }
+        }
     }
 
     // ============================================
@@ -301,14 +344,26 @@ public class WhiteboardBarUI : MonoBehaviour
     {
         _currentColor = color;
 
+        // BLUE DOTS FIX: Update shared color and notify other instances
+        _sharedCurrentColor = color;
+        _colorHasBeenSet = true;
+        OnColorChanged?.Invoke(color);
+
         if (_markers != null)
         {
             foreach (var m in _markers)
                 if (m != null) m.SetColor(color);
         }
 
-        if (_desktopDrawer != null)
+        // BLUE DOTS FIX: Use singleton Instance for reliability instead of cached reference
+        // This ensures we always set color on THE active drawer, not a stale reference
+        if (DesktopWhiteboardDrawer.Instance != null)
         {
+            DesktopWhiteboardDrawer.Instance.SetColor(color);
+        }
+        else if (_desktopDrawer != null)
+        {
+            // Fallback to cached reference if singleton not yet initialized
             _desktopDrawer.SetColor(color);
         }
         else
@@ -322,7 +377,7 @@ public class WhiteboardBarUI : MonoBehaviour
             }
         }
 
-        Debug.Log($"[WhiteboardBarUI] Couleur: {color}");
+        Debug.Log($"[WhiteboardBarUI] SetColor: RGBA=({color.r:F2},{color.g:F2},{color.b:F2},{color.a:F2}), shared={_colorHasBeenSet}, singleton={DesktopWhiteboardDrawer.Instance != null}");
     }
 
     /// <summary>
@@ -465,7 +520,15 @@ public class WhiteboardBarUI : MonoBehaviour
 
     void ApplyModeToDrawer()
     {
-        // Essayer plusieurs méthodes pour trouver le drawer
+        // BLUE DOTS FIX: Prefer singleton Instance for reliability
+        if (DesktopWhiteboardDrawer.Instance != null)
+        {
+            DesktopWhiteboardDrawer.Instance.SetMode(_currentMode);
+            Debug.Log($"[WhiteboardBarUI] Mode appliqué au drawer (singleton): {_currentMode}");
+            return;
+        }
+
+        // Fallback: Essayer plusieurs méthodes pour trouver le drawer
         if (_desktopDrawer == null)
         {
             // Méthode 1: Via le local player
@@ -485,7 +548,7 @@ public class WhiteboardBarUI : MonoBehaviour
         if (_desktopDrawer != null)
         {
             _desktopDrawer.SetMode(_currentMode);
-            Debug.Log($"[WhiteboardBarUI] Mode appliqué au drawer: {_currentMode}");
+            Debug.Log($"[WhiteboardBarUI] Mode appliqué au drawer (fallback): {_currentMode}");
         }
         else
         {

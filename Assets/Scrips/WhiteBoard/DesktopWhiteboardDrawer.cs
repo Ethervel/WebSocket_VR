@@ -49,14 +49,31 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
     // P2 FIX: Deferred Apply() to batch all SetPixels in a single Apply() per frame
     private bool _textureDirty = false;
 
-    // Static flag so WhiteboardMarker knows not to send duplicate network messages
-    public static bool IsActive { get; private set; }
+    // BLUE DOTS FIX: Singleton pattern to prevent duplicate instances
+    // Multiple instances cause alternating blue/yellow batches
+    public static DesktopWhiteboardDrawer Instance { get; private set; }
+    public static bool IsActive => Instance != null && Instance.enabled;
 
     // Events pour notifier l'UI du changement de mode
     public static event System.Action<DrawingMode> OnModeChanged;
 
+    void Awake()
+    {
+        // BLUE DOTS FIX: Singleton enforcement
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogWarning($"[DesktopDrawer] DUPLICATE DETECTED! Destroying this instance. Existing instance color=RGBA({Instance.currentColor.r:F2},{Instance.currentColor.g:F2},{Instance.currentColor.b:F2},{Instance.currentColor.a:F2})");
+            Destroy(this);
+            return;
+        }
+        Instance = this;
+    }
+
     void Start()
     {
+        // Skip if this is a duplicate being destroyed
+        if (Instance != this) return;
+
         _camera = GetComponentInChildren<Camera>();
         if (_camera == null)
         {
@@ -76,26 +93,36 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         ApplyColor(currentColor);
         ApplyEraserColor();
 
-        IsActive = true;
+        Debug.Log($"[DesktopDrawer] Start: IsActive={IsActive}, mode={currentMode}, color=RGBA({currentColor.r:F2},{currentColor.g:F2},{currentColor.b:F2},{currentColor.a:F2}), instanceId={GetInstanceID()}");
     }
 
     void OnEnable()
     {
-        IsActive = true;
+        // Skip if this is a duplicate
+        if (Instance != this) return;
+        Debug.Log($"[DesktopDrawer] OnEnable: IsActive={IsActive}");
     }
 
     void OnDisable()
     {
-        IsActive = false;
+        Debug.Log($"[DesktopDrawer] OnDisable: IsActive={IsActive}, instanceId={GetInstanceID()}");
     }
 
     void OnDestroy()
     {
-        IsActive = false;
+        // BLUE DOTS FIX: Clear singleton reference if this is the active instance
+        if (Instance == this)
+        {
+            Instance = null;
+            Debug.Log($"[DesktopDrawer] OnDestroy: Singleton cleared");
+        }
     }
 
     void Update()
     {
+        // BLUE DOTS FIX: Only the singleton instance should process updates
+        if (Instance != this) return;
+
         if (_camera == null)
         {
             _camera = Camera.main;
@@ -168,7 +195,8 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         // Surface change?
         if (_currentSurface != surface)
         {
-            if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+            // FIX2: Use _currentSurfaceId for consistency with EndStroke() and SetMode()
+            if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
             {
                 SendBatchToNetwork();
             }
@@ -230,11 +258,14 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
     void EndStroke()
     {
-        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        // FIX2: Use _currentSurfaceId instead of _currentSurface - the ID is what's used
+        // in SendBatchToNetwork(), and can be valid even when the reference is null
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
         {
             SendBatchToNetwork();
         }
         _currentSurface = null;
+        _currentSurfaceId = null; // FIX2: Also clear the ID
         _touchedLastFrame = false;
         _isNewStroke = true; // Prochain dessin sera un nouveau trait
     }
@@ -306,6 +337,16 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
 
     public void SetColor(Color newColor)
     {
+        // FIX: Flush pending points with the CURRENT color BEFORE changing
+        // Without this, pending points drawn in RED would be sent as BLUE (the new color)
+        // causing "blue dots following the pen" on remote players
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
+        {
+            Debug.Log($"[DesktopDrawer] SetColor: flushing {_pendingPointsFlat.Count / 2} pending points with current RGBA=({currentColor.r:F2},{currentColor.g:F2},{currentColor.b:F2},{currentColor.a:F2}) before changing to RGBA=({newColor.r:F2},{newColor.g:F2},{newColor.b:F2},{newColor.a:F2})");
+            SendBatchToNetwork();
+        }
+
+        Debug.Log($"[DesktopDrawer] SetColor: changing from RGBA=({currentColor.r:F2},{currentColor.g:F2},{currentColor.b:F2},{currentColor.a:F2}) to RGBA=({newColor.r:F2},{newColor.g:F2},{newColor.b:F2},{newColor.a:F2})");
         currentColor = newColor;
         ApplyColor(newColor);
     }
@@ -366,15 +407,20 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
         // FIX: Flush pending points with the CURRENT mode's color/size BEFORE switching.
         // Without this, pending erase points would be sent with blue (draw) color
         // when switching Eraser→Cursor, causing blue dots on receivers.
-        if (_pendingPointsFlat.Count > 0 && _currentSurface != null)
+        if (_pendingPointsFlat.Count > 0 && !string.IsNullOrEmpty(_currentSurfaceId))
         {
-            Debug.Log($"[DesktopDrawer] SetMode: flushing {_pendingPointsFlat.Count / 2} pending points in mode={currentMode} before switching to {mode}");
+            bool isErasing = (currentMode == DrawingMode.Eraser);
+            Color colorToFlush = isErasing ? _eraserColor : currentColor;
+            Debug.Log($"[DesktopDrawer] SetMode: flushing {_pendingPointsFlat.Count / 2} pending points in mode={currentMode} with RGBA=({colorToFlush.r:F2},{colorToFlush.g:F2},{colorToFlush.b:F2},{colorToFlush.a:F2}) before switching to {mode}");
             SendBatchToNetwork();
         }
+
         // Reset draw state so Update()'s cursor-mode EndStroke() doesn't re-flush
         _touchedLastFrame = false;
         _currentSurface = null;
+        _currentSurfaceId = null; // Also clear the ID to prevent stale references
         _isNewStroke = true; // New stroke boundary when switching modes
+        _pendingPointsFlat.Clear(); // Ensure no stale data remains
 
         currentMode = mode;
         Debug.Log($"[DesktopDrawer] Mode changé: {currentMode}");
