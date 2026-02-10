@@ -93,8 +93,8 @@ public class SoundManagerIntegration : MonoBehaviour
 
     void OnRoomCreated(string roomId)
     {
-        _soundManager?.PlayRoomCreated();
-        Debug.Log("[SoundIntegration] Room created sound");
+        // Son désactivé
+        // _soundManager?.PlayRoomCreated();
     }
 
     void OnRoomJoined(string roomId)

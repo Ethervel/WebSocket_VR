@@ -3039,6 +3039,127 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 216063501}
   m_CullTransparentMesh: 1
+--- !u!1 &220284911
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 220284915}
+  - component: {fileID: 220284914}
+  - component: {fileID: 220284913}
+  - component: {fileID: 220284912}
+  m_Layer: 0
+  m_Name: AudioSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &220284912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 220284911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93cf152e836ea104c91d0de39dfdcb4a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AmbienceManager
+  zones:
+  - zoneName: Lobby
+    roomType: 0
+    mainLoop: {fileID: 8300000, guid: 1568f8d930ef80043b1362529eae82e5, type: 3}
+    randomSounds: []
+    volume: 0.3
+    randomSoundChance: 0
+    randomSoundInterval: 30
+  - zoneName: Meeting Room A
+    roomType: 1
+    mainLoop: {fileID: 8300000, guid: 17647bed4990ba947a49eb9df5f70f13, type: 3}
+    randomSounds: []
+    volume: 0.2
+    randomSoundChance: 0.1
+    randomSoundInterval: 20
+  - zoneName: Meeting Room B
+    roomType: 2
+    mainLoop: {fileID: 8300000, guid: f4f17e7c28625af498e33c266167d4ad, type: 3}
+    randomSounds: []
+    volume: 0.25
+    randomSoundChance: 0.1
+    randomSoundInterval: 25
+  crossfadeDuration: 2
+  maxVolume: 0.3
+  sourceA: {fileID: 0}
+  sourceB: {fileID: 0}
+--- !u!114 &220284913
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 220284911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6bf837092ded4684ca0d56ed091fe514, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SoundManagerIntegration
+--- !u!114 &220284914
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 220284911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e9144cc039987254eaaf17de2fb7dc3c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SoundManager
+  uiClick: {fileID: 8300000, guid: 4aa5e83ae912c46409c45fc3f4f5cfe4, type: 3}
+  uiHover: {fileID: 8300000, guid: 1d4ffba877e11574b83dd66ffe09c3e2, type: 3}
+  uiBack: {fileID: 8300000, guid: b05e8ec9dea9d2747a189ee0861f6ac7, type: 3}
+  uiSuccess: {fileID: 8300000, guid: 2cf00f6780704234a96f777beb01737f, type: 3}
+  uiError: {fileID: 8300000, guid: 3da96f4f3bf05c04ebee133a58a8af95, type: 3}
+  uiNotification: {fileID: 8300000, guid: f45e79080521ec945ab31e24417df7dc, type: 3}
+  playerJoin: {fileID: 8300000, guid: d4a3dbb784d16634e9d5fc61b3f49c7e, type: 3}
+  playerLeave: {fileID: 8300000, guid: 73ab03032e5aee24e8ca8ca76dd1e1b1, type: 3}
+  connected: {fileID: 8300000, guid: a5bbbc4d429303b42a8c4616ea3285c5, type: 3}
+  disconnected: {fileID: 8300000, guid: 727f095f7ec3bd547a4e8b196073bc80, type: 3}
+  roomCreated: {fileID: 8300000, guid: 24dc3953a1caa504aaa3b3c040f3bad5, type: 3}
+  roomJoined: {fileID: 8300000, guid: 5b4a304a5fbcd5a418f615da4d668369, type: 3}
+  markerDraw: {fileID: 8300000, guid: 3f2af2b66dab6594fa75fea6ef724065, type: 3}
+  whiteboardClear: {fileID: 8300000, guid: 272ab1098cf709841ad556bccdfcf41c, type: 3}
+  screenShareStart: {fileID: 8300000, guid: 662990a7c4ffdaf43b5e1af2497e8ba5, type: 3}
+  screenShareStop: {fileID: 8300000, guid: c9a8aa8f0c9017345afa2d23a2fa348d, type: 3}
+  lobbyAmbience: {fileID: 0}
+  roomAmbience: {fileID: 8300000, guid: f4f17e7c28625af498e33c266167d4ad, type: 3}
+  uiAudioSource: {fileID: 0}
+  notificationAudioSource: {fileID: 0}
+  ambienceAudioSource: {fileID: 0}
+  masterVolume: 1
+  sfxVolume: 1
+  ambienceVolume: 0.3
+  pitchVariation: 0.05
+--- !u!4 &220284915
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 220284911}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &223877329
 GameObject:
   m_ObjectHideFlags: 0
@@ -7256,6 +7377,52 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 558497396}
   m_CullTransparentMesh: 1
+--- !u!1 &567505251
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 567505253}
+  - component: {fileID: 567505252}
+  m_Layer: 0
+  m_Name: Audiodebugger
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &567505252
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 567505251}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e4a3c88ee57b1af42bd9178ba68fb41d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AudioDebugger
+  enableLogging: 1
+  logStackTrace: 1
+--- !u!4 &567505253
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 567505251}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -145.40804, y: 2.09306, z: 79.62385}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &568357918
 GameObject:
   m_ObjectHideFlags: 0
@@ -14609,6 +14776,7 @@ GameObject:
   - component: {fileID: 1128019760}
   - component: {fileID: 1128019759}
   - component: {fileID: 1128019758}
+  - component: {fileID: 1128019761}
   m_Layer: 0
   m_Name: OptionsButton
   m_TagString: Untagged
@@ -14718,6 +14886,21 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1128019756}
   m_CullTransparentMesh: 1
+--- !u!114 &1128019761
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1128019756}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85d60ffc57d0ed346b7ea08f19782fc2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::UIButtonSounds
+  soundType: 0
+  playHoverSound: 1
+  playClickSound: 1
 --- !u!1 &1132694821
 GameObject:
   m_ObjectHideFlags: 0
@@ -15351,6 +15534,7 @@ GameObject:
   - component: {fileID: 1193234005}
   - component: {fileID: 1193234004}
   - component: {fileID: 1193234003}
+  - component: {fileID: 1193234006}
   m_Layer: 0
   m_Name: StartButton
   m_TagString: Untagged
@@ -15460,6 +15644,21 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1193234001}
   m_CullTransparentMesh: 1
+--- !u!114 &1193234006
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1193234001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85d60ffc57d0ed346b7ea08f19782fc2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::UIButtonSounds
+  soundType: 0
+  playHoverSound: 1
+  playClickSound: 1
 --- !u!1 &1193933950
 GameObject:
   m_ObjectHideFlags: 0
@@ -18739,6 +18938,7 @@ GameObject:
   - component: {fileID: 1399289618}
   - component: {fileID: 1399289617}
   - component: {fileID: 1399289616}
+  - component: {fileID: 1399289619}
   m_Layer: 0
   m_Name: QuitButton
   m_TagString: Untagged
@@ -18848,6 +19048,21 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1399289614}
   m_CullTransparentMesh: 1
+--- !u!114 &1399289619
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1399289614}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85d60ffc57d0ed346b7ea08f19782fc2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::UIButtonSounds
+  soundType: 0
+  playHoverSound: 1
+  playClickSound: 1
 --- !u!1 &1400030111
 GameObject:
   m_ObjectHideFlags: 0
@@ -25128,11 +25343,6 @@ MonoBehaviour:
   useVRPushToTalk: 0
   showDebugInfo: 1
   peerConnectionTimeout: 15
-  useCustomTurnServer: 1
-  customTurnUrl: turn:meeting.local:3478
-  customTurnUsername: vrmeeting
-  customTurnCredential: TurnPassword123!
-  enableTurnTcp: 1
 --- !u!4 &1816735480
 Transform:
   m_ObjectHideFlags: 0
@@ -29679,3 +29889,5 @@ SceneRoots:
   - {fileID: 322762491}
   - {fileID: 636991968}
   - {fileID: 1608295116}
+  - {fileID: 220284915}
+  - {fileID: 567505253}
