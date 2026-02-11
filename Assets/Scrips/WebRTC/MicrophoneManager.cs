@@ -51,6 +51,12 @@ namespace VoiceChat
                 Instance = null;
         }
 
+        void OnApplicationQuit()
+        {
+            // Force stop microphone before application exits
+            StopMicrophone();
+        }
+
         /// <summary>
         /// Initializes the microphone manager with an AudioSource.
         /// Called by VoiceChatManager during setup.

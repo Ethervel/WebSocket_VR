@@ -44,10 +44,23 @@ public class VRFollowMenu : MonoBehaviour
     {
         FindPlayerCamera();
 
+        // Ensure menu always renders on top of 3D objects like whiteboard
+        EnsureCorrectSortingOrder();
+
         // Desktop mode: enable mouse interaction with World Space canvas
         if (!UnityEngine.XR.XRSettings.isDeviceActive)
         {
             SetupDesktopMouseInteraction();
+        }
+    }
+
+    void EnsureCorrectSortingOrder()
+    {
+        Canvas canvas = GetComponent<Canvas>();
+        if (canvas != null)
+        {
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 100; // Render on top of whiteboard (which uses renderQueue 3001)
         }
     }
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 /// <summary>
 /// Gestionnaire de partage d'écran via WebSocket.
@@ -26,10 +25,6 @@ public class ScreenShareManager : MonoBehaviour
     [Tooltip("Frames par seconde")]
     [Range(1, 15)]
     public float captureFrameRate = 5f;
-
-    [Header("Debug")]
-    [Tooltip("Activer les raccourcis clavier de test (F9=Start, F10=Stop)")]
-    public bool enableTestShortcuts = true;
 
     // État local
     private bool _isSharing = false;
@@ -140,58 +135,6 @@ public class ScreenShareManager : MonoBehaviour
         }
 
         CleanupResources();
-    }
-
-    void Update()
-    {
-        if (enableTestShortcuts && Keyboard.current != null)
-        {
-            if (Keyboard.current.f8Key.wasPressedThisFrame)
-            {
-                ListWindowsAndSelectNext();
-            }
-            else if (Keyboard.current.f9Key.wasPressedThisFrame)
-            {
-                TestStartSharing();
-            }
-            else if (Keyboard.current.f10Key.wasPressedThisFrame)
-            {
-                StopSharing();
-            }
-        }
-    }
-
-    private int _testWindowIndex = -1;
-
-    void ListWindowsAndSelectNext()
-    {
-        var windows = GetAvailableWindows();
-
-        _testWindowIndex++;
-        if (_testWindowIndex >= windows.Count)
-        {
-            _testWindowIndex = -1;
-        }
-
-        if (_testWindowIndex == -1)
-        {
-            SelectWindow(null);
-        }
-        else
-        {
-            SelectWindow(windows[_testWindowIndex]);
-        }
-    }
-
-    void TestStartSharing()
-    {
-        if (_isSharing) return;
-        if (!CanShare()) return;
-
-        Whiteboard[] whiteboards = FindObjectsByType<Whiteboard>(FindObjectsSortMode.None);
-        if (whiteboards.Length == 0) return;
-
-        StartSharing(whiteboards[0]);
     }
 
     #region Public API

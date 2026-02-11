@@ -132,11 +132,12 @@ public class AmbienceManager : MonoBehaviour
 
     void OnRoomJoined(string roomId)
     {
-        // Récupérer le type de room actuel
-        if (VRRoomManager.Instance != null)
-        {
-            PlayAmbienceForRoomType(VRRoomManager.Instance.CurrentRoomType);
-        }
+        // Désactivé - pas de musique automatique
+        // Si tu veux réactiver, décommente le code ci-dessous:
+        // if (VRRoomManager.Instance != null)
+        // {
+        //     PlayAmbienceForRoomType(VRRoomManager.Instance.CurrentRoomType);
+        // }
     }
 
     void OnRoomLeft()
@@ -147,7 +148,8 @@ public class AmbienceManager : MonoBehaviour
 
     void OnRoomTypeChanged(RoomType newType)
     {
-        PlayAmbienceForRoomType(newType);
+        // Désactivé - pas de changement d'ambiance automatique
+        // PlayAmbienceForRoomType(newType);
     }
 
     // ==================== PUBLIC API ====================

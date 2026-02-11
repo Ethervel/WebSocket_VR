@@ -40,6 +40,36 @@ public static class JsonHelper
     }
 
     /// <summary>
+    /// Serializes an array to JSON. Unity's JsonUtility doesn't support arrays directly,
+    /// so we wrap it in a container object.
+    /// </summary>
+    /// <typeparam name="T">The type of array elements</typeparam>
+    /// <param name="array">The array to serialize</param>
+    /// <returns>JSON string representation of the array</returns>
+    public static string ToJson<T>(T[] array)
+    {
+        var wrapper = new ArrayWrapper<T> { items = array };
+        string json = JsonUtility.ToJson(wrapper);
+        // Extract just the array part: {"items":[...]} -> [...]
+        int startIndex = json.IndexOf('[');
+        int endIndex = json.LastIndexOf(']');
+        if (startIndex >= 0 && endIndex > startIndex)
+        {
+            return json.Substring(startIndex, endIndex - startIndex + 1);
+        }
+        return "[]";
+    }
+
+    /// <summary>
+    /// Wrapper class for array serialization.
+    /// </summary>
+    [Serializable]
+    private class ArrayWrapper<T>
+    {
+        public T[] items;
+    }
+
+    /// <summary>
     /// Safely decodes Base64 data with exception handling.
     /// </summary>
     /// <param name="base64Data">The Base64 encoded string</param>

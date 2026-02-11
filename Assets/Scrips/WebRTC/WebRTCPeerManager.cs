@@ -56,6 +56,12 @@ namespace VoiceChat
                 Instance = null;
         }
 
+        void OnApplicationQuit()
+        {
+            // Force cleanup before application exits
+            CleanupAll();
+        }
+
         /// <summary>
         /// Initializes the peer manager with required dependencies.
         /// </summary>
