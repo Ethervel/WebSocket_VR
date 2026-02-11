@@ -206,6 +206,14 @@ function handleMessage(clientId, message) {
         case 'file-present-request':
             broadcastToRoom(clientId, message);
             break;
+
+        // --- Recording ---
+        case 'recording-status':
+            handleRecordingStatus(clientId, data);
+            break;
+        case 'recording-marker':
+            broadcastToRoom(clientId, message);
+            break;
         case 'file-present-state':
             handleFilePresentState(clientId, data);
             break;
@@ -317,6 +325,16 @@ function handleRoomJoin(clientId, dataStr) {
             senderId: clientId,
             data: JSON.stringify(data)
         });
+
+        // Send recording state to late joiner if recording is in progress
+        if (room.recordingState && room.recordingState.isRecording) {
+            sendToClient(client.ws, {
+                type: 'recording-status',
+                senderId: room.recordingState.hostId,
+                data: JSON.stringify(room.recordingState)
+            });
+            console.log(`[Room] Sent recording state to late joiner ${clientId.substring(0, 8)}`);
+        }
 
         broadcastRoomList();
 
@@ -435,6 +453,17 @@ function handleDisconnect(clientId) {
                 }
             }
 
+            // Stop recording if the recording host leaves
+            if (room && room.recordingState && room.recordingState.hostId === clientId) {
+                room.recordingState = null;
+                broadcastToRoom(clientId, {
+                    type: 'recording-status',
+                    senderId: clientId,
+                    data: JSON.stringify({ isRecording: false, hostId: null })
+                });
+                console.log(`[Recording] Stopped (host ${clientId.substring(0, 8)} left)`);
+            }
+
             broadcastToRoom(clientId, {
                 type: 'room-leave',
                 senderId: clientId,
@@ -483,6 +512,43 @@ function handleWhiteboardState(clientId, dataStr) {
 
     } catch (e) {
         console.error(`[Error] handleWhiteboardState: ${e.message}`);
+    }
+}
+
+// RECORDING
+
+function handleRecordingStatus(clientId, dataStr) {
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const client = clients.get(clientId);
+        if (!client || !client.roomId) return;
+
+        const room = rooms.get(client.roomId);
+        if (room) {
+            // Store recording state in room for late joiners
+            room.recordingState = {
+                isRecording: data.isRecording,
+                hostId: data.isRecording ? clientId : null,
+                hostName: data.hostName || 'Unknown',
+                startTimeUtc: data.startTimeUtc || null
+            };
+
+            if (data.isRecording) {
+                console.log(`[Recording] Started in room ${client.roomId} by ${data.hostName}`);
+            } else {
+                console.log(`[Recording] Stopped in room ${client.roomId}`);
+            }
+        }
+
+        // Broadcast to all clients in the room
+        broadcastToRoom(clientId, {
+            type: 'recording-status',
+            senderId: clientId,
+            data: typeof dataStr === 'string' ? dataStr : JSON.stringify(data)
+        });
+
+    } catch (e) {
+        console.error(`[Error] handleRecordingStatus: ${e.message}`);
     }
 }
 

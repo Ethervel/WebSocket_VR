@@ -200,16 +200,36 @@ public class VRNetworkManager : MonoBehaviour
         }
     }
 
-    async void OnApplicationQuit()
+    void OnApplicationQuit()
     {
+        // Force synchronous cleanup - async doesn't work in OnApplicationQuit
         try
         {
-            await Disconnect();
+            autoReconnect = false;
+            _isReconnecting = false;
+
+            if (_websocket != null)
+            {
+                // Close synchronously - don't await
+                _websocket.Close();
+                _websocket = null;
+            }
+
+            IsConnected = false;
+            LocalId = null;
         }
         catch (Exception e)
         {
-            Debug.LogError($"[VRNet] P0 FIX: Error during OnApplicationQuit: {e.Message}");
+            Debug.LogError($"[VRNet] Error during OnApplicationQuit: {e.Message}");
         }
+
+        // Force kill any remaining threads after a short delay
+        #if !UNITY_EDITOR
+        System.Threading.Tasks.Task.Delay(500).ContinueWith(_ =>
+        {
+            System.Diagnostics.Process.GetCurrentProcess().Kill();
+        });
+        #endif
     }
 
     // ============================

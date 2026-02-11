@@ -68,10 +68,10 @@ public class AudioMuteZone : MonoBehaviour
         bool isInZone = IsPointInZone(_playerHead.position);
 
         // Debug position toutes les 2 secondes
-        if (showDebugLogs && Time.frameCount % 120 == 0)
-        {
-            Debug.Log($"[AudioMuteZone] Player pos: {_playerHead.position}, InZone: {isInZone}, AmbienceManager: {(AmbienceManager.Instance != null ? "OK" : "NULL")}");
-        }
+        // if (showDebugLogs && Time.frameCount % 120 == 0)
+        // {
+        //     Debug.Log($"[AudioMuteZone] Player pos: {_playerHead.position}, InZone: {isInZone}, AmbienceManager: {(AmbienceManager.Instance != null ? "OK" : "NULL")}");
+        // }
 
         // Détecter entrée dans la zone
         if (isInZone && !_playerInZone)

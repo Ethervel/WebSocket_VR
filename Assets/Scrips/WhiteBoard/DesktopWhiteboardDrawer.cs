@@ -321,7 +321,7 @@ public class DesktopWhiteboardDrawer : MonoBehaviour
             draws = new List<WhiteboardPacket> { packet }
         };
 
-        Debug.Log($"[DesktopDrawer] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={packet.isNewStroke}, mode={currentMode}, RGBA=({colorToSend.r:F2},{colorToSend.g:F2},{colorToSend.b:F2},{colorToSend.a:F2}), penSize={sizeToSend}, sender={VRNetworkManager.LocalId}");
+        // Debug.Log($"[DesktopDrawer] SEND batch: surface={_currentSurfaceId}, points={_pendingPointsFlat.Count / 2}, isNewStroke={packet.isNewStroke}, mode={currentMode}, RGBA=({colorToSend.r:F2},{colorToSend.g:F2},{colorToSend.b:F2},{colorToSend.a:F2}), penSize={sizeToSend}, sender={VRNetworkManager.LocalId}");
 
         try
         {

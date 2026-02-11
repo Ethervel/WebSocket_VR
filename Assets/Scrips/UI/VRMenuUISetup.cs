@@ -163,6 +163,8 @@ public class VRMenuUISetup : MonoBehaviour
         GameObject canvasObj = new GameObject("VRMenu");
         Canvas canvas = canvasObj.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 100; // Ensure menu renders on top of whiteboard
 
         CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
         scaler.dynamicPixelsPerUnit = 10f;
@@ -191,11 +193,13 @@ public class VRMenuUISetup : MonoBehaviour
 
         // Create pages
         GameObject pageRoom = CreatePageRoom(content.transform);
+        GameObject pageRecording = CreatePageRecording(content.transform);
         GameObject pageAvatar = CreatePageAvatar(content.transform);
         GameObject pageVoice = CreatePageVoice(content.transform);
         GameObject pageSettings = CreatePageSettings(content.transform);
 
         // Only first page active
+        pageRecording.SetActive(false);
         pageAvatar.SetActive(false);
         pageVoice.SetActive(false);
         pageSettings.SetActive(false);
@@ -221,6 +225,7 @@ public class VRMenuUISetup : MonoBehaviour
 
         // Create sidebar buttons
         GameObject btnRoom = CreateSidebarButton(buttonsContainer.transform, "Room", null);
+        GameObject btnRecording = CreateSidebarButton(buttonsContainer.transform, "Recording", null);
         GameObject btnAvatar = CreateSidebarButton(buttonsContainer.transform, "Avatar", null);
         GameObject btnVoice = CreateSidebarButton(buttonsContainer.transform, "Voice", null);
         GameObject btnSettings = CreateSidebarButton(buttonsContainer.transform, "Settings", null);
@@ -247,6 +252,7 @@ public class VRMenuUISetup : MonoBehaviour
         menuSidebar.pages = new List<VRMenuSidebar.MenuPage>
         {
             new VRMenuSidebar.MenuPage { pageName = "Room", panel = pageRoom, icon = null },
+            new VRMenuSidebar.MenuPage { pageName = "Recording", panel = pageRecording, icon = null },
             new VRMenuSidebar.MenuPage { pageName = "Avatar", panel = pageAvatar, icon = null },
             new VRMenuSidebar.MenuPage { pageName = "Voice", panel = pageVoice, icon = null },
             new VRMenuSidebar.MenuPage { pageName = "Settings", panel = pageSettings, icon = null }
@@ -573,6 +579,24 @@ public class VRMenuUISetup : MonoBehaviour
         nameText.GetComponent<TextMeshProUGUI>().alignment = TextAlignmentOptions.Left;
 
         return item;
+    }
+
+    #endregion
+
+    #region Page: Recording
+
+    GameObject CreatePageRecording(Transform parent)
+    {
+        GameObject page = CreatePanel(parent, "Page_Recording", Color.clear);
+        SetRectTransformStretch(page.GetComponent<RectTransform>());
+
+        // Add page script
+        page.AddComponent<VRMenuPageRecording>();
+
+        // Note: VRMenuPageRecording creates its own UI dynamically
+        // This is just the container
+
+        return page;
     }
 
     #endregion
