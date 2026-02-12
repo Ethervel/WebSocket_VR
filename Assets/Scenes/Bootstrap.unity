@@ -5591,6 +5591,162 @@ MonoBehaviour:
   debugLogs: 1
   forceFloorMode: 1
   deviceModeYOffset: 1.36
+--- !u!1 &444180141
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 444180146}
+  - component: {fileID: 444180145}
+  - component: {fileID: 444180144}
+  - component: {fileID: 444180143}
+  - component: {fileID: 444180142}
+  m_Layer: 0
+  m_Name: SpectatorCamera
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!114 &444180142
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 444180141}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
+--- !u!114 &444180143
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 444180141}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fdb313d6245b76a45bb339c8671397e5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpectatorCameraController
+  renderWidth: 1920
+  renderHeight: 1080
+  depthBits: 24
+  spectatorCamera: {fileID: 0}
+  audioListener: {fileID: 0}
+  _isRecording: 0
+--- !u!81 &444180144
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 444180141}
+  m_Enabled: 0
+--- !u!20 &444180145
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 444180141}
+  m_Enabled: 0
+  serializedVersion: 2
+  m_ClearFlags: 1
+  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.3
+  far clip plane: 1000
+  field of view: 60
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!4 &444180146
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 444180141}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.1305262, y: 0, z: 0, w: 0.9914449}
+  m_LocalPosition: {x: 0, y: 3, z: -5}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &455071000
 GameObject:
   m_ObjectHideFlags: 0
@@ -6383,8 +6539,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: wss://meeting.local
-  enforceSecureConnection: 1
+  serverUrl: ws://localhost:8080
+  enforceSecureConnection: 0
   autoReconnect: 1
   reconnectDelay: 3
   welcomeTimeout: 5
@@ -18199,6 +18355,7 @@ GameObject:
   - component: {fileID: 1352055403}
   - component: {fileID: 1352055405}
   - component: {fileID: 1352055404}
+  - component: {fileID: 1352055406}
   m_Layer: 0
   m_Name: Item Background
   m_TagString: Untagged
@@ -18263,6 +18420,26 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1352055402}
   m_CullTransparentMesh: 1
+--- !u!114 &1352055406
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1352055402}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.LayoutElement
+  m_IgnoreLayout: 0
+  m_MinWidth: -1
+  m_MinHeight: 35
+  m_PreferredWidth: -1
+  m_PreferredHeight: -1
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: -1
+  m_LayoutPriority: 1
 --- !u!1 &1355225987
 GameObject:
   m_ObjectHideFlags: 0
@@ -19204,6 +19381,8 @@ GameObject:
   - component: {fileID: 1427111936}
   - component: {fileID: 1427111938}
   - component: {fileID: 1427111937}
+  - component: {fileID: 1427111940}
+  - component: {fileID: 1427111939}
   m_Layer: 0
   m_Name: Content
   m_TagString: Untagged
@@ -19269,6 +19448,46 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1427111935}
   m_CullTransparentMesh: 1
+--- !u!114 &1427111939
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1427111935}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3245ec927659c4140ac4f8d17403cc18, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.ContentSizeFitter
+  m_HorizontalFit: 0
+  m_VerticalFit: 0
+--- !u!114 &1427111940
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1427111935}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59f8146938fff824cb5fd77236b75775, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.VerticalLayoutGroup
+  m_Padding:
+    m_Left: 0
+    m_Right: 0
+    m_Top: 0
+    m_Bottom: 0
+  m_ChildAlignment: 0
+  m_Spacing: 0
+  m_ChildForceExpandWidth: 1
+  m_ChildForceExpandHeight: 1
+  m_ChildControlWidth: 0
+  m_ChildControlHeight: 0
+  m_ChildScaleWidth: 0
+  m_ChildScaleHeight: 0
+  m_ReverseArrangement: 0
 --- !u!1 &1433334625
 GameObject:
   m_ObjectHideFlags: 0
@@ -19906,6 +20125,7 @@ GameObject:
   - component: {fileID: 1488980461}
   - component: {fileID: 1488980463}
   - component: {fileID: 1488980462}
+  - component: {fileID: 1488980464}
   m_Layer: 0
   m_Name: Item Label
   m_TagString: Untagged
@@ -20032,6 +20252,26 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1488980460}
   m_CullTransparentMesh: 1
+--- !u!114 &1488980464
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1488980460}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.LayoutElement
+  m_IgnoreLayout: 0
+  m_MinWidth: -1
+  m_MinHeight: 35
+  m_PreferredWidth: -1
+  m_PreferredHeight: -1
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: -1
+  m_LayoutPriority: 1
 --- !u!1 &1493623601
 GameObject:
   m_ObjectHideFlags: 0
@@ -21762,6 +22002,7 @@ MonoBehaviour:
   markerImportantButton: {fileID: 0}
   markerQuestionButton: {fileID: 0}
   markerTodoButton: {fileID: 0}
+  markerIdeaButton: {fileID: 0}
   infoText: {fileID: 0}
 --- !u!114 &1603784164
 MonoBehaviour:
@@ -25472,6 +25713,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1816735480}
   - component: {fileID: 1816735479}
+  - component: {fileID: 1816735481}
   m_Layer: 0
   m_Name: VoiceChatManager
   m_TagString: Untagged
@@ -25501,6 +25743,12 @@ MonoBehaviour:
   useVRPushToTalk: 0
   showDebugInfo: 1
   peerConnectionTimeout: 15
+  useCustomTurnServer: 1
+  customTurnUrl: turn:vrmeeting-test.duckdns.org:3478
+  customTurnsUrl: turns:vrmeeting-test.duckdns.org:5349
+  customTurnUsername: vrmeeting
+  customTurnCredential: JJkk2812
+  enableTurnTcp: 1
 --- !u!4 &1816735480
 Transform:
   m_ObjectHideFlags: 0
@@ -25516,6 +25764,24 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1816735481
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1816735478}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 970f2aea9ee34e849ac597609cc84728, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::VoiceChat.WebRTCConfiguration
+  useCustomTurnServer: 1
+  customTurnUrl: turn:vrmeeting-test.duckdns.org:3478
+  customTurnsUrl: turns:vrmeeting-test.duckdns.org:5349
+  customTurnUsername: vrmeeting
+  customTurnCredential: JJkk2812
+  enableTurnTcp: 0
 --- !u!1 &1843036559
 GameObject:
   m_ObjectHideFlags: 0
@@ -28222,6 +28488,7 @@ GameObject:
   - component: {fileID: 2000348164}
   - component: {fileID: 2000348166}
   - component: {fileID: 2000348165}
+  - component: {fileID: 2000348167}
   m_Layer: 0
   m_Name: Item Checkmark
   m_TagString: Untagged
@@ -28286,6 +28553,26 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2000348163}
   m_CullTransparentMesh: 1
+--- !u!114 &2000348167
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2000348163}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.LayoutElement
+  m_IgnoreLayout: 0
+  m_MinWidth: -1
+  m_MinHeight: 35
+  m_PreferredWidth: -1
+  m_PreferredHeight: -1
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: -1
+  m_LayoutPriority: 1
 --- !u!1 &2002716084
 GameObject:
   m_ObjectHideFlags: 0
@@ -30050,3 +30337,4 @@ SceneRoots:
   - {fileID: 220284915}
   - {fileID: 567505253}
   - {fileID: 715491865}
+  - {fileID: 444180146}

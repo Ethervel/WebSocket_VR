@@ -49,6 +49,25 @@ public class VoiceChatManager : MonoBehaviour
     [Tooltip("Timeout in seconds for peer connections that don't complete")]
     public float peerConnectionTimeout = 15f;
 
+    [Header("TURN Server Configuration")]
+    [Tooltip("Use your own private TURN server in production. Public servers are for development only!")]
+    public bool useCustomTurnServer = false;
+
+    [Tooltip("TURN server URL (e.g., turn:server.com:3478)")]
+    public string customTurnUrl = "";
+
+    [Tooltip("TURNS server URL for TLS (e.g., turns:server.com:5349)")]
+    public string customTurnsUrl = "";
+
+    [Tooltip("TURN server username")]
+    public string customTurnUsername = "";
+
+    [Tooltip("TURN server credential/password")]
+    public string customTurnCredential = "";
+
+    [Tooltip("Enable TURN over TCP (helps with restrictive firewalls)")]
+    public bool enableTurnTcp = true;
+
     // Sub-managers (created as child components)
     private MicrophoneManager _micManager;
     private RemoteAudioManager _audioManager;
@@ -87,6 +106,14 @@ public class VoiceChatManager : MonoBehaviour
         _audioManager = gameObject.AddComponent<RemoteAudioManager>();
         _signaling = gameObject.AddComponent<WebRTCSignaling>();
         _peerManager = gameObject.AddComponent<WebRTCPeerManager>();
+
+        // Apply TURN server settings from Inspector
+        _config.useCustomTurnServer = useCustomTurnServer;
+        _config.customTurnUrl = customTurnUrl;
+        _config.customTurnsUrl = customTurnsUrl;
+        _config.customTurnUsername = customTurnUsername;
+        _config.customTurnCredential = customTurnCredential;
+        _config.enableTurnTcp = enableTurnTcp;
 
         // Apply initial settings to sub-managers
         _audioManager.playbackVolume = playbackVolume;

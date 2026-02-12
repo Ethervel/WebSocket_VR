@@ -76,6 +76,7 @@ wss.on('connection', (ws) => {
         }
     });
 
+
     // Disconnection handling
     ws.on('close', () => {
         handleDisconnect(clientId);

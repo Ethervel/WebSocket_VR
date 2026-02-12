@@ -89,21 +89,6 @@ public class RecordingManager : MonoBehaviour
 
     void Start()
     {
-        // Auto-detect spectator camera (incluant les objets inactifs)
-        if (spectatorCamera == null)
-        {
-            var cameras = FindObjectsByType<SpectatorCameraController>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            if (cameras.Length > 0)
-            {
-                spectatorCamera = cameras[0];
-                Debug.Log($"[RecordingManager] SpectatorCamera trouvee: {spectatorCamera.gameObject.name}");
-            }
-            else
-            {
-                Debug.LogWarning("[RecordingManager] SpectatorCamera non trouvee!");
-            }
-        }
-
         // Setup audio capture
         _audioCapture = gameObject.AddComponent<AudioCapture>();
         _audioCapture.Initialize(settings);
@@ -112,6 +97,25 @@ public class RecordingManager : MonoBehaviour
         VRNetworkManager.OnMessageReceived += HandleNetworkMessage;
 
         Debug.Log("[RecordingManager] Initialise.");
+    }
+
+    /// <summary>
+    /// Recherche la SpectatorCamera dans la scene (appelee avant l'enregistrement).
+    /// </summary>
+    private bool FindSpectatorCamera()
+    {
+        if (spectatorCamera != null) return true;
+
+        var cameras = FindObjectsByType<SpectatorCameraController>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        if (cameras.Length > 0)
+        {
+            spectatorCamera = cameras[0];
+            Debug.Log($"[RecordingManager] SpectatorCamera trouvee: {spectatorCamera.gameObject.name}");
+            return true;
+        }
+
+        Debug.LogError("[RecordingManager] SpectatorCamera non trouvee! Ajoutez un SpectatorCameraController dans la scene.");
+        return false;
     }
 
     void OnDestroy()
@@ -156,6 +160,13 @@ public class RecordingManager : MonoBehaviour
         if (VRRoomManager.Instance != null && !VRRoomManager.Instance.IsHost)
         {
             Debug.LogWarning("[RecordingManager] Seul l'hote peut demarrer l'enregistrement.");
+            return;
+        }
+
+        // Chercher la SpectatorCamera (lazy loading car Meet scene chargee apres Bootstrap)
+        if (!FindSpectatorCamera())
+        {
+            Debug.LogError("[RecordingManager] Impossible de demarrer sans SpectatorCamera.");
             return;
         }
 
@@ -234,6 +245,11 @@ public class RecordingManager : MonoBehaviour
     /// </summary>
     public bool CanRecord()
     {
+        // Tenter de trouver la camera si pas encore assignee
+        if (spectatorCamera == null)
+        {
+            FindSpectatorCamera();
+        }
         return spectatorCamera != null && spectatorCamera.IsReady();
     }
 
