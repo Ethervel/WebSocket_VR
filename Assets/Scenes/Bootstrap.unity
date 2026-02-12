@@ -6539,7 +6539,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: ws://localhost:8080
+  serverUrl: wss://vrmeeting-test.duckdns.org/
   enforceSecureConnection: 0
   autoReconnect: 1
   reconnectDelay: 3
