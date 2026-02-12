@@ -131,6 +131,24 @@ public class AuthUI : MonoBehaviour
         if (registerPanel != null) registerPanel.SetActive(true);
         HideAllErrors();
         HideLoading();
+
+        // Setup XR keyboard for register fields (they were inactive at start)
+        SetupXRKeyboardForRegisterFields();
+    }
+
+    void SetupXRKeyboardForRegisterFields()
+    {
+        var keyboardBinder = FindFirstObjectByType<GlobalKeyboardAutoBind>();
+        if (keyboardBinder == null) return;
+
+        if (registerEmailField != null)
+            keyboardBinder.SetupInputField(registerEmailField);
+        if (registerPasswordField != null)
+            keyboardBinder.SetupInputField(registerPasswordField);
+        if (registerConfirmPasswordField != null)
+            keyboardBinder.SetupInputField(registerConfirmPasswordField);
+        if (registerDisplayNameField != null)
+            keyboardBinder.SetupInputField(registerDisplayNameField);
     }
 
     void HideAuthPanel()

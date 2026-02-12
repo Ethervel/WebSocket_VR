@@ -216,7 +216,7 @@ public class AuthManager : MonoBehaviour
             return;
         }
 
-        VRNetworkManager.Instance.SendMessage(type, data);
+        VRNetworkManager.Instance.Send(type, data);
     }
 
     private void SetAuth(string userId, string displayName, string token, string avatarConfig)

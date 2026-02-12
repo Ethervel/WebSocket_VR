@@ -85,7 +85,7 @@ public class AuthUICreator : EditorWindow
         container.GetComponent<Image>().color = new Color(0.15f, 0.15f, 0.15f, 1f);
 
         // Add rounded corners effect (optional - via outline)
-        Outline containerOutline = container.AddComponent<Outline>();
+        Outline containerOutline = Undo.AddComponent<Outline>(container);
         containerOutline.effectColor = new Color(0.3f, 0.3f, 0.3f, 1f);
         containerOutline.effectDistance = new Vector2(2, 2);
 
@@ -95,7 +95,7 @@ public class AuthUICreator : EditorWindow
         loginPanel.GetComponent<Image>().color = Color.clear;
 
         // Add vertical layout
-        VerticalLayoutGroup loginLayout = loginPanel.AddComponent<VerticalLayoutGroup>();
+        VerticalLayoutGroup loginLayout = Undo.AddComponent<VerticalLayoutGroup>(loginPanel);
         loginLayout.padding = new RectOffset(30, 30, 40, 30);
         loginLayout.spacing = 15;
         loginLayout.childAlignment = TextAnchor.UpperCenter;
@@ -127,7 +127,8 @@ public class AuthUICreator : EditorWindow
         // Spacer
         GameObject loginSpacer = new GameObject("Spacer");
         loginSpacer.transform.SetParent(loginPanel.transform, false);
-        LayoutElement loginSpacerLayout = loginSpacer.AddComponent<LayoutElement>();
+        Undo.RegisterCreatedObjectUndo(loginSpacer, "Create Spacer");
+        LayoutElement loginSpacerLayout = Undo.AddComponent<LayoutElement>(loginSpacer);
         loginSpacerLayout.preferredHeight = 10;
 
         // Login Button
@@ -152,7 +153,7 @@ public class AuthUICreator : EditorWindow
         registerPanel.SetActive(false); // Hidden by default
 
         // Add vertical layout
-        VerticalLayoutGroup registerLayout = registerPanel.AddComponent<VerticalLayoutGroup>();
+        VerticalLayoutGroup registerLayout = Undo.AddComponent<VerticalLayoutGroup>(registerPanel);
         registerLayout.padding = new RectOffset(30, 30, 30, 30);
         registerLayout.spacing = 12;
         registerLayout.childAlignment = TextAnchor.UpperCenter;
@@ -201,7 +202,7 @@ public class AuthUICreator : EditorWindow
         SetLayoutHeight(goToLoginBtn, 35);
 
         // ===== ADD AUTH UI SCRIPT =====
-        AuthUI authUI = authPanel.AddComponent<AuthUI>();
+        AuthUI authUI = Undo.AddComponent<AuthUI>(authPanel);
 
         // Assign references
         authUI.authPanel = authPanel;
