@@ -40,6 +40,7 @@ public class RecordingSettings
     public int width = 1920;
     public int height = 1080;
     public int frameRate = 30;
+    public int jpegQuality = 85;  // Qualite JPEG (1-100), utilise pour l'encodage
     public int audioBitRate = 128000;
     public int videoBitRate = 5000000;
     public bool captureAudio = true;

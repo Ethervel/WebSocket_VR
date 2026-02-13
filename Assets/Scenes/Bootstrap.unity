@@ -7386,6 +7386,9 @@ MonoBehaviour:
   initialReconnectDelay: 1
   maxReconnectDelay: 30
   backoffMultiplier: 2
+  offlineMode: 1
+  offlineAutoCreateRoom: 0
+  offlineRoomType: 0
   maxMessagesPerSecond: 60
   burstAllowance: 10
 --- !u!4 &483221128
