@@ -849,7 +849,7 @@ public class VRMenuUISetup : MonoBehaviour
         // Connect references
         var pageScript = page.GetComponent<VRMenuPageVoice>();
         pageScript.microphoneToggle = micToggle.GetComponent<Toggle>();
-        pageScript.inputDeviceDropdown = inputDropdown.GetComponent<TMP_Dropdown>();
+        
         pageScript.micVolumeSlider = micVolSlider.GetComponent<Slider>();
         pageScript.micVolumeText = micVolText.GetComponent<TextMeshProUGUI>();
         pageScript.othersVolumeSlider = othersVolSlider.GetComponent<Slider>();

@@ -24,7 +24,7 @@ Assets/Scrips/
 ├── Sharing/          ScreenShareManager.cs, FileShareManager.cs, FilePresentationManager.cs
 ├── Avatar/           AvatarCustomization.cs, AvatarColorTarget.cs
 ├── Auth/             AuthManager.cs, AuthUI.cs (implemented, not yet used)
-├── Recording/        RecordingManager.cs, RecordingData.cs, FFmpegEncoder.cs (requires FFmpeg)
+├── Recording/        RecordingManager.cs, SpectatorCameraController.cs, FFmpegEncoder.cs, AudioCapture.cs
 ├── Audio/            SoundManager.cs, AudioMuteZone.cs, AmbienceManager.cs
 ├── UI/MainMenu/      MainMenuManager.cs, MainMenuSettings.cs, MainMenuOptionsUI.cs
 ├── UI/Menu/          VRMenuUI.cs, VRMenuToggle.cs
@@ -58,6 +58,9 @@ GetLocalPlayer(), GetRemotePlayer(id), GetRemotePlayerHead(id)
 // VoiceChatManager
 OnVoiceChatReady, OnPeerVoiceConnected, OnPeerVoiceDisconnected
 
+// RecordingManager
+OnRecordingStarted, OnRecordingStopped, OnStateChanged, OnMarkerAdded
+
 // AuthManager (implemented, not yet integrated)
 OnLoginSuccess, OnRegisterSuccess, OnAuthError, OnLogout
 ```
@@ -75,6 +78,7 @@ OnLoginSuccess, OnRegisterSuccess, OnAuthError, OnLogout
 | Voice | `webrtc-offer`, `webrtc-answer`, `webrtc-ice-candidate` |
 | Whiteboard | `whiteboard-batch`, `whiteboard-clear`, `whiteboard-request`, `whiteboard-state` |
 | Sharing | `screen-share-*`, `file-share-*`, `file-present-*`, `laser-pointer` |
+| Recording | `recording-status`, `recording-marker` |
 | Auth | `auth-login`, `auth-register`, `auth-verify`, `auth-logout`, `auth-response` |
 
 ### Key Systems
@@ -109,6 +113,37 @@ offlineAutoCreateRoom = true    // Auto-create room on start
 offlineRoomType = MeetingRoomA  // Room type to create
 ```
 Simulates connection + room creation. All network sends are silently ignored.
+
+## Recording System (VR-Optimized)
+
+**Architecture:** 3-stage async pipeline to avoid VR motion sickness
+
+```
+Main Thread          Encode Thread       Write Thread
+RequestFrame() ──▶  RGB → TGA ──────▶  File.Write()
+  (~0.1ms)          (background)        (background)
+     ↑
+AsyncGPUReadback (non-blocking GPU read)
+```
+
+**Key files:**
+- `SpectatorCameraController.cs` - AsyncGPUReadback, buffer pooling, camera in Meet scene
+- `RecordingManager.cs` - Pipeline orchestration, ConcurrentQueues, host-only recording
+- `FFmpegEncoder.cs` - TGA→MP4 encoding via FFmpeg
+- `RecordingData.cs` - Settings, metadata, markers
+
+**Settings (RecordingSettings):**
+```csharp
+width = 1920, height = 1080, frameRate = 30
+jpegQuality = 85, captureAudio = true
+outputFolder = "Recordings"
+```
+
+**Output:** TGA frames + audio.wav → FFmpeg → recording.mp4
+
+**Markers:** Important, Question, Todo, Idea (synced across clients)
+
+**Note:** SpectatorCamera must be in Meet scene (auto-detected, prioritizes Meet over Bootstrap)
 
 ## Controls
 
@@ -163,11 +198,12 @@ VR: TurnMode (0=Snap/1=Smooth), SnapAngle, SmoothTurnSpeed | Desktop: MouseSensi
 
 | Done | Implemented (not used) | Planned |
 |------|------------------------|---------|
-| WebSocket + reconnect, WebRTC voice 3D, Avatar sync/customization, Whiteboard, Desktop mode, Main menu + settings, Screen share, File share/presentation, Laser pointer, VR Menu, Sound system, Offline mode | Auth (login/register/guest), Recording framework | SSO, E2E encryption, GDPR, Admin panel, Advanced avatars, Calendar, Meeting history |
+| WebSocket + reconnect, WebRTC voice 3D, Avatar sync/customization, Whiteboard, Desktop mode, Main menu + settings, Screen share, File share/presentation, Laser pointer, VR Menu, Sound system, Offline mode, Recording (VR-optimized) | Auth (login/register/guest) | SSO, E2E encryption, GDPR, Admin panel, Advanced avatars, Calendar, Meeting history |
 
 ## Important Notes
 - **XR Layers:** Teleport on bit 31 only, Grab must NOT include Teleport layer
 - **Remote players:** Head/hands detached from hierarchy (world-space targets)
 - **Late joiners:** Request state via `*-request` messages, receive `*-state`
 - **Room-scoped:** All sync messages include `roomId`
-- **Recording:** Requires FFmpeg binary in PATH to encode video
+- **Recording:** Requires FFmpeg in PATH, SpectatorCamera in Meet scene, host-only
+- **Recording VR:** Uses AsyncGPUReadback + background threads to avoid motion sickness
