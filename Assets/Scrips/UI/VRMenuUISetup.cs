@@ -849,7 +849,7 @@ public class VRMenuUISetup : MonoBehaviour
         // Connect references
         var pageScript = page.GetComponent<VRMenuPageVoice>();
         pageScript.microphoneToggle = micToggle.GetComponent<Toggle>();
-        pageScript.inputDeviceDropdown = inputDropdown.GetComponent<TMP_Dropdown>();
+        
         pageScript.micVolumeSlider = micVolSlider.GetComponent<Slider>();
         pageScript.micVolumeText = micVolText.GetComponent<TextMeshProUGUI>();
         pageScript.othersVolumeSlider = othersVolSlider.GetComponent<Slider>();
@@ -1338,10 +1338,34 @@ public class VRMenuUISetup : MonoBehaviour
         contentRect.pivot = new Vector2(0.5f, 1);
         contentRect.sizeDelta = new Vector2(0, 0);
 
+        // Add VerticalLayoutGroup for proper item stacking
+        VerticalLayoutGroup contentLayout = content.AddComponent<VerticalLayoutGroup>();
+        contentLayout.childAlignment = TextAnchor.UpperCenter;
+        contentLayout.childControlHeight = false;
+        contentLayout.childControlWidth = true;
+        contentLayout.childForceExpandHeight = false;
+        contentLayout.childForceExpandWidth = true;
+        contentLayout.spacing = 0;
+        contentLayout.padding = new RectOffset(0, 0, 0, 0);
+
+        // Add ContentSizeFitter so content grows with items
+        ContentSizeFitter contentFitter = content.AddComponent<ContentSizeFitter>();
+        contentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        contentFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+
         // Item template
         GameObject item = CreatePanel(content.transform, "Item", Color.clear);
         RectTransform itemRect = item.GetComponent<RectTransform>();
+        itemRect.anchorMin = new Vector2(0, 1);
+        itemRect.anchorMax = new Vector2(1, 1);
+        itemRect.pivot = new Vector2(0.5f, 1);
         itemRect.sizeDelta = new Vector2(0, 35);
+
+        // Add LayoutElement for consistent item height
+        LayoutElement itemLayout = item.AddComponent<LayoutElement>();
+        itemLayout.minHeight = 35;
+        itemLayout.preferredHeight = 35;
+        itemLayout.flexibleWidth = 1;
 
         Toggle itemToggle = item.AddComponent<Toggle>();
 

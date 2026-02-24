@@ -1,10 +1,10 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using System.Collections.Generic;
 
 /// <summary>
-/// Voice page - Microphone settings, device selection, volume controls.
+/// Voice page - Microphone toggle and volume controls.
+/// Device selection is done in Main Menu only.
 /// </summary>
 public class VRMenuPageVoice : MonoBehaviour
 {
@@ -14,11 +14,6 @@ public class VRMenuPageVoice : MonoBehaviour
     public Image micStatusIcon;
     public Color micOnColor = new Color(0.2f, 0.8f, 0.3f, 1f);
     public Color micOffColor = new Color(0.8f, 0.2f, 0.2f, 1f);
-
-    [Header("Device Selection")]
-    public TMP_Dropdown inputDeviceDropdown;
-    public TMP_Dropdown outputDeviceDropdown;
-    public Button refreshDevicesButton;
 
     [Header("Volume Controls")]
     public Slider micVolumeSlider;
@@ -32,7 +27,6 @@ public class VRMenuPageVoice : MonoBehaviour
     public Image voiceActivityIndicator;
     public Slider voiceActivityMeter;
 
-    private string[] _microphoneDevices;
     private bool _isInitialized = false;
 
     void Start()
@@ -55,17 +49,6 @@ public class VRMenuPageVoice : MonoBehaviour
                     break;
                 }
             }
-        }
-
-        // Find dropdowns
-        TMP_Dropdown[] dropdowns = GetComponentsInChildren<TMP_Dropdown>(true);
-        foreach (var dd in dropdowns)
-        {
-            string n = dd.name.ToLower();
-            if (inputDeviceDropdown == null && n.Contains("input"))
-                inputDeviceDropdown = dd;
-            else if (outputDeviceDropdown == null && n.Contains("output"))
-                outputDeviceDropdown = dd;
         }
 
         // Find sliders
@@ -94,7 +77,7 @@ public class VRMenuPageVoice : MonoBehaviour
                 othersVolumeText = txt;
         }
 
-        Debug.Log($"[VRMenuPageVoice] AutoFind: mic={microphoneToggle != null}, input={inputDeviceDropdown != null}, micVol={micVolumeSlider != null}");
+        Debug.Log($"[VRMenuPageVoice] AutoFind: mic={microphoneToggle != null}, micVol={micVolumeSlider != null}");
     }
 
     void OnEnable()
@@ -102,7 +85,6 @@ public class VRMenuPageVoice : MonoBehaviour
         if (_isInitialized)
         {
             RefreshMicrophoneStatus();
-            RefreshDeviceList();
         }
     }
 
@@ -113,28 +95,6 @@ public class VRMenuPageVoice : MonoBehaviour
         {
             microphoneToggle.onValueChanged.AddListener(OnMicrophoneToggle);
             Debug.Log("[VRMenuPageVoice] Microphone toggle connected");
-        }
-        else
-        {
-            Debug.LogWarning("[VRMenuPageVoice] Microphone toggle is NULL!");
-        }
-
-        // Device refresh button
-        if (refreshDevicesButton != null)
-        {
-            refreshDevicesButton.onClick.AddListener(RefreshDeviceList);
-            Debug.Log("[VRMenuPageVoice] Refresh devices button connected");
-        }
-
-        // Input device dropdown
-        if (inputDeviceDropdown != null)
-        {
-            inputDeviceDropdown.onValueChanged.AddListener(OnInputDeviceChanged);
-            Debug.Log("[VRMenuPageVoice] Input device dropdown connected");
-        }
-        else
-        {
-            Debug.LogWarning("[VRMenuPageVoice] Input device dropdown is NULL!");
         }
 
         // Volume sliders
@@ -165,9 +125,7 @@ public class VRMenuPageVoice : MonoBehaviour
             UpdateOthersVolumeText(othersVolumeSlider.value);
         }
 
-        RefreshDeviceList();
         RefreshMicrophoneStatus();
-
         _isInitialized = true;
     }
 
@@ -221,68 +179,6 @@ public class VRMenuPageVoice : MonoBehaviour
         {
             micStatusIcon.color = isOn ? micOnColor : micOffColor;
         }
-    }
-
-    #endregion
-
-    #region Device Selection
-
-    void RefreshDeviceList()
-    {
-        _microphoneDevices = Microphone.devices;
-
-        // Populate input device dropdown
-        if (inputDeviceDropdown != null)
-        {
-            inputDeviceDropdown.ClearOptions();
-
-            List<string> options = new List<string>();
-            options.Add("Default");
-
-            foreach (string device in _microphoneDevices)
-            {
-                options.Add(device);
-            }
-
-            inputDeviceDropdown.AddOptions(options);
-
-            // Select saved device
-            string savedDevice = PlayerPrefs.GetString("InputDevice", "Default");
-            int savedIndex = options.IndexOf(savedDevice);
-            if (savedIndex >= 0)
-            {
-                inputDeviceDropdown.SetValueWithoutNotify(savedIndex);
-            }
-        }
-
-        // Output device dropdown (Unity doesn't support output device selection natively)
-        // This is a placeholder - would need platform-specific implementation
-        if (outputDeviceDropdown != null)
-        {
-            outputDeviceDropdown.ClearOptions();
-            outputDeviceDropdown.AddOptions(new List<string> { "Default System Output" });
-            outputDeviceDropdown.interactable = false; // Disabled - Unity limitation
-        }
-
-        Debug.Log($"[VRMenuPageVoice] Found {_microphoneDevices.Length} microphone devices");
-    }
-
-    void OnInputDeviceChanged(int index)
-    {
-        string deviceName = index == 0 ? null : _microphoneDevices[index - 1];
-
-        var voiceChat = VoiceChatManager.Instance;
-        if (voiceChat != null)
-        {
-            voiceChat.SetMicrophone(deviceName);
-        }
-
-        // Save selection
-        string saveName = index == 0 ? "Default" : deviceName;
-        PlayerPrefs.SetString("InputDevice", saveName);
-        PlayerPrefs.Save();
-
-        Debug.Log($"[VRMenuPageVoice] Input device changed to: {saveName}");
     }
 
     #endregion
@@ -353,7 +249,6 @@ public class VRMenuPageVoice : MonoBehaviour
         var voiceChat = VoiceChatManager.Instance;
         if (voiceChat == null) return;
 
-        // Voice activity meter not implemented - would need audio analysis
         float level = voiceChat.IsMicrophoneActive ? 0.5f : 0f;
 
         if (voiceActivityMeter != null)

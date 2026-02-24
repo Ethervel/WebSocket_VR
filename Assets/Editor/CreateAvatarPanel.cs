@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using UnityEngine.UI;
 using TMPro;
+using UnityEditor.SceneManagement;
 
 /// <summary>
 /// Script Editor pour créer le panel Avatar en dupliquant le MainPanel.
@@ -26,9 +27,14 @@ public class CreateAvatarPanel : EditorWindow
             return;
         }
 
+        // Setup undo
+        Undo.SetCurrentGroupName("Create Avatar Panel");
+        int undoGroup = Undo.GetCurrentGroup();
+
         // Dupliquer le MainPanel
         GameObject avatarPanel = Object.Instantiate(menuUI.mainPanel, menuUI.mainPanel.transform.parent);
         avatarPanel.name = "AvatarPanel";
+        Undo.RegisterCreatedObjectUndo(avatarPanel, "Create Avatar Panel");
 
         // Supprimer tous les enfants existants
         for (int i = avatarPanel.transform.childCount - 1; i >= 0; i--)
@@ -43,7 +49,7 @@ public class CreateAvatarPanel : EditorWindow
         VerticalLayoutGroup vlg = avatarPanel.GetComponent<VerticalLayoutGroup>();
         if (vlg == null)
         {
-            vlg = avatarPanel.AddComponent<VerticalLayoutGroup>();
+            vlg = Undo.AddComponent<VerticalLayoutGroup>(avatarPanel);
         }
         vlg.padding = new RectOffset(20, 20, 20, 20);
         vlg.spacing = 15;
@@ -104,7 +110,7 @@ public class CreateAvatarPanel : EditorWindow
         AvatarCustomization avatarCustomization = avatarPanel.GetComponent<AvatarCustomization>();
         if (avatarCustomization == null)
         {
-            avatarCustomization = avatarPanel.AddComponent<AvatarCustomization>();
+            avatarCustomization = Undo.AddComponent<AvatarCustomization>(avatarPanel);
         }
 
         // Assigner les références
@@ -140,13 +146,15 @@ public class CreateAvatarPanel : EditorWindow
         Selection.activeGameObject = avatarPanel;
         EditorUtility.SetDirty(avatarPanel);
 
+        Undo.CollapseUndoOperations(undoGroup);
+
         Debug.Log("[CreateAvatarPanel] Panel Avatar créé! Sauvegarde la scène (Ctrl+S)");
     }
 
     static void SetHeight(GameObject obj, float height)
     {
         LayoutElement le = obj.GetComponent<LayoutElement>();
-        if (le == null) le = obj.AddComponent<LayoutElement>();
+        if (le == null) le = Undo.AddComponent<LayoutElement>(obj);
         le.minHeight = height;
         le.preferredHeight = height;
     }
@@ -155,8 +163,9 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject spacer = new GameObject("Spacer");
         spacer.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(spacer, "Create Spacer");
         RectTransform rect = spacer.AddComponent<RectTransform>();
-        LayoutElement le = spacer.AddComponent<LayoutElement>();
+        LayoutElement le = Undo.AddComponent<LayoutElement>(spacer);
         le.minHeight = height;
         le.preferredHeight = height;
         return spacer;
@@ -166,6 +175,7 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject obj = new GameObject(name);
         obj.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(obj, "Create Text");
         obj.AddComponent<RectTransform>();
 
         TextMeshProUGUI tmp = obj.AddComponent<TextMeshProUGUI>();
@@ -182,6 +192,7 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject obj = new GameObject(name);
         obj.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(obj, "Create Input Field");
         RectTransform rect = obj.AddComponent<RectTransform>();
 
         Image bg = obj.AddComponent<Image>();
@@ -239,9 +250,10 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject grid = new GameObject("ColorGrid");
         grid.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(grid, "Create Color Grid");
         grid.AddComponent<RectTransform>();
 
-        GridLayoutGroup glg = grid.AddComponent<GridLayoutGroup>();
+        GridLayoutGroup glg = Undo.AddComponent<GridLayoutGroup>(grid);
         glg.cellSize = new Vector2(45, 45);
         glg.spacing = new Vector2(12, 12);
         glg.childAlignment = TextAnchor.MiddleCenter;
@@ -264,6 +276,7 @@ public class CreateAvatarPanel : EditorWindow
         {
             GameObject btn = new GameObject($"Color_{i}");
             btn.transform.SetParent(grid.transform, false);
+            Undo.RegisterCreatedObjectUndo(btn, "Create Color Button");
 
             Image img = btn.AddComponent<Image>();
             img.color = colors[i];
@@ -289,11 +302,13 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject section = new GameObject("PreviewSection");
         section.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(section, "Create Preview Section");
         RectTransform rect = section.AddComponent<RectTransform>();
 
         // Preview Image (cercle avatar)
         GameObject previewImg = new GameObject("AvatarPreviewImage");
         previewImg.transform.SetParent(section.transform, false);
+        Undo.RegisterCreatedObjectUndo(previewImg, "Create Preview Image");
         RectTransform imgRect = previewImg.AddComponent<RectTransform>();
         imgRect.anchorMin = new Vector2(0.5f, 0.6f);
         imgRect.anchorMax = new Vector2(0.5f, 0.6f);
@@ -304,6 +319,7 @@ public class CreateAvatarPanel : EditorWindow
         // Preview Name
         GameObject previewName = new GameObject("PreviewName");
         previewName.transform.SetParent(section.transform, false);
+        Undo.RegisterCreatedObjectUndo(previewName, "Create Preview Name");
         RectTransform nameRect = previewName.AddComponent<RectTransform>();
         nameRect.anchorMin = new Vector2(0, 0);
         nameRect.anchorMax = new Vector2(1, 0.3f);
@@ -322,6 +338,7 @@ public class CreateAvatarPanel : EditorWindow
     {
         GameObject btn = new GameObject(name);
         btn.transform.SetParent(parent, false);
+        Undo.RegisterCreatedObjectUndo(btn, "Create Button");
         btn.AddComponent<RectTransform>();
 
         Image bg = btn.AddComponent<Image>();
@@ -338,6 +355,7 @@ public class CreateAvatarPanel : EditorWindow
         // Text
         GameObject textObj = new GameObject("Text");
         textObj.transform.SetParent(btn.transform, false);
+        Undo.RegisterCreatedObjectUndo(textObj, "Create Button Text");
         RectTransform txtRect = textObj.AddComponent<RectTransform>();
         txtRect.anchorMin = Vector2.zero;
         txtRect.anchorMax = Vector2.one;

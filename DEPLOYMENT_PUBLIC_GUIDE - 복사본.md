@@ -259,14 +259,13 @@ Coller (remplacer `meeting.entreprise.com` par votre domaine) :
 
 ```nginx
 server {
-    listen 80;
-    server_name meeting.entreprise.com;
+      listen 80;
+      server_name vrmeeting-test.duckdns.org;
 
-    # Temporaire pour Let's Encrypt
-    location / {
-        return 200 'VR Meeting Server - HTTP OK';
-        add_header Content-Type text/plain;
-    }
+      location / {
+          return 200 'VR Meeting Server - HTTP OK';
+          add_header Content-Type text/plain;
+      }
 }
 ```
 
@@ -298,7 +297,8 @@ Certbot modifie automatiquement la config nginx.
 ```bash
 sudo nano /etc/nginx/sites-available/vr-meeting
 ```
-
+Certificate is saved at: /etc/letsencrypt/live/vrmeeting-test.duckdns.org/fullchain.pem
+Key is saved at:         /etc/letsencrypt/live/vrmeeting-test.duckdns.org/privkey.pem
 Remplacer tout le contenu par :
 
 ```nginx

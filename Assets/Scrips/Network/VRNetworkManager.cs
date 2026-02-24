@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Threading.Tasks;
 using UnityEngine;
 using NativeWebSocket;
@@ -52,6 +53,16 @@ public class VRNetworkManager : MonoBehaviour
     // Cache pour réduire les allocations GC lors de l'envoi fréquent (30Hz)
     private readonly NetworkMessage _cachedOutgoingMessage = new NetworkMessage();
 
+    [Header("Debug / Offline Mode")]
+    [Tooltip("Enable offline mode to test without server connection")]
+    public bool offlineMode = false;
+
+    [Tooltip("Auto-create a room when in offline mode")]
+    public bool offlineAutoCreateRoom = true;
+
+    [Tooltip("Room type to create in offline mode")]
+    public RoomType offlineRoomType = RoomType.MeetingRoomA;
+
     [Header("Rate Limiting (IMPORTANT FIX)")]
     [Tooltip("Maximum messages per second (0 = unlimited)")]
     public int maxMessagesPerSecond = 60;
@@ -92,16 +103,24 @@ public class VRNetworkManager : MonoBehaviour
     // P0 FIX: Ne plus utiliser async void Start() qui swallow les exceptions
     void Start()
     {
+        // IMPORTANT FIX: Initialize rate limiting tokens
+        _rateLimitTokens = burstAllowance;
+        _lastRateLimitRefill = Time.unscaledTime;
+        _messagesDropped = 0;
+
+        // OFFLINE MODE: Skip real connection and simulate
+        if (offlineMode)
+        {
+            Debug.Log("[VRNet] <color=yellow>OFFLINE MODE ENABLED</color> - Simulating connection");
+            StartCoroutine(SimulateOfflineConnection());
+            return;
+        }
+
         // SECURITY FIX: Validate secure connection requirements
         ValidateConnectionSecurity();
 
         _currentReconnectDelay = initialReconnectDelay;
         _reconnectAttempts = 0;
-
-        // IMPORTANT FIX: Initialize rate limiting tokens
-        _rateLimitTokens = burstAllowance;
-        _lastRateLimitRefill = Time.unscaledTime;
-        _messagesDropped = 0;
 
         ConnectAsync();
     }
@@ -331,6 +350,49 @@ public class VRNetworkManager : MonoBehaviour
     }
 
     // ============================
+    // OFFLINE MODE SIMULATION
+    // ============================
+
+    /// <summary>
+    /// Simulates a server connection for offline testing.
+    /// Generates a fake player ID and triggers connection events.
+    /// </summary>
+    private IEnumerator SimulateOfflineConnection()
+    {
+        // Small delay to let other managers initialize
+        yield return new WaitForSeconds(0.3f);
+
+        // Generate offline player ID
+        LocalId = "offline-" + UnityEngine.Random.Range(1000, 9999);
+        IsConnected = true;
+
+        Debug.Log($"[VRNet] <color=cyan>OFFLINE</color> Assigned ID: {LocalId}");
+        OnConnected?.Invoke();
+
+        // Auto-create room if enabled
+        if (offlineAutoCreateRoom)
+        {
+            yield return new WaitForSeconds(0.2f);
+
+            // VRRoomManager should be ready by now, create room directly
+            if (VRRoomManager.Instance != null)
+            {
+                Debug.Log($"[VRNet] <color=cyan>OFFLINE</color> Auto-creating room ({offlineRoomType})");
+                VRRoomManager.Instance.CreateRoom(offlineRoomType, "Offline Test Room");
+            }
+            else
+            {
+                Debug.LogWarning("[VRNet] OFFLINE: VRRoomManager not found, cannot auto-create room");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns true if running in offline mode (no real server connection).
+    /// </summary>
+    public bool IsOfflineMode => offlineMode && IsConnected;
+
+    // ============================
     // MESSAGE HANDLING
     // ============================
     void HandleMessage(string json)
@@ -433,6 +495,17 @@ public class VRNetworkManager : MonoBehaviour
     // P0 FIX: async void with proper exception handling
     private async void SendInternal(string type, string dataJson)
     {
+        // OFFLINE MODE: Silently ignore sends (no websocket to send to)
+        if (offlineMode)
+        {
+            // Log only non-spammy messages for debugging
+            if (type != "vr-position")
+            {
+                Debug.Log($"[VRNet] <color=grey>OFFLINE SEND (ignored):</color> {type}");
+            }
+            return;
+        }
+
         if (_websocket == null || _websocket.State != WebSocketState.Open)
             return;
 
@@ -464,6 +537,10 @@ public class VRNetworkManager : MonoBehaviour
     // ============================
     public bool IsConnectionOpen()
     {
+        // OFFLINE MODE: Always return true if in offline mode and "connected"
+        if (offlineMode && IsConnected)
+            return true;
+
         return _websocket != null && _websocket.State == WebSocketState.Open;
     }
 }

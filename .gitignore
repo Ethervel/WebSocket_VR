@@ -2,6 +2,20 @@
 #
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
 #
+
+# ===========================================
+# Server / Node.js
+# ===========================================
+# Environment variables (SECRETS - never commit!)
+.env
+Server/.env
+
+# Node modules
+Server/node_modules/
+
+# ===========================================
+# Unity
+# ===========================================
 .utmp/
 /[Ll]ibrary/
 /[Tt]emp/

@@ -16,8 +16,11 @@ namespace VoiceChat
         [Tooltip("Use your own private TURN server in production. Public servers are for development only!")]
         public bool useCustomTurnServer = false;
 
-        [Tooltip("Your private TURN server URL (e.g., turn:your-server.com:3478)")]
+        [Tooltip("TURN server URL (e.g., turn:server.com:3478)")]
         public string customTurnUrl = "";
+
+        [Tooltip("TURNS server URL for TLS (e.g., turns:server.com:5349)")]
+        public string customTurnsUrl = "";
 
         [Tooltip("TURN server username")]
         public string customTurnUsername = "";
@@ -94,7 +97,8 @@ namespace VoiceChat
             iceServers.Add(new RTCIceServer { urls = new[] { STUN_CLOUDFLARE } });
 
             // TURN servers - use custom if configured, otherwise public fallback
-            if (useCustomTurnServer && !string.IsNullOrEmpty(customTurnUrl))
+            bool hasCustomTurn = !string.IsNullOrEmpty(customTurnUrl) || !string.IsNullOrEmpty(customTurnsUrl);
+            if (useCustomTurnServer && hasCustomTurn)
             {
                 AddCustomTurnServers(iceServers);
             }
@@ -111,28 +115,44 @@ namespace VoiceChat
 
         private void AddCustomTurnServers(List<RTCIceServer> iceServers)
         {
-            Debug.Log("[WebRTCConfig] Using custom TURN server");
+            Debug.Log("[WebRTCConfig] Using custom TURN/TURNS servers");
 
-            iceServers.Add(new RTCIceServer
+            // Add TURN server (UDP)
+            if (!string.IsNullOrEmpty(customTurnUrl))
             {
-                urls = new[] { customTurnUrl },
-                username = customTurnUsername,
-                credential = customTurnCredential
-            });
-
-            // Add TCP variant if enabled
-            if (enableTurnTcp && !customTurnUrl.Contains("transport="))
-            {
-                string tcpUrl = customTurnUrl.Contains("?")
-                    ? customTurnUrl + "&transport=tcp"
-                    : customTurnUrl + "?transport=tcp";
-
                 iceServers.Add(new RTCIceServer
                 {
-                    urls = new[] { tcpUrl },
+                    urls = new[] { customTurnUrl },
                     username = customTurnUsername,
                     credential = customTurnCredential
                 });
+
+                // Add TCP variant if enabled
+                if (enableTurnTcp && !customTurnUrl.Contains("transport="))
+                {
+                    string tcpUrl = customTurnUrl.Contains("?")
+                        ? customTurnUrl + "&transport=tcp"
+                        : customTurnUrl + "?transport=tcp";
+
+                    iceServers.Add(new RTCIceServer
+                    {
+                        urls = new[] { tcpUrl },
+                        username = customTurnUsername,
+                        credential = customTurnCredential
+                    });
+                }
+            }
+
+            // Add TURNS server (TLS)
+            if (!string.IsNullOrEmpty(customTurnsUrl))
+            {
+                iceServers.Add(new RTCIceServer
+                {
+                    urls = new[] { customTurnsUrl },
+                    username = customTurnUsername,
+                    credential = customTurnCredential
+                });
+                Debug.Log($"[WebRTCConfig] Added TURNS server: {customTurnsUrl}");
             }
         }
 

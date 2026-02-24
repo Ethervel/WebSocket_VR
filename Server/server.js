@@ -1,7 +1,18 @@
-
+require('dotenv').config();
 
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+
+// Authentication module (optional - works without database)
+let auth = null;
+let db = null;
+try {
+    db = require('./src/database');
+    auth = require('./src/auth');
+    console.log('[Server] Auth module loaded');
+} catch (e) {
+    console.log('[Server] Auth module not available (database not configured)');
+}
 
 // CONFIGURATION
 
@@ -34,7 +45,20 @@ console.log('  VR MEETING ROOMS - WebSocket Server');
 console.log('============================================');
 console.log(`  Port: ${PORT}`);
 console.log(`  Heartbeat: ${HEARTBEAT_INTERVAL / 1000}s`);
+console.log(`  Auth: ${auth ? 'Enabled' : 'Disabled'}`);
 console.log('============================================');
+
+// Test database connection on startup
+if (db) {
+    db.testConnection().then(connected => {
+        if (connected) {
+            console.log('[Server] Database ready');
+        } else {
+            console.warn('[Server] Database connection failed - auth disabled');
+            auth = null;
+        }
+    });
+}
 
 // CONNECTION HANDLING
 
@@ -75,6 +99,7 @@ wss.on('connection', (ws) => {
             console.error(`[Error] Parse: ${e.message}`);
         }
     });
+
 
     // Disconnection handling
     ws.on('close', () => {
@@ -222,6 +247,20 @@ function handleMessage(clientId, message) {
             break;
         case 'pdf-page-request':
             handlePdfPageRequest(clientId, data);
+            break;
+
+        // --- Authentication ---
+        case 'auth-register':
+            handleAuthRegister(clientId, data);
+            break;
+        case 'auth-login':
+            handleAuthLogin(clientId, data);
+            break;
+        case 'auth-verify':
+            handleAuthVerify(clientId, data);
+            break;
+        case 'auth-logout':
+            handleAuthLogout(clientId);
             break;
 
         // --- Default: Broadcast to Room ---
@@ -811,6 +850,185 @@ function sendPdfConvertResponse(targetId, fileId, roomId, result) {
             error: result.error || null
         })
     });
+}
+
+// AUTHENTICATION
+
+async function handleAuthRegister(clientId, dataStr) {
+    const client = clients.get(clientId);
+    if (!client) return;
+
+    // Check if auth is available
+    if (!auth) {
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'register',
+                success: false,
+                error: 'Authentication not configured'
+            })
+        });
+        return;
+    }
+
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const { email, password, displayName } = data;
+
+        const result = await auth.register(email, password, displayName);
+
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'register',
+                success: result.success,
+                userId: result.userId || null,
+                displayName: result.displayName || null,
+                token: result.token || null,
+                error: result.error || null
+            })
+        });
+
+        if (result.success) {
+            client.userId = result.userId;
+            client.playerName = result.displayName;
+            console.log(`[Auth] Registered: ${email}`);
+        }
+
+    } catch (e) {
+        console.error(`[Error] handleAuthRegister: ${e.message}`);
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'register',
+                success: false,
+                error: 'Registration failed'
+            })
+        });
+    }
+}
+
+async function handleAuthLogin(clientId, dataStr) {
+    const client = clients.get(clientId);
+    if (!client) return;
+
+    if (!auth) {
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'login',
+                success: false,
+                error: 'Authentication not configured'
+            })
+        });
+        return;
+    }
+
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const { email, password } = data;
+
+        // Get client IP for rate limiting
+        const clientIp = client.ws._socket?.remoteAddress || 'unknown';
+        const result = await auth.login(email, password, clientIp);
+
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'login',
+                success: result.success,
+                userId: result.userId || null,
+                displayName: result.displayName || null,
+                avatarConfig: result.avatarConfig || null,
+                token: result.token || null,
+                error: result.error || null
+            })
+        });
+
+        if (result.success) {
+            client.userId = result.userId;
+            client.playerName = result.displayName;
+            console.log(`[Auth] Login: ${email}`);
+        }
+
+    } catch (e) {
+        console.error(`[Error] handleAuthLogin: ${e.message}`);
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'login',
+                success: false,
+                error: 'Login failed'
+            })
+        });
+    }
+}
+
+function handleAuthVerify(clientId, dataStr) {
+    const client = clients.get(clientId);
+    if (!client) return;
+
+    if (!auth) {
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'verify',
+                success: false,
+                error: 'Authentication not configured'
+            })
+        });
+        return;
+    }
+
+    try {
+        const data = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+        const { token } = data;
+
+        const result = auth.verifyToken(token);
+
+        sendToClient(client.ws, {
+            type: 'auth-response',
+            senderId: 'server',
+            data: JSON.stringify({
+                action: 'verify',
+                success: result.valid,
+                userId: result.userId || null,
+                error: result.error || null
+            })
+        });
+
+        if (result.valid) {
+            client.userId = result.userId;
+        }
+
+    } catch (e) {
+        console.error(`[Error] handleAuthVerify: ${e.message}`);
+    }
+}
+
+function handleAuthLogout(clientId) {
+    const client = clients.get(clientId);
+    if (!client) return;
+
+    client.userId = null;
+
+    sendToClient(client.ws, {
+        type: 'auth-response',
+        senderId: 'server',
+        data: JSON.stringify({
+            action: 'logout',
+            success: true
+        })
+    });
+
+    console.log(`[Auth] Logout: ${clientId.substring(0, 8)}`);
 }
 
 // COMMUNICATION UTILITIES
