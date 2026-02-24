@@ -5,10 +5,15 @@ using TMPro;
 
 /// <summary>
 /// UI for login/register. Integrates with MainMenuManager.
-/// Shows login panel before main menu if not authenticated.
+/// Shows login panel when Start is clicked, then proceeds to game.
 /// </summary>
 public class AuthUI : MonoBehaviour
 {
+    public static AuthUI Instance { get; private set; }
+
+    // Event triggered when auth is complete (login, register, or guest)
+    public static event System.Action<AuthCompletionData> OnAuthComplete;
+
     [Header("Panels")]
     public GameObject authPanel;
     public GameObject loginPanel;
@@ -44,8 +49,20 @@ public class AuthUI : MonoBehaviour
 
     void Awake()
     {
+        // Singleton pattern
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+
         SetupButtons();
         HideAllErrors();
+
+        // Start with auth panel hidden (MainMenuManager will show it)
+        if (authPanel != null)
+            authPanel.SetActive(false);
     }
 
     void OnEnable()
@@ -64,26 +81,15 @@ public class AuthUI : MonoBehaviour
 
     void Start()
     {
-        // Skip auth in editor if configured
-#if UNITY_EDITOR
-        if (skipAuthInEditor)
-        {
-            Debug.Log("[AuthUI] Skipping auth in editor");
-            HideAuthPanel();
-            return;
-        }
-#endif
+        // Auth panel is now shown by MainMenuManager when Start is clicked
+        // Don't auto-show here anymore
+        Debug.Log("[AuthUI] Ready - waiting for MainMenuManager to show auth");
+    }
 
-        // Check if already authenticated
-        if (AuthManager.Instance != null && AuthManager.Instance.IsAuthenticated)
-        {
-            Debug.Log("[AuthUI] Already authenticated");
-            HideAuthPanel();
-            return;
-        }
-
-        // Show login panel
-        ShowLoginPanel();
+    void OnDestroy()
+    {
+        if (Instance == this)
+            Instance = null;
     }
 
     void SetupButtons()
@@ -109,6 +115,42 @@ public class AuthUI : MonoBehaviour
 
     #region Panel Navigation
 
+    /// <summary>
+    /// Public method called by MainMenuManager when Start is clicked.
+    /// Shows the auth panel (login by default).
+    /// </summary>
+    public void Show()
+    {
+        // Skip auth in editor if configured
+#if UNITY_EDITOR
+        if (skipAuthInEditor)
+        {
+            Debug.Log("[AuthUI] Skipping auth in editor - proceeding directly");
+            CompleteAuth(true, "Editor User", null);
+            return;
+        }
+#endif
+
+        // Check if already authenticated
+        if (AuthManager.Instance != null && AuthManager.Instance.IsAuthenticated)
+        {
+            Debug.Log("[AuthUI] Already authenticated - proceeding directly");
+            CompleteAuth(false, AuthManager.Instance.DisplayName, AuthManager.Instance.AvatarConfig);
+            return;
+        }
+
+        // Show login panel
+        ShowLoginPanel();
+    }
+
+    /// <summary>
+    /// Hide the auth panel (called when user cancels or auth is complete).
+    /// </summary>
+    public void Hide()
+    {
+        HideAuthPanel();
+    }
+
     public void ShowLoginPanel()
     {
         if (authPanel != null) authPanel.SetActive(true);
@@ -116,12 +158,6 @@ public class AuthUI : MonoBehaviour
         if (registerPanel != null) registerPanel.SetActive(false);
         HideAllErrors();
         HideLoading();
-
-        // Hide main menu panel while showing auth
-        if (MainMenuManager.Instance != null && MainMenuManager.Instance.mainPanel != null)
-        {
-            MainMenuManager.Instance.mainPanel.SetActive(false);
-        }
     }
 
     public void ShowRegisterPanel()
@@ -154,12 +190,26 @@ public class AuthUI : MonoBehaviour
     void HideAuthPanel()
     {
         if (authPanel != null) authPanel.SetActive(false);
+        // MainMenuManager handles what to show next
+    }
 
-        // Show main menu panel
-        if (MainMenuManager.Instance != null && MainMenuManager.Instance.mainPanel != null)
+    /// <summary>
+    /// Called when authentication is complete (login, register, or guest).
+    /// Triggers the OnAuthComplete event for MainMenuManager.
+    /// </summary>
+    void CompleteAuth(bool isGuest, string displayName, string avatarConfig)
+    {
+        HideAuthPanel();
+
+        var data = new AuthCompletionData
         {
-            MainMenuManager.Instance.mainPanel.SetActive(true);
-        }
+            IsGuest = isGuest,
+            DisplayName = displayName ?? (isGuest ? $"Guest-{UnityEngine.Random.Range(1000, 9999)}" : "User"),
+            AvatarConfig = avatarConfig
+        };
+
+        Debug.Log($"[AuthUI] Auth complete - Guest: {data.IsGuest}, Name: {data.DisplayName}");
+        OnAuthComplete?.Invoke(data);
     }
 
     void HideAllErrors()
@@ -316,7 +366,7 @@ public class AuthUI : MonoBehaviour
     void OnGuestClicked()
     {
         Debug.Log("[AuthUI] Guest mode selected");
-        HideAuthPanel();
+        CompleteAuth(true, null, null);
     }
 
     IEnumerator AuthTimeout()
@@ -349,13 +399,8 @@ public class AuthUI : MonoBehaviour
         HideLoading();
         Debug.Log($"[AuthUI] Login success: {result.DisplayName}");
 
-        // Update player name if in a room
-        if (VRRoomManager.Instance != null)
-        {
-            VRRoomManager.Instance.SetPlayerName(result.DisplayName);
-        }
-
-        HideAuthPanel();
+        // Complete auth and proceed to game
+        CompleteAuth(false, result.DisplayName, result.AvatarConfig);
     }
 
     void OnRegisterSuccess(AuthResult result)
@@ -364,13 +409,8 @@ public class AuthUI : MonoBehaviour
         HideLoading();
         Debug.Log($"[AuthUI] Register success: {result.DisplayName}");
 
-        // Update player name
-        if (VRRoomManager.Instance != null)
-        {
-            VRRoomManager.Instance.SetPlayerName(result.DisplayName);
-        }
-
-        HideAuthPanel();
+        // Complete auth and proceed to game
+        CompleteAuth(false, result.DisplayName, result.AvatarConfig);
     }
 
     void OnAuthError(string error)
@@ -410,4 +450,14 @@ public class AuthUI : MonoBehaviour
     }
 
     #endregion
+}
+
+/// <summary>
+/// Data passed when authentication is complete.
+/// </summary>
+public class AuthCompletionData
+{
+    public bool IsGuest;
+    public string DisplayName;
+    public string AvatarConfig;
 }

@@ -31,6 +31,9 @@ public class BootstrapManager : MonoBehaviour
     public UnityEngine.UI.Slider progressBar;
     public TMPro.TextMeshProUGUI loadingText;
 
+    // Reference au VRCanvasAdapter pour l'ecran de chargement
+    private VRCanvasAdapter _loadingScreenAdapter;
+
     // État
     private bool _isLoading = false;
     private string _currentLoadedScene = "";
@@ -58,6 +61,16 @@ public class BootstrapManager : MonoBehaviour
         DisableXRSimulatorInVRMode();
 
         SetupPersistentEventSystem();
+
+        // Cache le VRCanvasAdapter de l'ecran de chargement
+        if (loadingScreen != null)
+        {
+            _loadingScreenAdapter = loadingScreen.GetComponent<VRCanvasAdapter>();
+            if (_loadingScreenAdapter == null)
+            {
+                Debug.LogWarning("[Bootstrap] Loading screen n'a pas de VRCanvasAdapter - l'ecran ne s'affichera pas en VR!");
+            }
+        }
     }
 
     /// <summary>
@@ -212,7 +225,15 @@ public class BootstrapManager : MonoBehaviour
         _isLoading = true;
 
         if (loadingScreen != null)
+        {
             loadingScreen.SetActive(true);
+
+            // Rafraichir l'adapter VR pour positionner correctement le Canvas
+            if (_loadingScreenAdapter != null)
+            {
+                _loadingScreenAdapter.Refresh();
+            }
+        }
 
         if (!string.IsNullOrEmpty(_currentLoadedScene))
         {

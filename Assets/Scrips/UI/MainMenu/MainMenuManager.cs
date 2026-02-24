@@ -43,9 +43,16 @@ public class MainMenuManager : MonoBehaviour
     [Header("A désactiver après chargement (pas détruire)")]
     public GameObject[] objectsToDisable;
 
+    [Header("Auth")]
+    [Tooltip("Reference to AuthUI (auto-detected if null)")]
+    public AuthUI authUI;
+
     // Events
     public static event Action OnGameStarting;
     public static event Action OnGameStarted;
+
+    // Auth data from login
+    private AuthCompletionData _authData;
 
     // State
     private bool _isLoading = false;
@@ -71,6 +78,20 @@ public class MainMenuManager : MonoBehaviour
         SetupButtons();
         ShowMainPanel();
 
+        // Auto-detect AuthUI if not assigned (include inactive objects)
+        if (authUI == null)
+        {
+            authUI = FindAnyObjectByType<AuthUI>(FindObjectsInactive.Include);
+            if (authUI == null)
+            {
+                Debug.LogWarning("[MainMenu] AuthUI not found - auth will be skipped!");
+            }
+            else
+            {
+                Debug.Log($"[MainMenu] Found AuthUI on: {authUI.gameObject.name}");
+            }
+        }
+
         // Disable MenuToogle during menu phase if it exists
         var menuToggle = FindAnyObjectByType<VRMenuToggle>();
         if (menuToggle != null)
@@ -85,11 +106,13 @@ public class MainMenuManager : MonoBehaviour
     void OnEnable()
     {
         VRGameManager.OnLocalPlayerSpawned += OnLocalPlayerSpawned;
+        AuthUI.OnAuthComplete += OnAuthComplete;
     }
 
     void OnDisable()
     {
         VRGameManager.OnLocalPlayerSpawned -= OnLocalPlayerSpawned;
+        AuthUI.OnAuthComplete -= OnAuthComplete;
     }
 
     void OnLocalPlayerSpawned(GameObject localPlayer)
@@ -237,7 +260,45 @@ public class MainMenuManager : MonoBehaviour
     void OnStartClicked()
     {
         if (_isLoading) return;
-        Debug.Log("[MainMenu] Start clicked");
+        Debug.Log("[MainMenu] Start clicked - showing auth");
+
+        // Hide main panel
+        SetPanel(mainPanel, false);
+
+        // Show auth UI (it will trigger OnAuthComplete when done)
+        if (authUI != null)
+        {
+            authUI.Show();
+        }
+        else
+        {
+            // No AuthUI, proceed directly as guest
+            Debug.LogWarning("[MainMenu] No AuthUI - proceeding as guest");
+            OnAuthComplete(new AuthCompletionData
+            {
+                IsGuest = true,
+                DisplayName = $"Guest-{UnityEngine.Random.Range(1000, 9999)}",
+                AvatarConfig = null
+            });
+        }
+    }
+
+    /// <summary>
+    /// Called when auth is complete (login, register, or guest).
+    /// Proceeds to load the game.
+    /// </summary>
+    void OnAuthComplete(AuthCompletionData data)
+    {
+        _authData = data;
+        Debug.Log($"[MainMenu] Auth complete - {(data.IsGuest ? "Guest" : "User")}: {data.DisplayName}");
+
+        // Set player name
+        if (VRRoomManager.Instance != null)
+        {
+            VRRoomManager.Instance.SetPlayerName(data.DisplayName);
+        }
+
+        // Start the game
         StartCoroutine(StartGameSequence());
     }
 
