@@ -36,7 +36,10 @@ public class VRGameManager : MonoBehaviour
 
     [Tooltip("Synchroniser les mains des avatars")]
     public bool syncHands = true;
-    
+
+    [Tooltip("Offset vertical pour la tête des joueurs distants (négatif = plus bas)")]
+    public float remoteHeadYOffset = 0f;
+
     [Header("Movement Detection (Optimization)")]
     [Tooltip("Seuil de mouvement en mètres pour envoyer une mise à jour")]
     public float movementThreshold = 0.01f;
@@ -1680,9 +1683,13 @@ public class VRGameManager : MonoBehaviour
             // Tête : WORLD (avec offset de rotation du prefab)
             if (remote.head != null)
             {
+                // Appliquer l'offset Y configurable
+                Vector3 adjustedHeadPos = remote.targetHeadPosition;
+                adjustedHeadPos.y += remoteHeadYOffset;
+
                 remote.head.position = Vector3.Lerp(
                     remote.head.position,
-                    remote.targetHeadPosition,
+                    adjustedHeadPos,
                     t
                 );
                 // Appliquer l'offset de rotation du prefab

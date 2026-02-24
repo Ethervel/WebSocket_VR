@@ -76,7 +76,22 @@ public class MainMenuManager : MonoBehaviour
     void Start()
     {
         SetupButtons();
-        ShowMainPanel();
+
+        // Ne pas afficher le main panel si le LaunchLoadingScreen est actif
+        // BootstrapManager appellera ShowMainPanel() quand le loading sera termine
+        bool launchLoadingActive = LaunchLoadingScreen.Instance != null && !LaunchLoadingScreen.Instance.IsComplete;
+        if (!launchLoadingActive)
+        {
+            ShowMainPanel();
+        }
+        else
+        {
+            // Cacher tous les panels pendant le loading initial
+            SetPanel(mainPanel, false);
+            SetPanel(optionsPanel, false);
+            SetPanel(quitDialog, false);
+            Debug.Log("[MainMenu] Hiding panels during launch loading");
+        }
 
         // Auto-detect AuthUI if not assigned (include inactive objects)
         if (authUI == null)

@@ -25,8 +25,12 @@ public class BootstrapManager : MonoBehaviour
     [Tooltip("Délai avant de charger la scène principale (secondes)")]
     public float loadDelay = 0.5f;
 
+    [Header("Launch Loading Screen")]
+    [Tooltip("Écran de chargement au lancement (avec LaunchLoadingScreen)")]
+    public GameObject launchLoadingScreen;
+
     [Header("Loading UI (Géré par MainMenuManager si présent)")]
-    [Tooltip("Écran de chargement - utilisé si MainMenuManager n'est pas présent")]
+    [Tooltip("Écran de chargement pour les transitions de scène")]
     public GameObject loadingScreen;
     public UnityEngine.UI.Slider progressBar;
     public TMPro.TextMeshProUGUI loadingText;
@@ -152,10 +156,41 @@ public class BootstrapManager : MonoBehaviour
 
     void Start()
     {
+        // S'abonner a l'event de fin de loading initial
+        LaunchLoadingScreen.OnLoadingComplete += OnLaunchLoadingComplete;
+
+        // Cacher le main menu pendant le loading initial
+        if (MainMenuManager.Instance != null && MainMenuManager.Instance.mainPanel != null)
+        {
+            MainMenuManager.Instance.mainPanel.SetActive(false);
+        }
+
+        // Le LaunchLoadingScreen se lance automatiquement
+        // Une fois termine, OnLaunchLoadingComplete sera appele
+
         if (loadMainSceneOnStart)
         {
             StartCoroutine(LoadMainSceneDelayed());
         }
+    }
+
+    void OnLaunchLoadingComplete()
+    {
+        LaunchLoadingScreen.OnLoadingComplete -= OnLaunchLoadingComplete;
+
+        // Afficher le main menu
+        if (MainMenuManager.Instance != null)
+        {
+            MainMenuManager.Instance.ShowMainPanel();
+        }
+
+        Debug.Log("[Bootstrap] Launch loading complete - showing main menu");
+    }
+
+    void OnDestroy()
+    {
+        // Se desabonner pour eviter les erreurs
+        LaunchLoadingScreen.OnLoadingComplete -= OnLaunchLoadingComplete;
     }
 
     void SetupPersistentEventSystem()
@@ -223,6 +258,8 @@ public class BootstrapManager : MonoBehaviour
     IEnumerator LoadSceneAsync(string sceneName)
     {
         _isLoading = true;
+        float loadStartTime = Time.time;
+        const float minimumLoadingTime = 1f; // Temps minimum d'affichage du loading
 
         if (loadingScreen != null)
         {
@@ -261,6 +298,12 @@ public class BootstrapManager : MonoBehaviour
 
         _loadingProgress = 1f;
 
+        if (progressBar != null)
+            progressBar.value = 1f;
+
+        if (loadingText != null)
+            loadingText.text = "Loading... 100%";
+
         _currentLoadedScene = sceneName;
 
         Scene loadedScene = SceneManager.GetSceneByName(sceneName);
@@ -274,6 +317,13 @@ public class BootstrapManager : MonoBehaviour
         if (VRGameManager.Instance != null)
         {
             VRGameManager.Instance.RefreshUIInteraction();
+        }
+
+        // Attendre le temps minimum d'affichage
+        float elapsed = Time.time - loadStartTime;
+        if (elapsed < minimumLoadingTime)
+        {
+            yield return new WaitForSeconds(minimumLoadingTime - elapsed);
         }
 
         if (loadingScreen != null)

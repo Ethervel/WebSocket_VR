@@ -225,411 +225,56 @@ Main Menu → [Start] → Auth Screen → [Login/Register/Guest] → Loading →
 `VRCanvasAdapter.cs` - Adapte les Canvas pour VR (Screen Space → World Space)
 - À ajouter sur le Canvas "Loading screen" dans Bootstrap
 
----
+### Launch Loading Screen (DONE)
+`LaunchLoadingScreen.cs` - Ecran de chargement au lancement avec barre de progression
+- Initialisation XR (0-20%), Network (20-50%), Auth (50-70%), Settings (70-90%), Finalize (90-100%)
+- Auto-detection des references UI, fade out, event OnLoadingComplete
 
-## TODO: Launch Loading Screen (À IMPLÉMENTER)
+## TODO / Features à implémenter
 
-### Objectif
-Afficher un écran de chargement avec logo et barre de progression au lancement de l'application, avant d'afficher le Main Menu.
+### XR Socket Interactor (Snap Zone)
+Emplacement où les objets grabbables se "snappent" automatiquement.
 
-### Flow cible
+**Sur la Snap Zone :**
 ```
-App Launch
-    ↓
-┌─────────────────────────────────────┐
-│         LOADING SCREEN              │
-│            [LOGO]                   │
-│     ════════════════════  45%       │
-│      Connexion au serveur...        │
-└─────────────────────────────────────┘
-    ↓ (Initialisation terminée)
-┌─────────────────────────────────────┐
-│          MAIN MENU                  │
-│          [START] [OPTIONS] [QUIT]   │
-└─────────────────────────────────────┘
+GameObject: SnapZone_XXX
+├── XR Socket Interactor
+├── Collider (Is Trigger = ✓)
+└── Mesh Renderer (optionnel, visuel de l'emplacement)
 ```
 
-### Étapes d'initialisation avec progression
+**Paramètres XR Socket Interactor :**
+- `Interaction Layer Mask` - Quels layers peuvent être socketés
+- `Show Interactable Hover Meshes` - Aperçu de l'objet au hover
+- `Hover Mesh Material` - Material transparent pour l'aperçu
+- `Recycle Delay Time` - Délai avant re-socket
 
-| Étape | Description | Progression |
-|-------|-------------|-------------|
-| 1 | Initialisation XR | 0% → 20% |
-| 2 | Connexion serveur WebSocket | 20% → 50% |
-| 3 | Vérification token auth (si existant) | 50% → 70% |
-| 4 | Chargement des paramètres utilisateur | 70% → 90% |
-| 5 | Finalisation | 90% → 100% |
+**Sur l'objet grabbable :**
+- `XR Grab Interactable` + `Rigidbody` + `Collider` (déjà en place)
 
-### Fichier à créer: `Assets/Scrips/UI/LaunchLoadingScreen.cs`
+**Flow :** Grab objet → Approche socket → Release → Snap à position/rotation du socket
 
-```csharp
-using System;
-using System.Collections;
-using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
+**Filtrage par tag (optionnel) :** Script `FilteredSocket.cs` avec `acceptedTag`
 
-/// <summary>
-/// Gère l'écran de chargement au lancement de l'application.
-/// Affiche la progression de l'initialisation des systèmes.
-/// </summary>
-public class LaunchLoadingScreen : MonoBehaviour
-{
-    public static LaunchLoadingScreen Instance { get; private set; }
+**Cas d'usage :** Inventaire, puzzles, rangement d'objets, clés/serrures
 
-    [Header("UI References")]
-    [Tooltip("Image du logo de l'application")]
-    public Image logoImage;
+### Room Preview UI (Lobby)
+Afficher un aperçu des rooms au hover sur les boutons de téléportation.
 
-    [Tooltip("Image de remplissage de la barre de progression")]
-    public Image progressBarFill;
-
-    [Tooltip("Texte affichant le pourcentage")]
-    public TextMeshProUGUI progressText;
-
-    [Tooltip("Texte affichant l'étape actuelle")]
-    public TextMeshProUGUI statusText;
-
-    [Tooltip("Texte de version (optionnel)")]
-    public TextMeshProUGUI versionText;
-
-    [Header("Settings")]
-    [Tooltip("Temps minimum d'affichage du loading (secondes)")]
-    public float minimumDisplayTime = 2f;
-
-    [Tooltip("Vitesse d'animation de la barre (lerp)")]
-    public float progressAnimSpeed = 3f;
-
-    [Tooltip("Timeout pour la connexion serveur (secondes)")]
-    public float networkTimeout = 10f;
-
-    [Header("Fade")]
-    public CanvasGroup canvasGroup;
-    public float fadeDuration = 0.5f;
-
-    // État
-    private float _targetProgress = 0f;
-    private float _currentProgress = 0f;
-    private float _startTime;
-    private bool _isComplete = false;
-
-    // Event déclenché quand le loading est terminé
-    public static event Action OnLoadingComplete;
-
-    void Awake()
-    {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-        Instance = this;
-
-        // Afficher immédiatement
-        if (canvasGroup != null)
-            canvasGroup.alpha = 1f;
-
-        gameObject.SetActive(true);
-
-        // Version
-        if (versionText != null)
-            versionText.text = $"v{Application.version}";
-    }
-
-    void Start()
-    {
-        _startTime = Time.time;
-        StartCoroutine(RunInitializationSequence());
-    }
-
-    void Update()
-    {
-        // Animation fluide de la barre de progression
-        if (_currentProgress < _targetProgress)
-        {
-            _currentProgress = Mathf.Lerp(_currentProgress, _targetProgress, Time.deltaTime * progressAnimSpeed);
-            UpdateProgressUI(_currentProgress);
-        }
-    }
-
-    void OnDestroy()
-    {
-        if (Instance == this)
-            Instance = null;
-    }
-
-    /// <summary>
-    /// Séquence principale d'initialisation.
-    /// </summary>
-    IEnumerator RunInitializationSequence()
-    {
-        // Étape 1: XR (0-20%)
-        yield return StartCoroutine(InitializeXR());
-
-        // Étape 2: Network (20-50%)
-        yield return StartCoroutine(InitializeNetwork());
-
-        // Étape 3: Auth check (50-70%)
-        yield return StartCoroutine(CheckAuthentication());
-
-        // Étape 4: Settings (70-90%)
-        yield return StartCoroutine(LoadSettings());
-
-        // Étape 5: Finalize (90-100%)
-        yield return StartCoroutine(Finalize());
-
-        // Attendre le temps minimum d'affichage
-        float elapsed = Time.time - _startTime;
-        if (elapsed < minimumDisplayTime)
-        {
-            yield return new WaitForSeconds(minimumDisplayTime - elapsed);
-        }
-
-        // Terminé
-        _isComplete = true;
-        yield return StartCoroutine(FadeOut());
-
-        OnLoadingComplete?.Invoke();
-        gameObject.SetActive(false);
-    }
-
-    #region Initialization Steps
-
-    IEnumerator InitializeXR()
-    {
-        SetStatus("Initialisation VR...");
-        SetProgress(0f);
-
-        // Attendre que XR soit prêt (BootstrapManager gère ça)
-        yield return new WaitForSeconds(0.3f);
-
-        // Vérifier si XR est actif
-        bool xrReady = UnityEngine.XR.XRSettings.isDeviceActive;
-        Debug.Log($"[LaunchLoading] XR Ready: {xrReady}");
-
-        SetProgress(0.2f);
-        yield return new WaitForSeconds(0.2f);
-    }
-
-    IEnumerator InitializeNetwork()
-    {
-        SetStatus("Connexion au serveur...");
-        SetProgress(0.2f);
-
-        // Attendre la connexion WebSocket
-        float timeout = networkTimeout;
-        float elapsed = 0f;
-
-        while (!VRNetworkManager.IsConnected && elapsed < timeout)
-        {
-            elapsed += Time.deltaTime;
-
-            // Progression graduelle pendant l'attente
-            float networkProgress = 0.2f + (elapsed / timeout) * 0.25f;
-            SetProgress(Mathf.Min(networkProgress, 0.45f));
-
-            yield return null;
-        }
-
-        if (VRNetworkManager.IsConnected)
-        {
-            Debug.Log("[LaunchLoading] Network connected");
-            SetProgress(0.5f);
-        }
-        else
-        {
-            Debug.LogWarning("[LaunchLoading] Network timeout - continuing anyway");
-            SetStatus("Mode hors-ligne...");
-            SetProgress(0.5f);
-            yield return new WaitForSeconds(0.5f);
-        }
-    }
-
-    IEnumerator CheckAuthentication()
-    {
-        SetStatus("Vérification...");
-        SetProgress(0.5f);
-
-        // Vérifier si un token existe
-        if (AuthManager.Instance != null && !string.IsNullOrEmpty(AuthManager.Instance.Token))
-        {
-            SetStatus("Vérification du compte...");
-            // Le token sera vérifié automatiquement par AuthManager.OnNetworkConnected
-            yield return new WaitForSeconds(0.5f);
-        }
-
-        SetProgress(0.7f);
-        yield return new WaitForSeconds(0.2f);
-    }
-
-    IEnumerator LoadSettings()
-    {
-        SetStatus("Chargement paramètres...");
-        SetProgress(0.7f);
-
-        // Charger les paramètres utilisateur
-        if (MainMenuSettings.Instance != null)
-        {
-            // Les settings sont chargés automatiquement dans Awake
-            yield return new WaitForSeconds(0.2f);
-        }
-
-        SetProgress(0.9f);
-        yield return new WaitForSeconds(0.2f);
-    }
-
-    IEnumerator Finalize()
-    {
-        SetStatus("Prêt !");
-        SetProgress(1f);
-        yield return new WaitForSeconds(0.3f);
-    }
-
-    #endregion
-
-    #region UI Updates
-
-    void SetProgress(float progress)
-    {
-        _targetProgress = Mathf.Clamp01(progress);
-    }
-
-    void UpdateProgressUI(float progress)
-    {
-        if (progressBarFill != null)
-            progressBarFill.fillAmount = progress;
-
-        if (progressText != null)
-            progressText.text = $"{Mathf.RoundToInt(progress * 100)}%";
-    }
-
-    void SetStatus(string status)
-    {
-        if (statusText != null)
-            statusText.text = status;
-
-        Debug.Log($"[LaunchLoading] {status}");
-    }
-
-    IEnumerator FadeOut()
-    {
-        if (canvasGroup == null)
-            yield break;
-
-        float elapsed = 0f;
-        while (elapsed < fadeDuration)
-        {
-            elapsed += Time.deltaTime;
-            canvasGroup.alpha = 1f - (elapsed / fadeDuration);
-            yield return null;
-        }
-        canvasGroup.alpha = 0f;
-    }
-
-    #endregion
-
-    /// <summary>
-    /// Permet de forcer la complétion (pour tests).
-    /// </summary>
-    public void ForceComplete()
-    {
-        StopAllCoroutines();
-        _isComplete = true;
-        OnLoadingComplete?.Invoke();
-        gameObject.SetActive(false);
-    }
-}
+**Structure :**
+```
+Lobby/
+├── RoomPreviewUI (Canvas World Space)
+│   ├── TrackedDeviceGraphicRaycaster
+│   └── PreviewPanel (désactivé par défaut)
+│       ├── RoomImage (Image)
+│       └── RoomName (TextMeshPro)
+├── LobbyToA/Canvas/Button + RoomPreviewTrigger.cs
+└── LobbyToB/Canvas/Button + RoomPreviewTrigger.cs
 ```
 
-### Modifications dans `BootstrapManager.cs`
+**Scripts à créer :**
+- `RoomPreviewUI.cs` - Singleton, Show(name, sprite) / Hide()
+- `RoomPreviewTrigger.cs` - IPointerEnterHandler/ExitHandler, appelle RoomPreviewUI
 
-Ajouter dans les variables:
-```csharp
-[Header("Launch Loading")]
-[Tooltip("Écran de chargement au lancement (avec LaunchLoadingScreen)")]
-public GameObject launchLoadingScreen;
-
-private bool _launchComplete = false;
-```
-
-Modifier `Start()`:
-```csharp
-void Start()
-{
-    // S'abonner à l'event de fin de loading
-    LaunchLoadingScreen.OnLoadingComplete += OnLaunchLoadingComplete;
-
-    // Cacher le main menu pendant le loading initial
-    if (MainMenuManager.Instance != null && MainMenuManager.Instance.mainPanel != null)
-    {
-        MainMenuManager.Instance.mainPanel.SetActive(false);
-    }
-
-    // Le LaunchLoadingScreen se lance automatiquement
-    // Une fois terminé, OnLaunchLoadingComplete sera appelé
-}
-
-void OnLaunchLoadingComplete()
-{
-    _launchComplete = true;
-    LaunchLoadingScreen.OnLoadingComplete -= OnLaunchLoadingComplete;
-
-    // Afficher le main menu
-    if (MainMenuManager.Instance != null)
-    {
-        MainMenuManager.Instance.ShowMainPanel();
-    }
-
-    Debug.Log("[Bootstrap] Launch loading complete - showing main menu");
-}
-```
-
-### Structure UI dans Unity (modifier "Loading screen" existant)
-
-```
-Loading screen (Canvas)
-├── CanvasGroup (pour fade)
-├── Background (Image - noir ou dégradé)
-├── LogoContainer (RectTransform - centré en haut)
-│   └── Logo (Image - votre logo, 300x300 environ)
-├── ProgressContainer (RectTransform - centré)
-│   ├── ProgressBarBG (Image - gris foncé, 400x20)
-│   │   └── ProgressBarFill (Image - couleur accent, Fill method: Horizontal)
-│   └── ProgressText (TMP - "0%" - sous la barre)
-├── StatusText (TMP - "Initialisation..." - sous progress)
-└── VersionText (TMP - "v1.0.0" - coin inférieur droit)
-
-+ Ajouter composant: LaunchLoadingScreen
-+ Ajouter composant: VRCanvasAdapter (pour VR)
-+ Ajouter composant: CanvasGroup (pour fade)
-```
-
-### Références à assigner dans l'Inspector (LaunchLoadingScreen)
-
-| Champ | GameObject |
-|-------|------------|
-| logoImage | Logo |
-| progressBarFill | ProgressBarFill |
-| progressText | ProgressText |
-| statusText | StatusText |
-| versionText | VersionText |
-| canvasGroup | Loading screen (root) |
-
-### Ordre d'exécution
-
-1. **Bootstrap.Awake()** - Initialise les singletons, XR
-2. **LaunchLoadingScreen.Awake()** - S'affiche immédiatement
-3. **LaunchLoadingScreen.Start()** - Lance la séquence d'init
-4. **MainMenuManager.Start()** - Main panel caché pendant loading
-5. **LaunchLoadingScreen termine** - Déclenche OnLoadingComplete
-6. **BootstrapManager.OnLaunchLoadingComplete()** - Affiche Main Menu
-
-### Checklist d'implémentation
-
-- [ ] Créer `Assets/Scrips/UI/LaunchLoadingScreen.cs` (code ci-dessus)
-- [ ] Modifier la hiérarchie de "Loading screen" dans Bootstrap
-- [ ] Ajouter les composants (LaunchLoadingScreen, VRCanvasAdapter, CanvasGroup)
-- [ ] Créer/importer le logo de l'app
-- [ ] Assigner toutes les références dans l'Inspector
-- [ ] Modifier `BootstrapManager.cs` (code ci-dessus)
-- [ ] Tester en Desktop et VR
-- [ ] Ajuster les timings si nécessaire
+**Assets :** Screenshots des rooms dans `Assets/images/` (confRoom.png, Room2.png)
