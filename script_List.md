@@ -3,14 +3,14 @@
 ## Network (Assets/Scrips/Network/)
 | Script | Description |
 |--------|-------------|
-| `VRNetworkManager.cs` | WebSocket connection, message routing, peer management |
+| `VRNetworkManager.cs` | WebSocket connection, message routing, peer management, offline mode |
 | `VRRoomManager.cs` | Room lifecycle (create, join, leave), player tracking |
-| `VRGameManager.cs` | Player spawning, local/remote player management, teleportation |
+| `VRGameManager.cs` | Player spawning, VR/Desktop mode detection (HMD check), teleportation |
 
 ## VR (Assets/Scrips/VR/)
 | Script | Description |
 |--------|-------------|
-| `BootstrapManager.cs` | App initialization, XR setup, scene loading |
+| `BootstrapManager.cs` | App initialization, XR setup, scene loading, Desktop input module setup |
 | `VRPlayerController.cs` | VR player movement, hand tracking, input handling |
 | `TeleportOnButtonClick.cs` | Teleport to room on UI button click |
 | `TeleportOnGrab.cs` | Teleport triggered by grab interaction |
@@ -18,13 +18,13 @@
 | `ControllerTrackingFix.cs` | Controller tracking issues fix |
 | `ControllerModelLoader.cs` | Dynamic controller model loading |
 | `VRTrackingFix.cs` | VR tracking calibration |
-| `XRUIInteractionBridge.cs` | Bridge between XR and UI systems |
+| `XRUIInteractionBridge.cs` | Bridge between XR controllers and UI systems |
 | `XRInteractorInputBridge.cs` | XR interactor input handling |
 
 ## Desktop (Assets/Scrips/Desktop/)
 | Script | Description |
 |--------|-------------|
-| `DesktopPlayerController.cs` | Desktop player movement (WASD), mouse look, interactions |
+| `DesktopPlayerController.cs` | Desktop player movement (WASD), mouse look (right-click), interactions |
 
 ## WebRTC (Assets/Scrips/WebRTC/)
 | Script | Description |
@@ -68,6 +68,7 @@
 | `LaserPointer.cs` | VR/Desktop laser pointer |
 | `LaserPointerData.cs` | Laser pointer network data |
 | `RoomBlocker.cs` | Blocks passage until player joins room |
+| `VRNetworkedInteractable.cs` | Networked interactable objects |
 
 ## Avatar (Assets/Scrips/Avatar/)
 | Script | Description |
@@ -79,13 +80,13 @@
 | Script | Description |
 |--------|-------------|
 | `AuthManager.cs` | Authentication (login, register, token management) |
-| `AuthUI.cs` | Login/Register UI panels |
+| `AuthUI.cs` | Login/Register UI panels, guest mode |
 
 ## Recording (Assets/Scrips/Recording/)
 | Script | Description |
 |--------|-------------|
-| `RecordingManager.cs` | Recording orchestration, pipeline management |
-| `SpectatorCameraController.cs` | Spectator camera for recording |
+| `RecordingManager.cs` | Recording orchestration, async pipeline for VR |
+| `SpectatorCameraController.cs` | Spectator camera, AsyncGPUReadback |
 | `FFmpegEncoder.cs` | FFmpeg video encoding |
 | `AudioCapture.cs` | Audio capture for recording |
 | `RecordingData.cs` | Recording settings and data structures |
@@ -103,8 +104,8 @@
 ## UI (Assets/Scrips/UI/)
 | Script | Description |
 |--------|-------------|
-| `LaunchLoadingScreen.cs` | Initial loading screen with progress |
-| `VRCanvasAdapter.cs` | Adapts Canvas for VR (World Space) |
+| `LaunchLoadingScreen.cs` | Initial loading screen with progress bar |
+| `VRCanvasAdapter.cs` | Adapts Canvas for VR/Desktop (World Space ↔ Screen Space) |
 | `VRMenuUi.cs` | VR menu system |
 | `VRMenuToggle.cs` | VR menu toggle button |
 | `VRMenuSidebar.cs` | VR menu sidebar navigation |
@@ -131,8 +132,8 @@
 ## UI/MainMenu (Assets/Scrips/UI/MainMenu/)
 | Script | Description |
 |--------|-------------|
-| `MainMenuManager.cs` | Main menu orchestration |
-| `MainMenuSettings.cs` | Settings persistence |
+| `MainMenuManager.cs` | Main menu orchestration, auth flow integration |
+| `MainMenuSettings.cs` | Settings persistence (PlayerPrefs) |
 | `MainMenuOptionsUI.cs` | Options/settings UI |
 
 ## Debug (Assets/Scrips/Debug/)
@@ -155,11 +156,6 @@
 |--------|-------------|
 | `GlowingLight.cs` | Glowing light effect |
 
-## Testing (Assets/Scrips/Testing/)
-| Script | Description |
-|--------|-------------|
-| `VRNetworkedInteractable.cs` | Test networked interactable objects |
-
 ---
 *Last updated: 2026-02-25*
-*Total scripts: 85*
+*Total scripts: 87*

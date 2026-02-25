@@ -214,26 +214,83 @@ public class BootstrapManager : MonoBehaviour
 
     void SetupDesktopInputModule()
     {
-        bool isDesktopMode = false;
         var xrSettings = XRGeneralSettings.Instance;
-        if (xrSettings == null || xrSettings.Manager == null || xrSettings.Manager.activeLoader == null)
+        bool xrLoaderActive = xrSettings != null &&
+                              xrSettings.Manager != null &&
+                              xrSettings.Manager.activeLoader != null;
+
+        // Vérifier si un HMD est réellement connecté (pas juste OpenXR chargé)
+        bool hmdConnected = false;
+        if (xrLoaderActive)
         {
-            isDesktopMode = true;
+            var hmdDevices = new System.Collections.Generic.List<UnityEngine.XR.InputDevice>();
+            UnityEngine.XR.InputDevices.GetDevicesAtXRNode(UnityEngine.XR.XRNode.Head, hmdDevices);
+            hmdConnected = hmdDevices.Count > 0 && hmdDevices[0].isValid;
         }
+
+        bool isDesktopMode = !xrLoaderActive || !hmdConnected;
 
         if (isDesktopMode && _persistentEventSystem != null)
         {
+            // Désactiver le module XR
             var xrModule = _persistentEventSystem.GetComponent<UnityEngine.XR.Interaction.Toolkit.UI.XRUIInputModule>();
             if (xrModule != null)
             {
                 xrModule.enabled = false;
+                Debug.Log("[Bootstrap] XRUIInputModule désactivé pour le mode Desktop");
             }
 
+            // Activer ou créer le StandaloneInputModule pour le Desktop
             var inputModule = _persistentEventSystem.GetComponent<InputSystemUIInputModule>();
             if (inputModule == null)
             {
                 inputModule = _persistentEventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+                Debug.Log("[Bootstrap] InputSystemUIInputModule ajouté");
             }
+
+            // S'assurer que le module est activé et configuré
+            inputModule.enabled = true;
+
+            // Utiliser les actions par défaut du package Input System UI si non configurées
+            if (inputModule.actionsAsset == null)
+            {
+                // Créer des actions par défaut pour Point et Click
+                var defaultActions = UnityEngine.InputSystem.InputActionAsset.FromJson(@"{
+                    ""name"": ""UI"",
+                    ""maps"": [{
+                        ""name"": ""UI"",
+                        ""actions"": [
+                            { ""name"": ""Point"", ""type"": ""PassThrough"", ""expectedControlType"": ""Vector2"" },
+                            { ""name"": ""Click"", ""type"": ""PassThrough"", ""expectedControlType"": ""Button"" },
+                            { ""name"": ""ScrollWheel"", ""type"": ""PassThrough"", ""expectedControlType"": ""Vector2"" },
+                            { ""name"": ""MiddleClick"", ""type"": ""PassThrough"", ""expectedControlType"": ""Button"" },
+                            { ""name"": ""RightClick"", ""type"": ""PassThrough"", ""expectedControlType"": ""Button"" }
+                        ],
+                        ""bindings"": [
+                            { ""path"": ""<Mouse>/position"", ""action"": ""Point"" },
+                            { ""path"": ""<Pen>/position"", ""action"": ""Point"" },
+                            { ""path"": ""<Touchscreen>/touch*/position"", ""action"": ""Point"" },
+                            { ""path"": ""<Mouse>/leftButton"", ""action"": ""Click"" },
+                            { ""path"": ""<Pen>/tip"", ""action"": ""Click"" },
+                            { ""path"": ""<Touchscreen>/touch*/press"", ""action"": ""Click"" },
+                            { ""path"": ""<Mouse>/scroll"", ""action"": ""ScrollWheel"" },
+                            { ""path"": ""<Mouse>/middleButton"", ""action"": ""MiddleClick"" },
+                            { ""path"": ""<Mouse>/rightButton"", ""action"": ""RightClick"" }
+                        ]
+                    }]
+                }");
+
+                inputModule.actionsAsset = defaultActions;
+                inputModule.point = UnityEngine.InputSystem.InputActionReference.Create(defaultActions.FindAction("UI/Point"));
+                inputModule.leftClick = UnityEngine.InputSystem.InputActionReference.Create(defaultActions.FindAction("UI/Click"));
+                inputModule.scrollWheel = UnityEngine.InputSystem.InputActionReference.Create(defaultActions.FindAction("UI/ScrollWheel"));
+                inputModule.middleClick = UnityEngine.InputSystem.InputActionReference.Create(defaultActions.FindAction("UI/MiddleClick"));
+                inputModule.rightClick = UnityEngine.InputSystem.InputActionReference.Create(defaultActions.FindAction("UI/RightClick"));
+
+                Debug.Log("[Bootstrap] Actions UI par défaut configurées pour InputSystemUIInputModule");
+            }
+
+            Debug.Log("[Bootstrap] Mode Desktop configuré avec InputSystemUIInputModule");
         }
     }
 
