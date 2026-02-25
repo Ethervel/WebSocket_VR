@@ -6990,7 +6990,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: ws://192.168.0.55:8080
+  serverUrl: wss://vrmeeting-test.duckdns.org/
   enforceSecureConnection: 0
   autoReconnect: 1
   reconnectDelay: 3
@@ -6998,7 +6998,7 @@ MonoBehaviour:
   initialReconnectDelay: 1
   maxReconnectDelay: 30
   backoffMultiplier: 2
-  offlineMode: 0
+  offlineMode: 1
   offlineAutoCreateRoom: 0
   offlineRoomType: 0
   maxMessagesPerSecond: 60
@@ -10523,7 +10523,7 @@ MonoBehaviour:
     videoBitRate: 5000000
     captureAudio: 1
     outputFolder: Recordings
-  useCustomOutputPath: 1
+  useCustomOutputPath: 0
   customOutputPath: C:\Users\rndp10\Videos\MeetCapture
   spectatorCamera: {fileID: 0}
   _state: 0
@@ -10995,8 +10995,8 @@ MonoBehaviour:
   m_Transition: 1
   m_Colors:
     m_NormalColor: {r: 1, g: 1, b: 1, a: 1}
-    m_HighlightedColor: {r: 0.3, g: 0.70000005, b: 0.3, a: 1}
-    m_PressedColor: {r: 0.1, g: 0.5, b: 0.1, a: 1}
+    m_HighlightedColor: {r: 0.4392157, g: 0.6313726, b: 1, a: 1}
+    m_PressedColor: {r: 0.21568628, g: 0.25882354, b: 0.98039216, a: 1}
     m_SelectedColor: {r: 0.9607843, g: 0.9607843, b: 0.9607843, a: 1}
     m_DisabledColor: {r: 0.78431374, g: 0.78431374, b: 0.78431374, a: 0.5019608}
     m_ColorMultiplier: 1
@@ -11030,7 +11030,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
-  m_Color: {r: 0.2, g: 0.6, b: 0.2, a: 1}
+  m_Color: {r: 0.11764706, g: 0.5647059, b: 1, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1

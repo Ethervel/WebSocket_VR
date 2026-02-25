@@ -148,11 +148,27 @@ public class VRGameManager : MonoBehaviour
     void DetectMode()
     {
         var xrSettings = XRGeneralSettings.Instance;
-        _isDesktopMode = xrSettings == null ||
-                         xrSettings.Manager == null ||
-                         xrSettings.Manager.activeLoader == null;
+        bool xrLoaderActive = xrSettings != null &&
+                              xrSettings.Manager != null &&
+                              xrSettings.Manager.activeLoader != null;
 
-        Debug.Log($"[VRGame] Mode: {(_isDesktopMode ? "Desktop" : "VR")}");
+        // Vérifier si un HMD est réellement connecté (pas juste OpenXR chargé)
+        bool hmdConnected = false;
+        if (xrLoaderActive)
+        {
+            var hmdDevices = new System.Collections.Generic.List<UnityEngine.XR.InputDevice>();
+            UnityEngine.XR.InputDevices.GetDevicesAtXRNode(UnityEngine.XR.XRNode.Head, hmdDevices);
+            hmdConnected = hmdDevices.Count > 0 && hmdDevices[0].isValid;
+
+            if (!hmdConnected)
+            {
+                Debug.Log("[VRGame] OpenXR chargé mais aucun HMD connecté - Mode Desktop");
+            }
+        }
+
+        _isDesktopMode = !xrLoaderActive || !hmdConnected;
+
+        Debug.Log($"[VRGame] Mode: {(_isDesktopMode ? "Desktop" : "VR")} (XR Loader: {xrLoaderActive}, HMD: {hmdConnected})");
 
         // In Desktop mode, unlock cursor for UI interaction initially
         if (_isDesktopMode)
