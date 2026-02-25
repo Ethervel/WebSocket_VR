@@ -357,10 +357,10 @@ public class MainMenuManager : MonoBehaviour
         _isLoading = true;
         OnGameStarting?.Invoke();
 
-        // Afficher loading si BootstrapManager en a un
-        if (BootstrapManager.Instance != null && BootstrapManager.Instance.loadingScreen != null)
+        // Démarrer le fade via SceneLoader si disponible
+        if (SceneLoader.Instance != null)
         {
-            BootstrapManager.Instance.loadingScreen.SetActive(true);
+            SceneLoader.Instance.ShowLoadingIndicator();
         }
 
         // Cacher le menu

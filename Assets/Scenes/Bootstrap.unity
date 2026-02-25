@@ -1525,6 +1525,80 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 82489391}
   m_CullTransparentMesh: 1
+--- !u!1 &85362759
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 85362762}
+  - component: {fileID: 85362761}
+  - component: {fileID: 85362760}
+  m_Layer: 0
+  m_Name: SceneLoader
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &85362760
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 85362759}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 35b703985c219de418d15a3555ca42b2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScreenFader
+  _fadeSpeed: 1
+  _fadeColor: {r: 0, g: 0, b: 0, a: 1}
+  _fadeImage: {fileID: 0}
+  _fadeCanvas: {fileID: 0}
+  _useVRSphere: 1
+  _sphereRadius: 0.5
+--- !u!114 &85362761
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 85362759}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8bb2cf9c9a64a3543b8b71f6bf52c284, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SceneLoader
+  screenFader: {fileID: 0}
+  loadingIndicator: {fileID: 0}
+  minimumLoadTime: 1
+  delayAfterFadeIn: 0.2
+  delayAfterLoad: 0
+  OnLoadBegin:
+    m_PersistentCalls:
+      m_Calls: []
+  OnLoadEnd:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!4 &85362762
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 85362759}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 295.99548, y: 0, z: 3003.62}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &85478172
 GameObject:
   m_ObjectHideFlags: 0
@@ -6916,7 +6990,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: wss://vrmeeting-test.duckdns.org/
+  serverUrl: ws://192.168.0.55:8080
   enforceSecureConnection: 0
   autoReconnect: 1
   reconnectDelay: 3
@@ -10449,6 +10523,8 @@ MonoBehaviour:
     videoBitRate: 5000000
     captureAudio: 1
     outputFolder: Recordings
+  useCustomOutputPath: 1
+  customOutputPath: C:\Users\rndp10\Videos\MeetCapture
   spectatorCamera: {fileID: 0}
   _state: 0
   _elapsedTime: 0
@@ -17685,9 +17761,6 @@ MonoBehaviour:
   loadMainSceneOnStart: 0
   loadDelay: 0.5
   launchLoadingScreen: {fileID: 1843036559}
-  loadingScreen: {fileID: 1843036559}
-  progressBar: {fileID: 853114152}
-  loadingText: {fileID: 871803184}
 --- !u!4 &1138679891
 Transform:
   m_ObjectHideFlags: 0
@@ -30532,6 +30605,7 @@ MonoBehaviour:
   minimumDisplayTime: 2
   progressAnimSpeed: 3
   networkTimeout: 10
+  disableInVR: 1
   canvasGroup: {fileID: 1843036566}
   fadeDuration: 0.5
 --- !u!114 &1843036565
@@ -35054,6 +35128,7 @@ SceneRoots:
   - {fileID: 715491865}
   - {fileID: 871139037}
   - {fileID: 1652884167}
-  - {fileID: 1843036563}
   - {fileID: 1608295116}
   - {fileID: 636991968}
+  - {fileID: 1843036563}
+  - {fileID: 85362762}

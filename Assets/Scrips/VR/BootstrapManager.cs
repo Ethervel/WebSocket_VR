@@ -6,13 +6,19 @@ using UnityEngine.XR.Management;
 using System;
 using System.Collections;
 
+/// <summary>
 /// Gère le chargement des scènes. Cette scène contient tous les managers
 /// et charge la scène principale en mode additif.
+/// Utilise SceneLoader pour les transitions avec fade.
+/// </summary>
 public class BootstrapManager : MonoBehaviour
 {
     public static BootstrapManager Instance { get; private set; }
 
-    // Event déclenché quand la scène principale est complètement chargée et prête
+    // Event déclenché quand la scène est activée (écran encore noir) - pour téléportation
+    public static event Action<string> OnSceneActivated;
+
+    // Event déclenché quand la scène est complètement chargée et visible
     public static event Action<string> OnSceneReady;
 
     [Header("Scene Settings")]
@@ -29,19 +35,9 @@ public class BootstrapManager : MonoBehaviour
     [Tooltip("Écran de chargement au lancement (avec LaunchLoadingScreen)")]
     public GameObject launchLoadingScreen;
 
-    [Header("Loading UI (Géré par MainMenuManager si présent)")]
-    [Tooltip("Écran de chargement pour les transitions de scène")]
-    public GameObject loadingScreen;
-    public UnityEngine.UI.Slider progressBar;
-    public TMPro.TextMeshProUGUI loadingText;
-
-    // Reference au VRCanvasAdapter pour l'ecran de chargement
-    private VRCanvasAdapter _loadingScreenAdapter;
-
     // État
     private bool _isLoading = false;
     private string _currentLoadedScene = "";
-    private float _loadingProgress = 0f;
 
     // Référence à l'EventSystem persistant
     private EventSystem _persistentEventSystem;
@@ -57,31 +53,15 @@ public class BootstrapManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // Ensure XR is initialized in builds (Editor handles this automatically)
+        // Ensure XR is initialized in builds
         EnsureXRInitialized();
 
-        // CRITICAL: Disable XR Interaction Simulator in real VR mode
-        // The simulator interferes with native Quest tracking
+        // Disable XR Interaction Simulator in real VR mode
         DisableXRSimulatorInVRMode();
 
         SetupPersistentEventSystem();
-
-        // Cache le VRCanvasAdapter de l'ecran de chargement
-        if (loadingScreen != null)
-        {
-            _loadingScreenAdapter = loadingScreen.GetComponent<VRCanvasAdapter>();
-            if (_loadingScreenAdapter == null)
-            {
-                Debug.LogWarning("[Bootstrap] Loading screen n'a pas de VRCanvasAdapter - l'ecran ne s'affichera pas en VR!");
-            }
-        }
     }
 
-    /// <summary>
-    /// Explicitly initializes XR subsystems if they haven't started yet.
-    /// In the Editor, Unity handles this automatically. In builds, the loader
-    /// may not be active yet at Awake time, so we force initialization here.
-    /// </summary>
     void EnsureXRInitialized()
     {
         var xrSettings = XRGeneralSettings.Instance;
@@ -91,14 +71,12 @@ public class BootstrapManager : MonoBehaviour
             return;
         }
 
-        // If a loader is already active, XR is already running
         if (xrSettings.Manager.activeLoader != null)
         {
             Debug.Log($"[Bootstrap] XR already initialized: {xrSettings.Manager.activeLoader.name}");
             return;
         }
 
-        // No active loader - try to initialize manually
         Debug.Log("[Bootstrap] XR loader not active, attempting manual initialization...");
         xrSettings.Manager.InitializeLoaderSync();
 
@@ -109,14 +87,10 @@ public class BootstrapManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("[Bootstrap] XR initialization failed - no loader available. Running in desktop mode.");
+            Debug.LogWarning("[Bootstrap] XR initialization failed - running in desktop mode.");
         }
     }
 
-    /// <summary>
-    /// Disables the XR Interaction Simulator when running on a real VR headset.
-    /// The simulator is only useful for desktop testing - in real VR it interferes with native tracking.
-    /// </summary>
     void DisableXRSimulatorInVRMode()
     {
         var xrSettings = XRGeneralSettings.Instance;
@@ -126,47 +100,42 @@ public class BootstrapManager : MonoBehaviour
 
         if (isRealVR)
         {
-            // P0 FIX: Set target frame rate for VR to prevent performance drops
-            // Quest runs at 72Hz, PCVR typically at 90Hz - use 90 as safe default
             Application.targetFrameRate = 90;
-            QualitySettings.vSyncCount = 0; // Disable VSync, let VR compositor handle timing
-            Debug.Log("[Bootstrap] P0 FIX: Set targetFrameRate=90, vSyncCount=0 for VR");
+            QualitySettings.vSyncCount = 0;
+            Debug.Log("[Bootstrap] Set targetFrameRate=90, vSyncCount=0 for VR");
 
-            // Find and disable XR Interaction Simulator
             var simulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRInteractionSimulator>();
             if (simulator != null)
             {
                 simulator.gameObject.SetActive(false);
-                Debug.Log("[Bootstrap] XR Interaction Simulator DISABLED - running on real VR headset");
+                Debug.Log("[Bootstrap] XR Interaction Simulator DISABLED");
             }
 
-            // Also check for the older XRDeviceSimulator if present
             var deviceSimulator = FindFirstObjectByType<UnityEngine.XR.Interaction.Toolkit.Inputs.Simulation.XRDeviceSimulator>();
             if (deviceSimulator != null)
             {
                 deviceSimulator.gameObject.SetActive(false);
-                Debug.Log("[Bootstrap] XR Device Simulator DISABLED - running on real VR headset");
+                Debug.Log("[Bootstrap] XR Device Simulator DISABLED");
             }
         }
         else
         {
-            Debug.Log("[Bootstrap] Desktop mode detected - XR Interaction Simulator can remain active for testing");
+            Debug.Log("[Bootstrap] Desktop mode detected");
         }
     }
 
     void Start()
     {
-        // S'abonner a l'event de fin de loading initial
+        // S'abonner aux events
         LaunchLoadingScreen.OnLoadingComplete += OnLaunchLoadingComplete;
+        SceneLoader.OnSceneActivated += OnSceneActivatedHandler;
+        SceneLoader.OnSceneLoadCompleted += OnSceneLoadCompleted;
 
         // Cacher le main menu pendant le loading initial
         if (MainMenuManager.Instance != null && MainMenuManager.Instance.mainPanel != null)
         {
             MainMenuManager.Instance.mainPanel.SetActive(false);
         }
-
-        // Le LaunchLoadingScreen se lance automatiquement
-        // Une fois termine, OnLaunchLoadingComplete sera appele
 
         if (loadMainSceneOnStart)
         {
@@ -187,10 +156,36 @@ public class BootstrapManager : MonoBehaviour
         Debug.Log("[Bootstrap] Launch loading complete - showing main menu");
     }
 
+    void OnSceneActivatedHandler(string sceneName)
+    {
+        _currentLoadedScene = sceneName;
+
+        Debug.Log($"[Bootstrap] Scene '{sceneName}' activated (screen still black) - teleporting player");
+
+        // Déclencher l'event pour téléportation (écran noir)
+        OnSceneActivated?.Invoke(sceneName);
+    }
+
+    void OnSceneLoadCompleted(string sceneName)
+    {
+        _currentLoadedScene = sceneName;
+        _isLoading = false;
+
+        // Refresh UI interaction
+        if (VRGameManager.Instance != null)
+        {
+            VRGameManager.Instance.RefreshUIInteraction();
+        }
+
+        Debug.Log($"[Bootstrap] Scene '{sceneName}' is fully loaded and ready");
+        OnSceneReady?.Invoke(sceneName);
+    }
+
     void OnDestroy()
     {
-        // Se desabonner pour eviter les erreurs
         LaunchLoadingScreen.OnLoadingComplete -= OnLaunchLoadingComplete;
+        SceneLoader.OnSceneActivated -= OnSceneActivatedHandler;
+        SceneLoader.OnSceneLoadCompleted -= OnSceneLoadCompleted;
     }
 
     void SetupPersistentEventSystem()
@@ -248,95 +243,60 @@ public class BootstrapManager : MonoBehaviour
         LoadScene(mainSceneName);
     }
 
+    /// <summary>
+    /// Charge une scène avec transition fade via SceneLoader.
+    /// </summary>
     public void LoadScene(string sceneName)
     {
         if (_isLoading) return;
 
-        StartCoroutine(LoadSceneAsync(sceneName));
+        _isLoading = true;
+
+        // Utiliser SceneLoader (avec fade)
+        if (SceneLoader.Instance != null)
+        {
+            SceneLoader.Instance.LoadNewScene(sceneName);
+        }
+        else
+        {
+            // Fallback sans SceneLoader
+            Debug.LogWarning("[Bootstrap] SceneLoader not found - loading without fade");
+            StartCoroutine(LoadSceneFallback(sceneName));
+        }
     }
 
-    IEnumerator LoadSceneAsync(string sceneName)
+    /// <summary>
+    /// Fallback si SceneLoader n'existe pas.
+    /// </summary>
+    IEnumerator LoadSceneFallback(string sceneName)
     {
-        _isLoading = true;
-        float loadStartTime = Time.time;
-        const float minimumLoadingTime = 1f; // Temps minimum d'affichage du loading
-
-        if (loadingScreen != null)
-        {
-            loadingScreen.SetActive(true);
-
-            // Rafraichir l'adapter VR pour positionner correctement le Canvas
-            if (_loadingScreenAdapter != null)
-            {
-                _loadingScreenAdapter.Refresh();
-            }
-        }
-
+        // Décharger scène actuelle
         if (!string.IsNullOrEmpty(_currentLoadedScene))
         {
             AsyncOperation unloadOp = SceneManager.UnloadSceneAsync(_currentLoadedScene);
             while (unloadOp != null && !unloadOp.isDone)
-            {
                 yield return null;
-            }
         }
 
+        // Charger nouvelle scène
         AsyncOperation loadOp = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
-
         while (!loadOp.isDone)
-        {
-            _loadingProgress = Mathf.Clamp01(loadOp.progress / 0.9f);
-
-            if (progressBar != null)
-                progressBar.value = _loadingProgress;
-
-            if (loadingText != null)
-                loadingText.text = $"Loading... {(_loadingProgress * 100):F0}%";
-
             yield return null;
-        }
 
-        _loadingProgress = 1f;
-
-        if (progressBar != null)
-            progressBar.value = 1f;
-
-        if (loadingText != null)
-            loadingText.text = "Loading... 100%";
-
-        _currentLoadedScene = sceneName;
-
+        // Activer la scène
         Scene loadedScene = SceneManager.GetSceneByName(sceneName);
         if (loadedScene.IsValid())
-        {
             SceneManager.SetActiveScene(loadedScene);
-        }
+
+        _currentLoadedScene = sceneName;
+        _isLoading = false;
 
         yield return null;
 
         if (VRGameManager.Instance != null)
-        {
             VRGameManager.Instance.RefreshUIInteraction();
-        }
 
-        // Attendre le temps minimum d'affichage
-        float elapsed = Time.time - loadStartTime;
-        if (elapsed < minimumLoadingTime)
-        {
-            yield return new WaitForSeconds(minimumLoadingTime - elapsed);
-        }
-
-        if (loadingScreen != null)
-            loadingScreen.SetActive(false);
-
-        _isLoading = false;
-
-        // Attendre quelques frames pour que tous les objets de la scène soient initialisés
-        yield return null;
-        yield return null;
-
-        // Notifier que la scène est prête
-        Debug.Log($"[Bootstrap] Scene '{sceneName}' is fully loaded and ready");
+        Debug.Log($"[Bootstrap] Scene '{sceneName}' loaded (fallback)");
         OnSceneReady?.Invoke(sceneName);
     }
 
@@ -359,5 +319,4 @@ public class BootstrapManager : MonoBehaviour
     }
 
     public bool IsLoading => _isLoading;
-    public float LoadingProgress => _loadingProgress;
 }

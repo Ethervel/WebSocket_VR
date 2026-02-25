@@ -268,8 +268,8 @@ public class VRGameManager : MonoBehaviour
         // P1 FIX: Subscribe to scene loaded event to invalidate caches
         UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
 
-        // FIX: Subscribe to OnSceneReady pour spawner le joueur quand la scène est prête
-        BootstrapManager.OnSceneReady += OnMainSceneReady;
+        // FIX: Subscribe to OnSceneActivated pour spawner le joueur AVANT le fade out
+        BootstrapManager.OnSceneActivated += OnMainSceneReady;
     }
 
     void OnDisable()
@@ -286,8 +286,8 @@ public class VRGameManager : MonoBehaviour
         // P1 FIX: Unsubscribe from scene loaded event
         UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
 
-        // FIX: Unsubscribe from OnSceneReady
-        BootstrapManager.OnSceneReady -= OnMainSceneReady;
+        // FIX: Unsubscribe from OnSceneActivated
+        BootstrapManager.OnSceneActivated -= OnMainSceneReady;
     }
 
     // P1 FIX: Invalidate caches when a new scene is loaded
@@ -299,12 +299,12 @@ public class VRGameManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Appelé quand la scène principale est complètement chargée et prête.
-    /// Téléporte le joueur au spawn point de la scène.
+    /// Appelé quand la scène est activée (écran encore noir).
+    /// Téléporte le joueur au spawn point AVANT que le fade out se termine.
     /// </summary>
     void OnMainSceneReady(string sceneName)
     {
-        Debug.Log($"[VRGame] Scene '{sceneName}' is ready");
+        Debug.Log($"[VRGame] Scene '{sceneName}' activated - teleporting while screen is black");
 
         // P1 FIX: Ensure appropriate quality level for game scenes
         // VR needs at least Medium quality (level 2) for acceptable visuals

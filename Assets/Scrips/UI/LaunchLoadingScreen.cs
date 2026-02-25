@@ -7,7 +7,7 @@ using TMPro;
 /// <summary>
 /// Gere l'ecran de chargement au lancement de l'application.
 /// Affiche la progression de l'initialisation des systemes.
-/// Compatible avec Slider ou Image (fillAmount).
+/// Utilise ScreenFader pour le fade (compatible VR).
 /// </summary>
 public class LaunchLoadingScreen : MonoBehaviour
 {
@@ -33,6 +33,10 @@ public class LaunchLoadingScreen : MonoBehaviour
     [Tooltip("Timeout pour la connexion serveur (secondes)")]
     public float networkTimeout = 10f;
 
+    [Header("VR")]
+    [Tooltip("Desactiver le loading screen en mode VR")]
+    public bool disableInVR = true;
+
     [Header("Fade")]
     public CanvasGroup canvasGroup;
     public float fadeDuration = 0.5f;
@@ -42,7 +46,7 @@ public class LaunchLoadingScreen : MonoBehaviour
     private float _currentProgress = 0f;
     private float _startTime;
     private bool _isComplete = false;
-    private static bool _hasRunOnce = false; // Empeche de relancer apres la premiere fois
+    private static bool _hasRunOnce = false;
 
     // Event declenche quand le loading est termine
     public static event Action OnLoadingComplete;
@@ -56,7 +60,7 @@ public class LaunchLoadingScreen : MonoBehaviour
         }
         Instance = this;
 
-        // Auto-find references if not assigned
+        // Auto-find references
         AutoFindReferences();
 
         // Afficher immediatement
@@ -68,54 +72,35 @@ public class LaunchLoadingScreen : MonoBehaviour
 
     void OnEnable()
     {
-        // Si deja execute, se desactiver pour laisser BootstrapManager gerer
         if (_hasRunOnce)
         {
-            // Restaurer l'alpha (mis a 0 par FadeOut) pour les transitions de scene
             if (canvasGroup != null)
                 canvasGroup.alpha = 1f;
-
             enabled = false;
         }
     }
 
-    /// <summary>
-    /// Auto-trouve les references UI si elles ne sont pas assignees.
-    /// Compatible avec l'ancienne structure (Panel/Slider, Panel/Text)
-    /// </summary>
     void AutoFindReferences()
     {
-        // CanvasGroup sur ce GameObject
         if (canvasGroup == null)
             canvasGroup = GetComponent<CanvasGroup>();
 
-        // Chercher Slider (ancienne structure)
         if (progressSlider == null)
-        {
             progressSlider = GetComponentInChildren<Slider>(true);
-        }
 
-        // Chercher Image fill (nouvelle structure)
         if (progressBarFill == null && progressSlider == null)
         {
             var fill = transform.Find("ProgressContainer/ProgressBarBG/ProgressBarFill");
             if (fill != null) progressBarFill = fill.GetComponent<Image>();
         }
 
-        // Chercher le texte
         if (statusText == null)
         {
-            // Essayer l'ancienne structure d'abord
             var text = transform.Find("Panel/Text (TMP)");
             if (text != null)
-            {
                 statusText = text.GetComponent<TextMeshProUGUI>();
-            }
             else
-            {
-                // Sinon chercher n'importe quel TMP
                 statusText = GetComponentInChildren<TextMeshProUGUI>(true);
-            }
         }
 
         // Log
@@ -129,23 +114,36 @@ public class LaunchLoadingScreen : MonoBehaviour
 
     void Start()
     {
-        // Ne s'execute qu'une seule fois au lancement de l'app
-        // Apres ca, le loading screen est gere par BootstrapManager pour les transitions de scene
         if (_hasRunOnce)
         {
-            // Desactiver ce composant pour laisser BootstrapManager gerer le loading screen
             enabled = false;
             return;
         }
 
         _hasRunOnce = true;
+
+        // Skip loading screen en VR si desactive
+        if (disableInVR && UnityEngine.XR.XRSettings.isDeviceActive)
+        {
+            Debug.Log("[LaunchLoading] VR mode detected - skipping loading screen");
+            if (canvasGroup != null)
+                canvasGroup.alpha = 0f;
+            gameObject.SetActive(false);
+            OnLoadingComplete?.Invoke();
+            return;
+        }
+
         _startTime = Time.time;
+
+        // LaunchLoadingScreen gere son propre affichage
+        // ScreenFader n'est PAS utilise ici - il est reserve pour les transitions de scene
+        Debug.Log("[LaunchLoading] Starting initialization sequence");
+
         StartCoroutine(RunInitializationSequence());
     }
 
     void Update()
     {
-        // Animation fluide de la barre de progression
         if (_currentProgress < _targetProgress)
         {
             _currentProgress = Mathf.Lerp(_currentProgress, _targetProgress, Time.deltaTime * progressAnimSpeed);
@@ -159,11 +157,11 @@ public class LaunchLoadingScreen : MonoBehaviour
             Instance = null;
     }
 
-    /// <summary>
-    /// Sequence principale d'initialisation.
-    /// </summary>
     IEnumerator RunInitializationSequence()
     {
+        // Attendre une frame pour que ScreenFader soit pret
+        yield return null;
+
         // Etape 1: XR (0-20%)
         yield return StartCoroutine(InitializeXR());
 
@@ -188,13 +186,13 @@ public class LaunchLoadingScreen : MonoBehaviour
 
         // Termine
         _isComplete = true;
+
+        // Fade out avec ScreenFader ou fallback CanvasGroup
         yield return StartCoroutine(FadeOut());
 
         OnLoadingComplete?.Invoke();
 
-        // Desactiver ce composant pour laisser BootstrapManager gerer les futurs loadings
         enabled = false;
-
         gameObject.SetActive(false);
     }
 
@@ -205,10 +203,16 @@ public class LaunchLoadingScreen : MonoBehaviour
         SetStatus("VR Initialisation...");
         SetProgress(0f);
 
-        // Attendre que XR soit pret (BootstrapManager gere ca)
-        yield return new WaitForSeconds(0.3f);
+        // Attendre que XR soit pret
+        float timeout = 3f;
+        float elapsed = 0f;
 
-        // Verifier si XR est actif
+        while (!UnityEngine.XR.XRSettings.isDeviceActive && elapsed < timeout)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
         bool xrReady = UnityEngine.XR.XRSettings.isDeviceActive;
         Debug.Log($"[LaunchLoading] XR Ready: {xrReady}");
 
@@ -221,11 +225,9 @@ public class LaunchLoadingScreen : MonoBehaviour
         SetStatus("Connect to Server...");
         SetProgress(0.2f);
 
-        // Attendre la connexion WebSocket
         float timeout = networkTimeout;
         float elapsed = 0f;
 
-        // Verifier si VRNetworkManager existe
         if (VRNetworkManager.Instance == null)
         {
             Debug.LogWarning("[LaunchLoading] VRNetworkManager not found - skipping network init");
@@ -236,11 +238,8 @@ public class LaunchLoadingScreen : MonoBehaviour
         while (!VRNetworkManager.IsConnected && elapsed < timeout)
         {
             elapsed += Time.deltaTime;
-
-            // Progression graduelle pendant l'attente
             float networkProgress = 0.2f + (elapsed / timeout) * 0.25f;
             SetProgress(Mathf.Min(networkProgress, 0.45f));
-
             yield return null;
         }
 
@@ -263,11 +262,9 @@ public class LaunchLoadingScreen : MonoBehaviour
         SetStatus("Checking...");
         SetProgress(0.5f);
 
-        // Verifier si un token existe
         if (AuthManager.Instance != null && !string.IsNullOrEmpty(AuthManager.Instance.Token))
         {
             SetStatus("Checking account...");
-            // Le token sera verifie automatiquement par AuthManager.OnNetworkConnected
             yield return new WaitForSeconds(0.5f);
         }
 
@@ -280,10 +277,8 @@ public class LaunchLoadingScreen : MonoBehaviour
         SetStatus("Load Settings...");
         SetProgress(0.7f);
 
-        // Charger les parametres utilisateur
         if (MainMenuSettings.Instance != null)
         {
-            // Les settings sont charges automatiquement dans Awake
             yield return new WaitForSeconds(0.2f);
         }
 
@@ -309,7 +304,6 @@ public class LaunchLoadingScreen : MonoBehaviour
 
     void UpdateProgressUI(float progress)
     {
-        // Supporter Slider ou Image
         if (progressSlider != null)
             progressSlider.value = progress;
         else if (progressBarFill != null)
@@ -326,24 +320,22 @@ public class LaunchLoadingScreen : MonoBehaviour
 
     IEnumerator FadeOut()
     {
-        if (canvasGroup == null)
-            yield break;
-
-        float elapsed = 0f;
-        while (elapsed < fadeDuration)
+        // Fade out via CanvasGroup (pas ScreenFader - reserve pour transitions de scene)
+        if (canvasGroup != null)
         {
-            elapsed += Time.deltaTime;
-            canvasGroup.alpha = 1f - (elapsed / fadeDuration);
-            yield return null;
+            float elapsed = 0f;
+            while (elapsed < fadeDuration)
+            {
+                elapsed += Time.deltaTime;
+                canvasGroup.alpha = 1f - (elapsed / fadeDuration);
+                yield return null;
+            }
+            canvasGroup.alpha = 0f;
         }
-        canvasGroup.alpha = 0f;
     }
 
     #endregion
 
-    /// <summary>
-    /// Permet de forcer la completion (pour tests).
-    /// </summary>
     public void ForceComplete()
     {
         StopAllCoroutines();
@@ -352,8 +344,5 @@ public class LaunchLoadingScreen : MonoBehaviour
         gameObject.SetActive(false);
     }
 
-    /// <summary>
-    /// Verifie si le loading est termine.
-    /// </summary>
     public bool IsComplete => _isComplete;
 }
