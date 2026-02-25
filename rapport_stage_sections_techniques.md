@@ -228,12 +228,15 @@ Architecture  →  Réseau base   →  Interactions  →  Fonctionnalités →  
 
 **Objectifs :**
 - Intégration de l'authentification
+- Système de transitions de scènes avec fade
 - Tests multi-utilisateurs
 - Documentation et polish
 
 **Livrables :**
 - `AuthManager.cs` et `AuthUI.cs`
-- `LaunchLoadingScreen.cs` : Écran de chargement progressif
+- `LaunchLoadingScreen.cs` : Écran de chargement progressif au lancement
+- `SceneLoader.cs` : Transitions de scènes avec fade
+- `ScreenFader.cs` : Fade compatible VR (sphère inversée) et Desktop
 - Documentation CLAUDE.md
 
 ## 6.2 Étude des solutions envisagées
@@ -482,28 +485,73 @@ Configuration dans les Interactors XR :
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 7.2.2 Hiérarchie des managers
+### 7.2.2 Système de transitions de scènes
+
+Le chargement de scènes utilise un système de fade pour éviter les transitions abruptes :
 
 ```
-VRNetworkManager (WebSocket)
+┌─────────────────────────────────────────────────────────────────┐
+│                    FLUX DE CHARGEMENT DE SCÈNE                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. SceneLoader.LoadNewScene("Meet")                           │
+│         │                                                       │
+│         ▼                                                       │
+│  2. ScreenFader.FadeIn() ──────────► Écran noir                │
+│         │                                                       │
+│         ▼                                                       │
+│  3. SceneManager.UnloadSceneAsync() ► Décharge ancienne scène  │
+│         │                                                       │
+│         ▼                                                       │
+│  4. SceneManager.LoadSceneAsync() ──► Charge nouvelle scène    │
+│         │                                                       │
+│         ▼                                                       │
+│  5. OnSceneActivated ───────────────► Téléportation joueur     │
+│         │                            (écran encore noir)        │
+│         ▼                                                       │
+│  6. delayAfterLoad ─────────────────► Délai configurable       │
+│         │                                                       │
+│         ▼                                                       │
+│  7. ScreenFader.FadeOut() ──────────► Écran visible            │
+│         │                                                       │
+│         ▼                                                       │
+│  8. OnSceneLoadCompleted ───────────► Scène prête              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**ScreenFader** gère deux modes :
+- **Desktop** : Image noire plein écran (Canvas Overlay)
+- **VR** : Sphère inversée attachée à la caméra (remplit le FOV)
+
+### 7.2.3 Hiérarchie des managers
+
+```
+BootstrapManager (Orchestration)
     │
-    ├── VRRoomManager (Rooms & Players)
+    ├── SceneLoader (Transitions)
     │       │
-    │       └── VRGameManager (Spawning)
+    │       └── ScreenFader (Fade VR/Desktop)
     │
-    ├── VoiceChatManager (WebRTC)
+    ├── VRNetworkManager (WebSocket)
     │       │
-    │       ├── WebRTCPeerManager
-    │       ├── MicrophoneManager
-    │       └── RemoteAudioManager
-    │
-    ├── RecordingManager
+    │       ├── VRRoomManager (Rooms & Players)
+    │       │       │
+    │       │       └── VRGameManager (Spawning)
     │       │
-    │       ├── SpectatorCameraController
-    │       ├── FFmpegEncoder
-    │       └── AudioCapture
+    │       ├── VoiceChatManager (WebRTC)
+    │       │       │
+    │       │       ├── WebRTCPeerManager
+    │       │       ├── MicrophoneManager
+    │       │       └── RemoteAudioManager
+    │       │
+    │       └── AuthManager
     │
-    └── AuthManager
+    └── RecordingManager
+            │
+            ├── SpectatorCameraController
+            ├── FFmpegEncoder
+            └── AudioCapture
 ```
 
 ## 7.3 Communication inter-composants
@@ -518,15 +566,26 @@ public static event Action OnConnected;
 public static event Action<string> OnPeerConnected;
 public static event Action<NetworkMessage> OnMessageReceived;
 
-// Souscription dans VRRoomManager
+// Définition dans SceneLoader
+public static event Action OnSceneLoadStarted;
+public static event Action<string> OnSceneActivated;    // Écran noir, avant fade out
+public static event Action<string> OnSceneLoadCompleted; // Après fade out
+
+// Définition dans BootstrapManager
+public static event Action<string> OnSceneActivated;  // Pour téléportation
+public static event Action<string> OnSceneReady;      // Scène visible
+
+// Souscription dans VRGameManager
 void OnEnable() {
     VRNetworkManager.OnConnected += HandleConnected;
     VRNetworkManager.OnMessageReceived += HandleMessage;
+    BootstrapManager.OnSceneActivated += OnMainSceneReady; // Téléporte pendant écran noir
 }
 
 void OnDisable() {
     VRNetworkManager.OnConnected -= HandleConnected;
     VRNetworkManager.OnMessageReceived -= HandleMessage;
+    BootstrapManager.OnSceneActivated -= OnMainSceneReady;
 }
 ```
 
@@ -984,7 +1043,43 @@ ffmpeg -framerate 30 -i frames/%04d.tga -i audio.wav \
 
 ## 8.8 Interface utilisateur VR
 
-### 8.8.1 Adaptation des Canvas
+### 8.8.1 Système de fade VR (ScreenFader)
+
+En VR, un simple overlay Canvas ne fonctionne pas car chaque œil a son propre rendu. Le `ScreenFader` utilise une **sphère inversée** attachée à la caméra :
+
+```csharp
+void CreateVRSphere()
+{
+    _vrSphere = new GameObject("VR_FadeSphere");
+    _vrSphere.transform.SetParent(vrCamera.transform);
+    _vrSphere.transform.localPosition = Vector3.zero;
+
+    // Mesh avec normales inversées (regardent vers l'intérieur)
+    var mesh = CreateInvertedSphereMesh();
+    _vrSphere.GetComponent<MeshFilter>().mesh = mesh;
+
+    // Material opaque noir
+    var material = new Material(Shader.Find("Unlit/Color"));
+    material.color = Color.black;
+}
+
+Mesh CreateInvertedSphereMesh()
+{
+    // Inverser les normales et les triangles
+    for (int i = 0; i < normals.Length; i++)
+        normals[i] = -normals[i];
+
+    for (int i = 0; i < triangles.Length; i += 3)
+    {
+        // Swap pour inverser le winding order
+        (triangles[i + 1], triangles[i + 2]) = (triangles[i + 2], triangles[i + 1]);
+    }
+}
+```
+
+Cette technique permet de couvrir tout le champ de vision VR avec un fade uniforme.
+
+### 8.8.2 Adaptation des Canvas
 
 Les Canvas Unity sont conçus pour les écrans 2D. En VR, ils doivent être transformés :
 
@@ -1004,7 +1099,7 @@ public class VRCanvasAdapter : MonoBehaviour
 }
 ```
 
-### 8.8.2 Menu VR avec pagination
+### 8.8.3 Menu VR avec pagination
 
 Le `VRMenuUI.cs` implémente un menu flottant avec :
 
@@ -1129,3 +1224,5 @@ Instructions de déploiement et variables d'environnement requises.
 ---
 
 *Document généré automatiquement à partir du code source du projet WebSocket_VR*
+*Total: 85 scripts C# (hors scripts Editor)*
+*Dernière mise à jour: 2026-02-25*

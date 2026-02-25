@@ -50,8 +50,6 @@
 | `WhiteboardUIHelper.cs` | UI helper functions |
 | `WhiteboardUISetup.cs` | UI setup utilities |
 | `WhiteboardNetworkData.cs` | Network data structures |
-| `Editor/WhiteboardSetupTool.cs` | Editor tool for whiteboard setup |
-| `Editor/WhiteboardBarUISetup.cs` | Editor toolbar setup |
 
 ## Sharing (Assets/Scrips/Sharing/)
 | Script | Description |
@@ -82,7 +80,6 @@
 |--------|-------------|
 | `AuthManager.cs` | Authentication (login, register, token management) |
 | `AuthUI.cs` | Login/Register UI panels |
-| `Editor/AuthUICreator.cs` | Editor tool for Auth UI creation |
 
 ## Recording (Assets/Scrips/Recording/)
 | Script | Description |
@@ -102,7 +99,6 @@
 | `AmbienceManager.cs` | Ambient sound management |
 | `AudioMuteZone.cs` | Zone-based audio muting |
 | `UIButtonSounds.cs` | UI button click sounds |
-| `Editor/SoundManagerSetup.cs` | Editor sound setup |
 
 ## UI (Assets/Scrips/UI/)
 | Script | Description |
@@ -138,21 +134,21 @@
 | `MainMenuManager.cs` | Main menu orchestration |
 | `MainMenuSettings.cs` | Settings persistence |
 | `MainMenuOptionsUI.cs` | Options/settings UI |
-| `Editor/MainMenuUISetup.cs` | Editor menu setup |
-| `Editor/PlayFromBootstrap.cs` | Editor play from Bootstrap scene |
 
 ## Debug (Assets/Scrips/Debug/)
 | Script | Description |
 |--------|-------------|
 | `DebugManager.cs` | Debug logging with categories |
 | `XRDebugOverlay.cs` | XR debug information overlay |
-| `Editor/DebugManagerWindow.cs` | Editor debug window |
 
 ## Utils (Assets/Scrips/Utils/)
 | Script | Description |
 |--------|-------------|
 | `JsonHelper.cs` | JSON serialization helpers |
 | `TransformUtility.cs` | Transform utility functions |
+| `SceneLoader.cs` | Scene transitions with fade, additive loading |
+| `ScreenFader.cs` | Fade effect (UI Image + VR sphere) |
+| `LoadingIndicator.cs` | Loading spinner with progress bar |
 
 ## Effects (Assets/Scrips/Effects/)
 | Script | Description |
@@ -166,4 +162,4 @@
 
 ---
 *Last updated: 2026-02-25*
-*Total scripts: 89*
+*Total scripts: 85*

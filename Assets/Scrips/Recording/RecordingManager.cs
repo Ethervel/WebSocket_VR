@@ -25,6 +25,13 @@ public class RecordingManager : MonoBehaviour
     [Header("=== Settings ===")]
     public RecordingSettings settings = new RecordingSettings();
 
+    [Header("=== Output Path ===")]
+    [Tooltip("Utiliser un chemin personnalise au lieu de AppData")]
+    public bool useCustomOutputPath = false;
+
+    [Tooltip("Chemin absolu pour les enregistrements (ex: D:/Recordings)")]
+    public string customOutputPath = "";
+
     [Header("=== References ===")]
     [Tooltip("Camera spectateur (auto-detectee si null)")]
     public SpectatorCameraController spectatorCamera;
@@ -101,6 +108,19 @@ public class RecordingManager : MonoBehaviour
     public static event Action<RecordingStatusMessage> OnRemoteRecordingStatusChanged;
     public static event Action<bool, string> OnRemoteRecordingChanged;
 
+    /// <summary>
+    /// Retourne le chemin de base pour les enregistrements.
+    /// Utilise customOutputPath si active, sinon persistentDataPath.
+    /// </summary>
+    private string GetOutputBasePath()
+    {
+        if (useCustomOutputPath && !string.IsNullOrEmpty(customOutputPath))
+        {
+            return customOutputPath;
+        }
+        return Path.Combine(Application.persistentDataPath, settings.outputFolder);
+    }
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -112,7 +132,7 @@ public class RecordingManager : MonoBehaviour
         Instance = this;
 
         // Creer le dossier de sortie s'il n'existe pas
-        string outputPath = Path.Combine(Application.persistentDataPath, settings.outputFolder);
+        string outputPath = GetOutputBasePath();
         if (!Directory.Exists(outputPath))
         {
             Directory.CreateDirectory(outputPath);
@@ -362,7 +382,7 @@ public class RecordingManager : MonoBehaviour
         string timestamp = _recordingStartTime.ToString("yyyy-MM-dd_HH-mm-ss");
         string roomId = VRRoomManager.Instance?.CurrentRoomId ?? "local";
         string folderName = $"Meeting_{roomId}_{timestamp}";
-        _currentRecordingPath = Path.Combine(Application.persistentDataPath, settings.outputFolder, folderName);
+        _currentRecordingPath = Path.Combine(GetOutputBasePath(), folderName);
         Directory.CreateDirectory(_currentRecordingPath);
 
         string framesPath = Path.Combine(_currentRecordingPath, "frames");
@@ -1078,7 +1098,7 @@ public class RecordingManager : MonoBehaviour
     [ContextMenu("Open Recordings Folder")]
     private void OpenRecordingsFolder()
     {
-        string path = Path.Combine(Application.persistentDataPath, settings.outputFolder);
+        string path = GetOutputBasePath();
         Application.OpenURL("file://" + path);
     }
 #endif
