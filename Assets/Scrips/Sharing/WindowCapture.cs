@@ -1,15 +1,34 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
+
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
 using System.Runtime.InteropServices;
 using System.Text;
-using UnityEngine;
+#endif
 
 /// <summary>
 /// Capture de fenêtres Windows via API native
 /// Windows uniquement (user32.dll, gdi32.dll)
+/// Sur autres plateformes, retourne des stubs vides.
 /// </summary>
 public static class WindowCapture
 {
+    /// <summary>
+    /// Info sur une fenêtre capturable
+    /// </summary>
+    public class WindowInfo
+    {
+        public IntPtr Handle;
+        public string Title;
+        public int Width;
+        public int Height;
+
+        public override string ToString() => Title;
+    }
+
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+
     #region Windows API
 
     [DllImport("user32.dll")]
@@ -102,19 +121,6 @@ public static class WindowCapture
     private const uint BI_RGB = 0;
 
     #endregion
-
-    /// <summary>
-    /// Info sur une fenêtre capturables
-    /// </summary>
-    public class WindowInfo
-    {
-        public IntPtr Handle;
-        public string Title;
-        public int Width;
-        public int Height;
-
-        public override string ToString() => Title;
-    }
 
     /// <summary>
     /// Liste toutes les fenêtres visibles avec un titre
@@ -285,4 +291,27 @@ public static class WindowCapture
             return false;
         }
     }
+
+#else
+    // Stub implementations for non-Windows platforms (Android/Quest, etc.)
+
+    /// <summary>
+    /// Liste toutes les fenêtres visibles - Non supporté sur cette plateforme.
+    /// </summary>
+    public static List<WindowInfo> GetOpenWindows()
+    {
+        Debug.LogWarning("[WindowCapture] Window capture not supported on this platform.");
+        return new List<WindowInfo>();
+    }
+
+    /// <summary>
+    /// Capture une fenêtre - Non supporté sur cette plateforme.
+    /// </summary>
+    public static bool CaptureWindow(WindowInfo window, Texture2D targetTexture)
+    {
+        Debug.LogWarning("[WindowCapture] Window capture not supported on this platform.");
+        return false;
+    }
+
+#endif
 }
