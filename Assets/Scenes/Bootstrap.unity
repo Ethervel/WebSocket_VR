@@ -1577,7 +1577,7 @@ MonoBehaviour:
   loadingIndicator: {fileID: 0}
   minimumLoadTime: 1
   delayAfterFadeIn: 0.2
-  delayAfterLoad: 0
+  delayAfterLoad: 0.5
   OnLoadBegin:
     m_PersistentCalls:
       m_Calls: []
