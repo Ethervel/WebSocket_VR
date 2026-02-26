@@ -6990,7 +6990,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ed4591adb7f0d4790abaf45e8810f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRNetworkManager
-  serverUrl: wss://vrmeeting-test.duckdns.org/
+  serverUrl: ws://192.168.0.55:8080
   enforceSecureConnection: 0
   autoReconnect: 1
   reconnectDelay: 3
@@ -6998,7 +6998,7 @@ MonoBehaviour:
   initialReconnectDelay: 1
   maxReconnectDelay: 30
   backoffMultiplier: 2
-  offlineMode: 1
+  offlineMode: 0
   offlineAutoCreateRoom: 0
   offlineRoomType: 0
   maxMessagesPerSecond: 60
@@ -30444,7 +30444,7 @@ MonoBehaviour:
   showDebugInfo: 1
   peerConnectionTimeout: 15
   useCustomTurnServer: 1
-  customTurnUrl: turn:vrmeeting-test.duckdns.org:3478
+  customTurnUrl: 'turn:192.168.0.55:3478  '
   customTurnsUrl: turns:vrmeeting-test.duckdns.org:5349
   customTurnUsername: vrmeeting
   customTurnCredential: JJkk2812
@@ -30477,7 +30477,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VoiceChat.WebRTCConfiguration
   useCustomTurnServer: 1
-  customTurnUrl: turn:vrmeeting-test.duckdns.org:3478
+  customTurnUrl: 'turn:192.168.0.55:3478  '
   customTurnsUrl: turns:vrmeeting-test.duckdns.org:5349
   customTurnUsername: vrmeeting
   customTurnCredential: JJkk2812
@@ -32622,7 +32622,7 @@ Transform:
   m_GameObject: {fileID: 1958996469}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -29.97, y: 3.71, z: 0}
+  m_LocalPosition: {x: -29.97, y: 1.4, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
