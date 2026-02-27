@@ -97,6 +97,8 @@ public class VRFileBrowser : MonoBehaviour
 
     void OpenWithMode(string startPath, BrowserMode mode)
     {
+        Debug.Log($"[VRFileBrowser] OpenWithMode called - startPath: {startPath}, mode: {mode}");
+
         if (browserPanel == null)
         {
             Debug.LogError("[VRFileBrowser] browserPanel is not assigned!");
@@ -111,6 +113,7 @@ public class VRFileBrowser : MonoBehaviour
         if (string.IsNullOrEmpty(startPath) || !Directory.Exists(startPath))
         {
             startPath = GetDefaultStartPath();
+            Debug.Log($"[VRFileBrowser] Using default start path: {startPath}");
         }
 
         // Update UI based on mode
@@ -126,6 +129,8 @@ public class VRFileBrowser : MonoBehaviour
         }
 
         browserPanel.SetActive(true);
+        Debug.Log($"[VRFileBrowser] browserPanel activated - activeInHierarchy: {browserPanel.activeInHierarchy}, position: {browserPanel.transform.position}");
+
         CreateDriveButtons();
         NavigateTo(startPath);
         UpdateFilterInfo();
@@ -307,13 +312,20 @@ public class VRFileBrowser : MonoBehaviour
     {
         ClearFileList();
 
+        Debug.Log($"[VRFileBrowser] PopulateFileList - currentPath: {_currentPath}");
+        Debug.Log($"[VRFileBrowser] fileListContainer: {(fileListContainer != null ? fileListContainer.name : "NULL")}");
+
         if (string.IsNullOrEmpty(_currentPath) || !Directory.Exists(_currentPath))
+        {
+            Debug.LogWarning($"[VRFileBrowser] Invalid path: {_currentPath}");
             return;
+        }
 
         try
         {
             // Get directories
             string[] directories = Directory.GetDirectories(_currentPath);
+            Debug.Log($"[VRFileBrowser] Found {directories.Length} directories");
             Array.Sort(directories, StringComparer.OrdinalIgnoreCase);
 
             foreach (string dir in directories)
@@ -330,6 +342,7 @@ public class VRFileBrowser : MonoBehaviour
 
             // Get files
             string[] files = Directory.GetFiles(_currentPath);
+            Debug.Log($"[VRFileBrowser] Found {files.Length} files");
             Array.Sort(files, StringComparer.OrdinalIgnoreCase);
 
             foreach (string file in files)
@@ -478,11 +491,18 @@ public class VRFileBrowser : MonoBehaviour
 
     GameObject CreateDefaultListItem(string text, bool isFolder)
     {
+        Debug.Log($"[VRFileBrowser] CreateDefaultListItem: {text}, isFolder: {isFolder}");
+
         GameObject item = new GameObject(isFolder ? "Folder" : "File");
         item.transform.SetParent(fileListContainer, false);
 
         RectTransform rt = item.AddComponent<RectTransform>();
         rt.sizeDelta = new Vector2(0, itemHeight);
+
+        // Force width to stretch
+        rt.anchorMin = new Vector2(0, 0);
+        rt.anchorMax = new Vector2(1, 0);
+        rt.pivot = new Vector2(0.5f, 0);
 
         Image bg = item.AddComponent<Image>();
         bg.color = isFolder ? folderColor : fileColor;
@@ -494,6 +514,7 @@ public class VRFileBrowser : MonoBehaviour
         LayoutElement le = item.AddComponent<LayoutElement>();
         le.minHeight = itemHeight;
         le.preferredHeight = itemHeight;
+        le.flexibleWidth = 1; // Allow to stretch horizontally
 
         // Text
         GameObject textObj = new GameObject("Text");

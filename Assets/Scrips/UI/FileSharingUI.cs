@@ -154,7 +154,14 @@ public class FileSharingUI : MonoBehaviour
             closeButton.onClick.AddListener(ClosePanel);
 
         if (shareButton != null)
+        {
             shareButton.onClick.AddListener(OpenFileBrowser);
+            Debug.Log("[FileSharingUI] Share button listener added successfully");
+        }
+        else
+        {
+            Debug.LogError("[FileSharingUI] shareButton is NULL - button won't work!");
+        }
 
         if (previewShareButton != null)
             previewShareButton.onClick.AddListener(ConfirmShare);
@@ -454,16 +461,23 @@ public class FileSharingUI : MonoBehaviour
 
     void OpenFileBrowser()
     {
+        Debug.Log($"[FileSharingUI] OpenFileBrowser called - VRRoomManager.Instance: {VRRoomManager.Instance != null}, IsInRoom: {VRRoomManager.Instance?.IsInRoom}");
+
         if (VRRoomManager.Instance == null || !VRRoomManager.Instance.IsInRoom)
         {
             SetStatus("Join a room first");
+            Debug.Log("[FileSharingUI] Not in room, aborting file browser");
             return;
         }
 
-        // Check if we're in VR mode
-        if (IsInVRMode() && vrFileBrowser != null)
+        bool isVR = IsInVRMode();
+        Debug.Log($"[FileSharingUI] IsInVRMode: {isVR}, vrFileBrowser: {vrFileBrowser != null}");
+
+        // Use VR file browser if available (works for both VR and Desktop in builds)
+        // This avoids issues with native Windows dialogs opening behind fullscreen window
+        if (vrFileBrowser != null)
         {
-            // Use VR file browser
+            Debug.Log("[FileSharingUI] Opening VR file browser (works for VR and Desktop)");
             OpenVRFileBrowser();
             return;
         }
@@ -479,6 +493,7 @@ public class FileSharingUI : MonoBehaviour
 #else
         // Pour le runtime standalone, utiliser SFB (SimpleFileBrowser) ou similaire
         // Alternative: ouvrir le dossier Downloads
+        Debug.Log("[FileSharingUI] Opening runtime file browser (Windows native dialog)");
         OpenFileBrowserRuntime();
 #endif
     }
@@ -537,7 +552,9 @@ public class FileSharingUI : MonoBehaviour
 
     void OpenFileBrowserRuntime()
     {
+        Debug.Log("[FileSharingUI] OpenFileBrowserRuntime called");
 #if UNITY_STANDALONE_WIN
+        Debug.Log("[FileSharingUI] UNITY_STANDALONE_WIN is defined, opening native dialog...");
         try
         {
             string path = WindowsFileBrowser.OpenFileDialog(
@@ -546,19 +563,26 @@ public class FileSharingUI : MonoBehaviour
                 "Supported Files\0*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.png;*.jpg;*.jpeg;*.gif\0All Files\0*.*\0\0"
             );
 
+            Debug.Log($"[FileSharingUI] Native dialog returned path: '{path}'");
+
             if (!string.IsNullOrEmpty(path))
             {
                 OnFileSelected(path);
             }
+            else
+            {
+                Debug.Log("[FileSharingUI] User cancelled or dialog returned empty");
+                SetStatus("File selection cancelled");
+            }
         }
         catch (Exception e)
         {
-            Debug.LogWarning($"[FileSharingUI] File browser error: {e.Message}");
+            Debug.LogError($"[FileSharingUI] File browser error: {e.Message}\n{e.StackTrace}");
             SetStatus("Could not open file browser");
         }
 #else
         SetStatus("File browser not available on this platform");
-        Debug.Log("[FileSharingUI] Use drag-and-drop or Editor mode for file selection");
+        Debug.Log("[FileSharingUI] UNITY_STANDALONE_WIN not defined - file browser not available");
 #endif
     }
 
