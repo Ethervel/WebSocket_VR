@@ -252,9 +252,15 @@ public class RecordingManager : MonoBehaviour
 
     /// <summary>
     /// Demarre l'enregistrement (hote uniquement).
+    /// Note: Non disponible sur Android/Quest (AsyncGPUReadback + FFmpeg non supportes).
     /// </summary>
     public void StartRecording()
     {
+#if UNITY_ANDROID
+        Debug.LogWarning("[RecordingManager] Recording non disponible sur Android/Quest.");
+        return;
+#endif
+
         if (_state != RecordingState.Idle)
         {
             Debug.LogWarning($"[RecordingManager] Impossible de demarrer: etat actuel = {_state}");
@@ -347,15 +353,20 @@ public class RecordingManager : MonoBehaviour
 
     /// <summary>
     /// Verifie si l'enregistrement est disponible.
+    /// Retourne false sur Android/Quest.
     /// </summary>
     public bool CanRecord()
     {
+#if UNITY_ANDROID
+        return false;
+#else
         // Tenter de trouver la camera si pas encore assignee
         if (spectatorCamera == null)
         {
             FindSpectatorCamera();
         }
         return spectatorCamera != null && spectatorCamera.IsReady();
+#endif
     }
 
     #endregion
