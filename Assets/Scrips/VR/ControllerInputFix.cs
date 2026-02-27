@@ -220,49 +220,6 @@ public class ControllerInputFix : MonoBehaviour
     public bool IsRightGripPressed() => _rightGripPressed;
     public bool IsRightTriggerPressed() => _rightTriggerPressed;
 
-    public float GetLeftGrip()
-    {
-        if (_leftHandDevice.isValid && _leftHandDevice.TryGetFeatureValue(CommonUsages.grip, out float value))
-            return value;
-        return 0f;
-    }
-
-    public float GetLeftTrigger()
-    {
-        if (_leftHandDevice.isValid && _leftHandDevice.TryGetFeatureValue(CommonUsages.trigger, out float value))
-            return value;
-        return 0f;
-    }
-
-    public float GetRightGrip()
-    {
-        if (_rightHandDevice.isValid && _rightHandDevice.TryGetFeatureValue(CommonUsages.grip, out float value))
-            return value;
-        return 0f;
-    }
-
-    public float GetRightTrigger()
-    {
-        if (_rightHandDevice.isValid && _rightHandDevice.TryGetFeatureValue(CommonUsages.trigger, out float value))
-            return value;
-        return 0f;
-    }
-
-    // Get primary button (A/X) state
-    public bool IsLeftPrimaryPressed()
-    {
-        if (_leftHandDevice.isValid && _leftHandDevice.TryGetFeatureValue(CommonUsages.primaryButton, out bool value))
-            return value;
-        return false;
-    }
-
-    public bool IsRightPrimaryPressed()
-    {
-        if (_rightHandDevice.isValid && _rightHandDevice.TryGetFeatureValue(CommonUsages.primaryButton, out bool value))
-            return value;
-        return false;
-    }
-
     Transform FindChildRecursive(Transform parent, string name)
     {
         foreach (Transform child in parent)

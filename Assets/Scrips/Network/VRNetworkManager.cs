@@ -159,7 +159,6 @@ public class VRNetworkManager : MonoBehaviour
 #endif
     }
 
-    // P0 FIX: Wrapper qui gère correctement les exceptions async
     private async void ConnectAsync()
     {
         try
@@ -180,7 +179,6 @@ public class VRNetworkManager : MonoBehaviour
         _websocket?.DispatchMessageQueue();
 #endif
 
-        // P0 FIX: Check for welcome message timeout
         if (_waitingForWelcome)
         {
             _welcomeTimeoutTimer -= Time.deltaTime;
@@ -192,7 +190,6 @@ public class VRNetworkManager : MonoBehaviour
             }
         }
 
-        // P0 FIX: Exponential backoff reconnection
         if (_isReconnecting && autoReconnect)
         {
             _reconnectTimer -= Time.deltaTime;
@@ -206,7 +203,6 @@ public class VRNetworkManager : MonoBehaviour
         }
     }
 
-    // P0 FIX: Proper async void with try-catch for Unity lifecycle methods
     async void OnDestroy()
     {
         try
@@ -269,7 +265,6 @@ public class VRNetworkManager : MonoBehaviour
             _websocket.OnOpen += () =>
             {
                 Debug.Log("[VRNet] WebSocket opened");
-                // P0 FIX: Start welcome timeout - server must send "welcome" within timeout
                 _waitingForWelcome = true;
                 _welcomeTimeoutTimer = welcomeTimeout;
                 Debug.Log($"[VRNet] P0 FIX: Waiting for welcome message (timeout: {welcomeTimeout}s)");
@@ -545,9 +540,6 @@ public class VRNetworkManager : MonoBehaviour
     }
 }
 
-// ============================
-// MESSAGE FORMAT
-// ============================
 [Serializable]
 public class NetworkMessage
 {

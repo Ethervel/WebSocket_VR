@@ -17,18 +17,35 @@ cd Server/ && npm install && npm run dev   # Dev server with auto-reload
 ```
 Assets/Scrips/
 ├── Network/          VRNetworkManager.cs, VRRoomManager.cs, VRGameManager.cs
-├── VR/               BootstrapManager.cs, VRPlayerController.cs, DesktopPlayerController.cs
-├── WebRTC/           VoiceChatManager.cs, WebRTCPeerManager.cs, MicrophoneManager.cs
-├── WhiteBoard/       Whiteboard.cs, WhiteboardDrawingSurface.cs, WhiteboardMarker.cs, DesktopWhiteboardDrawer.cs
-├── Interaction/      LaserPointer.cs, LaserPointerData.cs
-├── Sharing/          ScreenShareManager.cs, FileShareManager.cs, FilePresentationManager.cs
+├── VR/               BootstrapManager.cs, VRPlayerController.cs, VRTrackingFix.cs,
+│                     ControllerTrackingFix.cs, ControllerModelLoader.cs, ControllerInputFix.cs,
+│                     TeleportOnButtonClick.cs, TeleportOnGrab.cs,
+│                     XRUIInteractionBridge.cs, XRInteractorInputBridge.cs
+├── Desktop/          DesktopPlayerController.cs
+├── WebRTC/           VoiceChatManager.cs, WebRTCPeerManager.cs, MicrophoneManager.cs,
+│                     WebRTCSignaling.cs, WebRTCConfiguration.cs, RemoteAudioManager.cs, VoiceChatData.cs
+├── WhiteBoard/       Whiteboard.cs, WhiteboardDrawingSurface.cs, WhiteboardMarker.cs,
+│                     DesktopWhiteboardDrawer.cs, WhiteboardEraser.cs, WhiteboardNetworkData.cs,
+│                     WhiteboardBarUI.cs, WhiteboardUIHelper.cs, WhiteboardUIManager.cs, WhiteboardUISetup.cs
+├── Interaction/      LaserPointer.cs, LaserPointerData.cs, VRNetworkedInteractable.cs, RoomBlocker.cs
+├── Sharing/          ScreenShareManager.cs, ScreenShareData.cs, FileShareManager.cs, FileShareData.cs,
+│                     FilePresentationManager.cs, FilePresentationData.cs, WindowCapture.cs
 ├── Avatar/           AvatarCustomization.cs, AvatarColorTarget.cs
-├── Auth/             AuthManager.cs, AuthUI.cs (implemented, not yet used)
-├── Recording/        RecordingManager.cs, SpectatorCameraController.cs, FFmpegEncoder.cs, AudioCapture.cs
-├── Audio/            SoundManager.cs, AudioMuteZone.cs, AmbienceManager.cs
+├── Auth/             AuthManager.cs, AuthUI.cs
+├── Recording/        RecordingManager.cs, SpectatorCameraController.cs, FFmpegEncoder.cs,
+│                     AudioCapture.cs, RecordingData.cs
+├── Audio/            SoundManager.cs, SoundManagerIntegration.cs, AudioMuteZone.cs,
+│                     AmbienceManager.cs, UIButtonSounds.cs
+├── UI/               VRMenuUi.cs, VRMenuToggle.cs, VRMenuSidebar.cs, VRMenuUISetup.cs,
+│                     VRMenuCloseButton.cs, VRFollowMenu.cs, VRCanvasAdapter.cs,
+│                     VoiceChatUI.cs, VRFileBrowser.cs, FileSharingUI.cs, FilePresentationUI.cs,
+│                     FileShareUISetup.cs, GlobalKeyboardAutoBind.cs, LaunchLoadingScreen.cs
 ├── UI/MainMenu/      MainMenuManager.cs, MainMenuSettings.cs, MainMenuOptionsUI.cs
-├── UI/Menu/          VRMenuUI.cs, VRMenuToggle.cs
-└── Debug/            DebugManager.cs
+├── UI/Menu/          VRMenuPageAvatar.cs, VRMenuPageSettings.cs, VRMenuPageRoom.cs,
+│                     VRMenuPageRecording.cs, VRMenuPageVoice.cs, VRMenuExitDialog.cs
+├── Utils/            TransformUtility.cs, JsonHelper.cs, ScreenFader.cs, LoadingIndicator.cs, SceneLoader.cs
+├── Effects/          GlowingLight.cs
+└── Debug/            DebugManager.cs, XRDebugOverlay.cs
 
 Server/
 ├── server.js         Main WebSocket server
@@ -162,19 +179,24 @@ outputFolder = "Recordings"
 Audio: MasterVolume, VoiceVolume, Microphone | Graphics: Quality, Resolution, Fullscreen
 VR: TurnMode (0=Snap/1=Smooth), SnapAngle, SmoothTurnSpeed | Desktop: MouseSensitivity, InvertY
 
-## Database & Auth (Implemented, Not Integrated)
+## Database & Auth (Integrated)
 
 **Architecture:** Unity ←WebSocket→ Node.js ←mariadb→ MariaDB (never direct connection!)
 
-**Status:** Code exists but auth doesn't gate any features yet. Login/guest both have same access.
+**Status:** Auth UI integrated into main menu flow. Login/Register/Guest options available before entering the meeting.
 
-**Server files (exist):**
+**Auth Flow:**
+```
+Main Menu → [Start] → Auth Screen → [Login/Register/Guest] → Loading → Meet
+```
+
+**Server files:**
 - `Server/src/database.js` - MariaDB pool (requires .env config)
 - `Server/src/auth.js` - bcrypt 12 rounds, JWT 24h, rate limiting 5/min
 
-**Unity files (exist):**
+**Unity files:**
 - `Assets/Scrips/Auth/AuthManager.cs` - Login, Register, Logout, Token verify
-- `Assets/Scrips/Auth/AuthUI.cs` - Login/Register panels, guest mode, skipAuthInEditor
+- `Assets/Scrips/Auth/AuthUI.cs` - Login/Register panels, guest mode, skipAuthInEditor, singleton with `OnAuthComplete` event
 
 **Future integration ideas:**
 - Private rooms (auth required to join)
@@ -196,9 +218,9 @@ VR: TurnMode (0=Snap/1=Smooth), SnapAngle, SmoothTurnSpeed | Desktop: MouseSensi
 
 ## Feature Status
 
-| Done | Implemented (not used) | Planned |
-|------|------------------------|---------|
-| WebSocket + reconnect, WebRTC voice 3D, Avatar sync/customization, Whiteboard, Desktop mode, Main menu + settings, Screen share, File share/presentation, Laser pointer, VR Menu, Sound system, Offline mode, Recording (VR-optimized) | Auth (login/register/guest) | SSO, E2E encryption, GDPR, Admin panel, Advanced avatars, Calendar, Meeting history |
+| Done | Planned |
+|------|---------|
+| WebSocket + reconnect, WebRTC voice 3D, Avatar sync/customization, Whiteboard, Desktop mode, Main menu + settings, Screen share, File share/presentation, Laser pointer, VR Menu, Sound system, Offline mode, Recording (VR-optimized), Auth flow (login/register/guest), VR Canvas Adapter, Launch Loading Screen | SSO, E2E encryption, GDPR, Admin panel, Advanced avatars, Calendar, Meeting history, XR Socket Interactor, Room Preview UI |
 
 ## Important Notes
 - **XR Layers:** Teleport on bit 31 only, Grab must NOT include Teleport layer
@@ -208,27 +230,29 @@ VR: TurnMode (0=Snap/1=Smooth), SnapAngle, SmoothTurnSpeed | Desktop: MouseSensi
 - **Recording:** Requires FFmpeg in PATH, SpectatorCamera in Meet scene, host-only
 - **Recording VR:** Uses AsyncGPUReadback + background threads to avoid motion sickness
 
-## Recent Changes (Session)
+## Integrated Features Details
 
-### Auth Flow Integration (DONE)
-Le bouton Start affiche maintenant l'écran d'authentification avant de charger le jeu:
-```
-Main Menu → [Start] → Auth Screen → [Login/Register/Guest] → Loading → Meet
-```
-**Fichiers modifiés:**
-- `AuthUI.cs` - Ajout singleton, event `OnAuthComplete`, méthode `Show()`
+### Auth Flow
+Le bouton Start affiche l'écran d'authentification avant de charger le jeu.
+- `AuthUI.cs` - Singleton avec event `OnAuthComplete`, méthode `Show()`
 - `MainMenuManager.cs` - `OnStartClicked()` affiche AuthUI, écoute `OnAuthComplete`
+- AuthUI est dans `MainMenuUI/Background/AuthPanel`
 
-**Note:** AuthUI est dans `MainMenuUI/Background/AuthPanel`
-
-### VR Canvas Adapter (DONE)
+### VR Canvas Adapter
 `VRCanvasAdapter.cs` - Adapte les Canvas pour VR (Screen Space → World Space)
-- À ajouter sur le Canvas "Loading screen" dans Bootstrap
+- À ajouter sur les Canvas qui doivent fonctionner en VR
 
-### Launch Loading Screen (DONE)
+### Launch Loading Screen
 `LaunchLoadingScreen.cs` - Ecran de chargement au lancement avec barre de progression
 - Initialisation XR (0-20%), Network (20-50%), Auth (50-70%), Settings (70-90%), Finalize (90-100%)
 - Auto-detection des references UI, fade out, event OnLoadingComplete
+
+### Utils Scripts
+- `ScreenFader.cs` - Fade in/out effect pour transitions
+- `LoadingIndicator.cs` - Indicateur de chargement animé
+- `SceneLoader.cs` - Chargement de scènes avec callback
+- `JsonHelper.cs` - Helpers pour sérialisation JSON
+- `TransformUtility.cs` - Utilitaires pour Transform
 
 ## TODO / Features à implémenter
 
